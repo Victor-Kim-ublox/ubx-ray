@@ -385,6 +385,8 @@ def worker_convert_task(filepath, rid, opts, db_path):
             # Or just ignore to avoid breaking the worker
             print(f"[Worker] Progress update failed: {e}")
 
+    try:
+
 def ensure_owner_or_404(rid: str, user_id: str, admin: bool = False):
     with get_db() as conn:
         row = conn.execute(
