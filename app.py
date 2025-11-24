@@ -362,6 +362,31 @@ async def enqueue_convert(filepath, rid, **opts):
 # =========================
 # Helpers: ownership checks
 # =========================
+def worker_convert_task(filepath, rid, opts, db_path):
+    """Worker process function (no async here)"""
+    # Closure state for throttling
+    state = {"last_update": 0}
+
+    def _update_progress(pct):
+        # Throttle updates: Max 1 update per 0.5 sec, unless it's 100% or 0%
+        now = time.time()
+        if pct < 100 and pct > 0:
+            if now - state["last_update"] < 0.5:
+                return
+
+        state["last_update"] = now
+        try:
+            with sqlite3.connect(db_path, timeout=10) as conn:
+                # Use execute directly, commit explicitly
+                conn.execute("UPDATE results SET progress=? WHERE id=?", (pct, rid))
+                conn.commit()
+        except Exception as e:
+            # Print error to stdout (caught by logger in parent?)
+            # Or just ignore to avoid breaking the worker
+            print(f"[Worker] Progress update failed: {e}")
+
+    try:
+
 def ensure_owner_or_404(rid: str, user_id: str, admin: bool = False):
     with get_db() as conn:
         row = conn.execute(
