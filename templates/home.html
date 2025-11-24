@@ -7,186 +7,257 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
-      --bg1:#0f1226;
-      --bg2:#11163a;
-      --card:#151a44;
-      --muted:#9bb2ff;
-      --text:#e8eeff;
-      --accent:#6ea8ff;
-      --accent2:#9d7bff;
-      --border:#26306b;
-      --shadow: 0 10px 40px rgba(0,0,0,.35), 0 0 80px rgba(110,168,255,.15);
+    --bg1:#0f1226;
+    --bg2:#11163a;
+    --card:#151a44;
+    --muted:#9bb2ff;
+    --text:#e8eeff;
+    --accent:#6ea8ff;
+    --accent2:#9d7bff;
+    --border:#26306b;
+    --shadow: 0 10px 40px rgba(0,0,0,.35), 0 0 80px rgba(110,168,255,.15);
     }
     *{ box-sizing:border-box; }
     body{
-      margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      color:var(--text);
-      background:
-        radial-gradient(1200px 800px at 20% -10%, #2b377d55, transparent 60%),
-        radial-gradient(1200px 800px at 120% 120%, #7b4cff33, transparent 60%),
-        linear-gradient(160deg, var(--bg1), var(--bg2));
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    color:var(--text);
+    background:
+    radial-gradient(1200px 800px at 20% -10%, #2b377d55, transparent 60%),
+    radial-gradient(1200px 800px at 120% 120%, #7b4cff33, transparent 60%),
+    linear-gradient(160deg, var(--bg1), var(--bg2));
     }
     .wrap { width:min(960px, 92vw); }
     header{
-      display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px;
+    display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px;
     }
     .brand{
-      display:flex; align-items:center; gap:12px;
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      -webkit-background-clip:text; background-clip:text; color:transparent;
-      font-weight:800; font-size:28px; letter-spacing:.3px;
-      text-shadow: 0 0 24px #6ea8ff44;
+    display:flex; align-items:center; gap:12px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    font-weight:800; font-size:28px; letter-spacing:.3px;
+    text-shadow: 0 0 24px #6ea8ff44;
     }
     .badge{
-      font-size:12px; color:#d7e3ff; opacity:.85;
-      border:1px solid #3b4bab; padding:4px 8px; border-radius:999px;
-      background: linear-gradient(180deg, #1a2257cc, #121848cc);
-      box-shadow: inset 0 0 10px #0006;
+    font-size:12px; color:#d7e3ff; opacity:.85;
+    border:1px solid #3b4bab; padding:4px 8px; border-radius:999px;
+    background: linear-gradient(180deg, #1a2257cc, #121848cc);
+    box-shadow: inset 0 0 10px #0006;
     }
 
     .card{
-      background: linear-gradient(180deg, rgba(21,26,68,.9), rgba(16,20,50,.9));
-      border:1px solid var(--border); border-radius:18px; padding:22px;
-      box-shadow: var(--shadow);
+    background: linear-gradient(180deg, rgba(21,26,68,.9), rgba(16,20,50,.9));
+    border:1px solid var(--border); border-radius:18px; padding:22px;
+    box-shadow: var(--shadow);
     }
     .row{ margin:14px 0; }
 
+    /* Tabs */
+    .tabs { display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:10px; }
+    .tab-btn {
+      background: transparent; border:none; color:var(--muted); cursor:pointer;
+      font-size:15px; font-weight:600; padding:8px 12px; border-radius:8px;
+      transition:.2s;
+    }
+    .tab-btn:hover { color:#cfe0ff; background:#ffffff0a; }
+    .tab-btn.active { color:#fff; background:var(--accent); box-shadow:0 4px 12px #3f5bf055; }
+    .tab-pane { display:none; animation: fadeIn .3s; }
+    .tab-pane.active { display:block; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+
     /* Dropzone (as label for file input) */
     .drop{
-      border:2px dashed #3b4bab; border-radius:14px; padding:26px; text-align:center;
-      transition:.2s border-color, .2s transform, .2s background;
-      background: linear-gradient(180deg, #10163b, #0f1433);
-      display:block; cursor:pointer; user-select:none;
+    border:2px dashed #3b4bab; border-radius:14px; padding:26px; text-align:center;
+    transition:.2s border-color, .2s transform, .2s background;
+    background: linear-gradient(180deg, #10163b, #0f1433);
+    display:block; cursor:pointer; user-select:none;
     }
     .drop.dragover{
-      border-color:#80b3ff;
-      background: linear-gradient(180deg, #111b49, #151e58);
-      transform: scale(1.01);
-      box-shadow: 0 0 0 3px #80b3ff33 inset;
+    border-color:#80b3ff;
+    background: linear-gradient(180deg, #111b49, #151e58);
+    transform: scale(1.01);
+    box-shadow: 0 0 0 3px #80b3ff33 inset;
     }
     .drop h2{ margin:0 0 6px; font-size:20px; }
+    .drop h3{ margin:0 0 4px; font-size:16px; color:#cfe0ff; }
     .hint{ color:var(--muted); font-size:13px; }
     .file-name{ margin-top:10px; font-size:14px; color:#dfe7ff; }
 
     /* Options */
     fieldset{
-      border:1px solid var(--border); border-radius:12px; padding:14px 14px 10px;
-      background: #0f1434aa;
+    border:1px solid var(--border); border-radius:12px; padding:14px 14px 10px;
+    background: #0f1434aa;
     }
     legend{ padding:0 8px; color:#c7d6ff; font-weight:600; }
     label{ font-size:14px; }
     select, button{ font: inherit; }
     select{
-      border:1px solid #33408f; background:#0f1434; color:#e8eeff; border-radius:8px;
-      padding:7px 10px; min-width:120px; outline:none;
-      box-shadow: inset 0 0 12px #0006;
+    border:1px solid #33408f; background:#0f1434; color:#e8eeff; border-radius:8px;
+    padding:7px 10px; min-width:120px; outline:none;
+    box-shadow: inset 0 0 12px #0006;
     }
     .chk{
-      display:inline-flex; align-items:center; gap:8px; margin-right:14px;
-      background:#101747; border:1px solid #2a387c; padding:7px 10px; border-radius:10px;
+    display:inline-flex; align-items:center; gap:8px; margin-right:14px;
+    background:#101747; border:1px solid #2a387c; padding:7px 10px; border-radius:10px;
     }
 
     /* Actions */
     .actions{ display:flex; align-items:center; gap:12px; }
     .btn{
-      padding:10px 16px; border-radius:10px; border:1px solid #3a4db1; color:#fff;
-      background: linear-gradient(180deg, #3f5bf0, #3b48b8);
-      box-shadow: 0 10px 24px #3f5bf055, 0 0 0 3px #6ea8ff22 inset;
-      cursor:pointer; transition:.15s transform, .2s box-shadow, .2s filter;
+    padding:10px 16px; border-radius:10px; border:1px solid #3a4db1; color:#fff;
+    background: linear-gradient(180deg, #3f5bf0, #3b48b8);
+    box-shadow: 0 10px 24px #3f5bf055, 0 0 0 3px #6ea8ff22 inset;
+    cursor:pointer; transition:.15s transform, .2s box-shadow, .2s filter;
     }
     .btn:hover{ transform: translateY(-1px); filter:brightness(1.03); }
     .btn:disabled{ opacity:.65; cursor:not-allowed; filter:grayscale(.2); }
 
     /* Spinner (Windows-like ring) */
     .spinner{
-      display:none; width:28px; height:28px;
-      border:3px solid #d7e3ff44; border-top-color:#6ea8ff; border-radius:50%;
-      animation: spin .8s linear infinite;
+    display:none; width:28px; height:28px;
+    border:3px solid #d7e3ff44; border-top-color:#6ea8ff; border-radius:50%;
+    animation: spin .8s linear infinite;
     }
     @keyframes spin { to{ transform: rotate(360deg); } }
     #loadingText{ display:none; color:#9bb2ff; font-weight:600; }
 
     .footer{
-      margin-top:16px; display:flex; justify-content:space-between; align-items:center; gap:12px;
-      color:#b7c6ff; font-size:13px;
+    margin-top:16px; display:flex; justify-content:space-between; align-items:center; gap:12px;
+    color:#b7c6ff; font-size:13px;
     }
     .links a{ color:#9bb2ff; text-decoration:none; border-bottom:1px dashed #9bb2ff55; }
     .links a:hover{ color:#cfe0ff; border-bottom-color:#cfe0ff; }
 
     /* Hide the real input off-screen but keep it accessible */
-    #fileInput{
-      position:absolute; left:-9999px; width:1px; height:1px; opacity:0;
+    .hidden-input{
+    position:absolute; left:-9999px; width:1px; height:1px; opacity:0;
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <div class="brand">UBX-ray</div>
-      <div class="badge">GNSS UBX log analyzer</div>
+    <div class="brand">UBX-ray</div>
+    <div class="badge">GNSS UBX log analyzer</div>
     </header>
 
     <div class="card">
-      <form id="uploadForm" enctype="multipart/form-data">
-        <!-- Pretty dropzone = label for input -->
-        <label id="dropzone" class="drop row" for="fileInput">
-          <h2>Drop your UBX/BIN file here or click to browse</h2>
-          <div class="hint">Max 1 file</div>
-          <div class="file-name" id="fileName"></div>
-        </label>
+      <!-- Tabs Navigation -->
+      <div class="tabs">
+        <button class="tab-btn active" onclick="openTab('single', this)">Single .ubx analysis</button>
+        <button class="tab-btn" onclick="openTab('comparison', this)">NMEA comparison analysis</button>
+      </div>
 
-        <!-- Real file input (off-screen) -->
-        <input id="fileInput" type="file" name="file" accept=".ubx,.bin" required>
+      <!-- Tab 1: Single UBX Analysis -->
+      <div id="tab-single" class="tab-pane active">
+        <form id="uploadForm" enctype="multipart/form-data">
+          <!-- Pretty dropzone = label for input -->
+          <label id="dropzone" class="drop row" for="fileInput">
+            <h2>Drop your UBX/BIN file here or click to browse</h2>
+            <div class="hint">Max 1 file</div>
+            <div class="file-name" id="fileName"></div>
+          </label>
 
-        <fieldset id="opts" class="row">
-          <legend>Conversion Options</legend>
-          <div class="row" style="display:flex; gap:18px; flex-wrap:wrap; align-items:center;">
-            <div>
-              <label>Downsample (Hz):</label>
-              <select name="hz">
-                <option value="">(None)</option>
-                <option value="1">1 Hz</option>
-                <option value="2">2 Hz</option>
-                <option value="5">5 Hz</option>
-                <option value="10">10 Hz</option>
-              </select>
+          <!-- Real file input (off-screen) -->
+          <input id="fileInput" class="hidden-input" type="file" name="file" accept=".ubx,.bin" required>
+
+          <fieldset id="opts" class="row">
+            <legend>Conversion Options</legend>
+            <div class="row" style="display:flex; gap:18px; flex-wrap:wrap; align-items:center;">
+              <div>
+                <label>Downsample (Hz):</label>
+                <select name="hz">
+                  <option value="">(None)</option>
+                  <option value="1">1 Hz</option>
+                  <option value="2">2 Hz</option>
+                  <option value="5">5 Hz</option>
+                  <option value="10">10 Hz</option>
+                </select>
+              </div>
+
+              <label class="chk">
+                <input type="checkbox" name="nav2">
+                <span>Use NAV2-PVT</span>
+              </label>
+
+              <label class="chk">
+                <input type="checkbox" name="alt_abs">
+                <span>altitudeMode = absolute</span>
+              </label>
+
+              <label class="chk">
+                <input type="checkbox" name="mapm">
+                <span>AID-MAPM only (KMZ)</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="actions row">
+            <button id="submitBtn" class="btn" type="submit">Upload & Analyze</button>
+            <div id="spinner" class="spinner" aria-hidden="true"></div>
+            <div id="loadingText" role="status" aria-live="polite"></div>
+          </div>
+        </form>
+
+        <div class="footer">
+          <div class="links">
+            <a href="/recent">View Recent Results</a>
+          </div>
+          <div class="hint">Fast summary first, KMZ build runs in background.</div>
+        </div>
+      </div>
+
+      <!-- Tab 2: NMEA Comparison Analysis -->
+      <div id="tab-comparison" class="tab-pane">
+        <form id="compareForm" enctype="multipart/form-data" action="/analyze_nmea" method="post">
+          <div class="row" style="display:flex; gap:15px; flex-wrap:wrap;">
+            <!-- Reference Input -->
+            <div style="flex:1; min-width:250px;">
+              <label id="dropRef" class="drop" for="refInput" style="padding:20px;">
+                <h3>Reference NMEA</h3>
+                <div class="hint">Click to browse</div>
+                <div class="file-name" id="refName"></div>
+              </label>
+              <input id="refInput" class="hidden-input" type="file" name="ref_file" accept=".nmea,.txt,.log" required>
             </div>
 
-            <label class="chk">
-              <input type="checkbox" name="nav2">
-              <span>Use NAV2-PVT</span>
-            </label>
-
-            <label class="chk">
-              <input type="checkbox" name="alt_abs">
-              <span>altitudeMode = absolute</span>
-            </label>
-
-            <label class="chk">
-              <input type="checkbox" name="mapm">
-              <span>AID-MAPM only (KMZ)</span>
-            </label>
+            <!-- Test Input -->
+            <div style="flex:1; min-width:250px;">
+              <label id="dropTest" class="drop" for="testInput" style="padding:20px;">
+                <h3>Test Device NMEA</h3>
+                <div class="hint">Click to browse</div>
+                <div class="file-name" id="testName"></div>
+              </label>
+              <input id="testInput" class="hidden-input" type="file" name="test_file" accept=".nmea,.txt,.log" required>
+            </div>
           </div>
-        </fieldset>
 
-        <div class="actions row">
-          <button id="submitBtn" class="btn" type="submit">Upload & Analyze</button>
-          <div id="spinner" class="spinner" aria-hidden="true"></div>
-          <div id="loadingText" role="status" aria-live="polite"></div>
-        </div>
-      </form>
-
-      <div class="footer">
-        <div class="links">
-          <a href="/recent">View Recent Results</a>
-        </div>
-        <div class="hint">Fast summary first, KMZ build runs in background.</div>
+          <div class="actions row">
+            <button id="compareBtn" class="btn" type="submit">Upload & Analyze</button>
+            <div id="compareSpinner" class="spinner" aria-hidden="true"></div>
+            <div id="compareLoadingText" role="status" aria-live="polite"></div>
+          </div>
+        </form>
       </div>
+
     </div>
   </div>
 
   <script>
+    // --- Tab Switching ---
+    function openTab(tabName, btn) {
+      // Hide all tabs
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      // Deactivate all buttons
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      
+      // Show target tab
+      document.getElementById('tab-' + tabName).classList.add('active');
+      // Activate button
+      if(btn) btn.classList.add('active');
+    }
+
+    // --- Single UBX Upload Logic ---
     let uploading = false;
 
     function setUploadingState(on) {
@@ -212,10 +283,7 @@
       const fi = document.getElementById("fileInput");
       if (!fi.files.length) { alert("Please select a UBX/BIN file."); return; }
 
-      // ✅ Create form data BEFORE disabling inputs (prevents 422)
       const formData = new FormData(form);
-
-      // Now disable UI and show spinner
       setUploadingState(true);
 
       try {
@@ -236,10 +304,51 @@
       }
     }
 
-    function wireDropzone(){
-      const dz = document.getElementById("dropzone");
-      const fi = document.getElementById("fileInput");
-      const fn = document.getElementById("fileName");
+    // --- NMEA Comparison Logic ---
+    async function startComparison(event) {
+      event.preventDefault();
+      const form = document.getElementById("compareForm");
+      const refIn = document.getElementById("refInput");
+      const testIn = document.getElementById("testInput");
+      
+      if (!refIn.files.length || !testIn.files.length) {
+        alert("Please select both Reference and Test NMEA files.");
+        return;
+      }
+
+      const btn = document.getElementById("compareBtn");
+      const spin = document.getElementById("compareSpinner");
+      const text = document.getElementById("compareLoadingText");
+
+      btn.disabled = true;
+      spin.style.display = "inline-block";
+      text.style.display = "inline-block";
+      text.textContent = "Analyzing...";
+
+      const formData = new FormData(form);
+
+      try {
+        const res = await fetch("/analyze_nmea", { method: "POST", body: formData });
+        if (!res.ok) throw new Error("Analysis failed: " + res.statusText);
+        
+        // Assuming the server returns HTML or redirects
+        const html = await res.text();
+        document.open();
+        document.write(html);
+        document.close();
+      } catch (err) {
+        alert("Error: " + err.message);
+        btn.disabled = false;
+        spin.style.display = "none";
+        text.style.display = "none";
+      }
+    }
+
+    // --- Drag & Drop / File Input Wiring ---
+    function wireDropzone(dropId, inputId, nameId){
+      const dz = document.getElementById(dropId);
+      const fi = document.getElementById(inputId);
+      const fn = document.getElementById(nameId);
 
       dz.addEventListener("dragover", e => {
         e.preventDefault(); e.stopPropagation();
@@ -254,11 +363,9 @@
         const files = e.dataTransfer?.files;
         if (!files || !files.length) return;
 
-        // Use DataTransfer so input.files is set consistently
         const dt = new DataTransfer();
-        dt.items.add(files[0]);  // single file
+        dt.items.add(files[0]);
         fi.files = dt.files;
-
         fn.textContent = files[0].name;
       });
 
@@ -268,8 +375,14 @@
     }
 
     window.addEventListener("DOMContentLoaded", () => {
+      // Tab 1
       document.getElementById("uploadForm").addEventListener("submit", startUpload);
-      wireDropzone();
+      wireDropzone("dropzone", "fileInput", "fileName");
+
+      // Tab 2
+      document.getElementById("compareForm").addEventListener("submit", startComparison);
+      wireDropzone("dropRef", "refInput", "refName");
+      wireDropzone("dropTest", "testInput", "testName");
     });
   </script>
 </body>

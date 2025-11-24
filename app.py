@@ -35,6 +35,13 @@ import threading, time
 from datetime import timedelta, timezone
 from pathlib import Path
 
+# ==== NMEA Analysis Module Import ====
+try:
+    from nmea_comparison import analyze_nmea_files
+except ImportError:
+    analyze_nmea_files = None
+    logging.warning("nmea_comparison.py not found. NMEA analysis feature will be disabled.")
+
 try:
     from pyubx2 import UBXReader
 except Exception:
@@ -462,6 +469,62 @@ async def upload(
     asyncio.create_task(enqueue_convert(save_path, rid, **opts))
 
     return RedirectResponse(url=f"/report/{rid}", status_code=303)
+
+# =========================
+# NEW ROUTE: NMEA Analysis
+# =========================
+@app.post("/analyze_nmea", response_class=HTMLResponse)
+async def analyze_nmea(
+    request: Request,
+    ref_file: UploadFile = File(...),
+    test_file: UploadFile = File(...)
+):
+    if not analyze_nmea_files:
+        return HTMLResponse("<h3>NMEA Analysis module not loaded.</h3>", status_code=500)
+
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+    rid = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[-8:]
+
+    # 1. Save files
+    ref_name = os.path.basename(ref_file.filename or "ref.nmea")
+    test_name = os.path.basename(test_file.filename or "test.nmea")
+    
+    ref_path = os.path.join(UPLOAD_DIR, f"{rid}_ref_{ref_name}")
+    test_path = os.path.join(UPLOAD_DIR, f"{rid}_test_{test_name}")
+
+    try:
+        # Write files (chunked write for safety)
+        with open(ref_path, "wb") as f:
+            while True:
+                chunk = await ref_file.read(1024 * 1024)
+                if not chunk: break
+                f.write(chunk)
+        
+        with open(test_path, "wb") as f:
+            while True:
+                chunk = await test_file.read(1024 * 1024)
+                if not chunk: break
+                f.write(chunk)
+            
+        logger.info(f"NMEA Analysis requested by {user_id}: {ref_name} vs {test_name}")
+
+        # 2. Run Analysis (in threadpool to not block async loop)
+        result = await run_in_threadpool(analyze_nmea_files, ref_path, test_path)
+
+        if result['status'] == 'error':
+            return HTMLResponse(f"<h3>Analysis Error: {result['message']}</h3>", status_code=400)
+
+        # 3. Render Report
+        return templates.TemplateResponse("report_nmea.html", {
+            "request": request,
+            "stats": result['statistics'],
+            "graph_data": json.dumps(result['graph_data'])
+        })
+
+    except Exception as e:
+        logger.exception(f"NMEA Analysis failed: {e}")
+        return HTMLResponse(f"<h3>Internal Error: {str(e)}</h3>", status_code=500)
+
 
 @app.get("/report/{rid}", response_class=HTMLResponse)
 def report(request: Request, rid: str, authorization: Optional[str] = Header(None)):
