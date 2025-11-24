@@ -147,19 +147,14 @@ def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = 
         n = len(mv)
         i = 0
         last_pct = 0
-        check_counter = 0
-            check_interval = 2000
-                while i + 8 <= n:
-                check_counter += 1
-                    if check_counter >= check_interval:
-                    check_counter = 0
-if progress_cb:
-            pct = int(i * 100 / n)
+        while i + 8 <= n:
+            if progress_cb:
+                pct = int(i * 100 / n)
                 if pct > last_pct:
-                progress_cb(pct)
-                last_pct = pct
-                
-                if mv[i] != UBX_SYNC1 or mv[i+1] != UBX_SYNC2:
+                    progress_cb(pct)
+                    last_pct = pct
+
+            if mv[i] != UBX_SYNC1 or mv[i+1] != UBX_SYNC2:
                 i += 1
                 continue
             if i + 6 > n:
@@ -309,22 +304,12 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         n = len(mv)
         i = 0
         last_pct = 0
-
-        # Optimization: calculate progress only every N iterations to save CPU
-        check_interval = 2000
-        check_counter = 0
-
         while i + 8 < n:
-            check_counter += 1
-            if check_counter >= check_interval:
-                check_counter = 0
-                if progress_cb:
-                    # Integer math is faster.
-                    # pct = (i * 100) // n
-                    pct = int(i * 100 / n)
-                    if pct > last_pct:
-                        progress_cb(pct)
-                        last_pct = pct
+            if progress_cb:
+                pct = int(i * 100 / n)
+                if pct > last_pct:
+                    progress_cb(pct)
+                    last_pct = pct
 
             if mv[i] != UBX_SYNC1 or mv[i+1] != UBX_SYNC2:
                 i += 1
