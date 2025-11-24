@@ -15,6 +15,7 @@ import shutil
 import logging
 import zipfile
 import sqlite3
+import subprocess
 import asyncio
 import contextlib
 import uuid
@@ -27,7 +28,7 @@ from fastapi import FastAPI, UploadFile, File, Form, Request, Header
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, Response, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.concurrency import run_in_threadpool
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 # 추가
 import threading, time
@@ -38,11 +39,6 @@ try:
     from pyubx2 import UBXReader
 except Exception:
     UBXReader = None
-
-try:
-    import ubx2kmz
-except Exception:
-    ubx2kmz = None
 
 # =========================
 # Paths / logging / config
@@ -134,7 +130,6 @@ def ensure_columns():
         "opts_json": "TEXT",
         "status": "TEXT DEFAULT 'queued'",
         "error": "TEXT",
-        "progress": "INTEGER DEFAULT 0",
     }
     with sqlite3.connect(DB_PATH) as c:
         cols = {row[1] for row in c.execute("PRAGMA table_info(results)").fetchall()}
@@ -194,7 +189,7 @@ def is_admin(auth_header: Optional[str]) -> bool:
 # Concurrency control for conversions
 # =========================
 MAX_CONVERT = max(1, (os.cpu_count() or 2) // 2)  # half of cores
-PROCESS_POOL = ProcessPoolExecutor(max_workers=MAX_CONVERT)
+EXECUTOR = ThreadPoolExecutor(max_workers=MAX_CONVERT)
 SEM = asyncio.Semaphore(MAX_CONVERT)
 
 # =========================
@@ -262,102 +257,101 @@ def pick_ubx2kmz_script() -> Optional[str]:
             return p
     return None
 
-def worker_convert_task(filepath, rid, opts, db_path):
-    """Worker process function (no async here)"""
-    # Must create own connection in worker
-    def _update_progress(pct):
-        # SQLite WAL allows concurrent writes, but simple is best.
-        # To avoid locking too much, update only every few percent?
-        # But 60MB file is fast. Let's just try updating.
-        try:
-            with sqlite3.connect(db_path, timeout=10) as conn:
-                conn.execute("UPDATE results SET progress=? WHERE id=?", (pct, rid))
-                conn.commit()
-        except Exception:
-            pass
+def run_ubx2kmz(
+    filepath: str,
+    rid: str,
+    hz: Optional[int] = None,
+    nav2: bool = False,
+    alt_abs: bool = False,
+    ck: bool = False,
+    mapm: bool = False,
+    html: bool = False,
+    timeout_sec: int = 1800,
+):
+    script_path = pick_ubx2kmz_script()
+    if not script_path:
+        raise FileNotFoundError("ubx2kmz script not found next to app.py")
 
+    out_dir = os.path.join(OUTPUT_DIR, rid)
+    os.makedirs(out_dir, exist_ok=True)
+    final_kmz = os.path.join(out_dir, "result.kmz")
+
+    in_path = os.path.abspath(filepath)
+    args = [sys.executable, script_path, in_path]
+    if hz is not None:
+        args += ["--hz", str(hz)]
+    if nav2:
+        args += ["--nav2"]
+    if alt_abs:
+        args += ["--alt-abs"]  # adjust if your script uses '--abs'
+    if ck:
+        args += ["--ck"]
+    if html:
+        args += ["--html"]
+    if mapm:
+        args += ["--mapm"]
+
+    logger.info("Running ubx2kmz: " + " ".join(args))
     try:
-        if not ubx2kmz:
-            raise ImportError("ubx2kmz module not available")
-
-        # Call the imported logic directly
-        ubx2kmz.run(
-            filepath,
-            hz=opts.get("hz"),
-            use_nav2=opts.get("nav2"),
-            alt_abs=opts.get("alt_abs"),
-            verify_ck=opts.get("ck"),
-            html=opts.get("html"),
-            mapm=opts.get("mapm"),
-            progress_cb=_update_progress
+        p = subprocess.run(
+            args, cwd=BASE_DIR, capture_output=True, text=True, timeout=timeout_sec, check=False
         )
+        if p.stdout:
+            logger.info("[ubx2kmz stdout]\n" + p.stdout)
+        if p.stderr:
+            logger.warning("[ubx2kmz stderr]\n" + p.stderr)
 
-        # Find result KMZ
-        base, _ = os.path.splitext(filepath)
-        out_dir = os.path.join(os.path.dirname(os.path.dirname(filepath)), "outputs", rid)
-        # Note: ubx2kmz creates output in same dir as input or current dir?
-        # looking at ubx2kmz line 965: kmz_path = base + suffix
-        # It saves NEXT TO input file.
+        # Find auto-generated KMZ near input
+        base, _ = os.path.splitext(in_path)
+        candidates = []
+        patterns = [
+            base + "_mapm.kmz",
+            base + "_nav2_abs_ck.kmz", base + "_nav2_abs_nock.kmz",
+            base + "_nav2_ck.kmz",     base + "_nav2_nock.kmz",
+            base + "_nav_abs_ck.kmz",  base + "_nav_abs_nock.kmz",
+            base + "_nav_ck.kmz",      base + "_nav_nock.kmz",
+            base + "*.kmz",
+        ]
+        for pat in patterns:
+            candidates.extend(glob.glob(pat))
+        candidates = [c for c in candidates if os.path.exists(c) and os.path.getsize(c) > 0]
+        if not candidates:
+            raise RuntimeError(f"No KMZ found after ubx2kmz (returncode={p.returncode})")
 
-        # We need to move it to final output dir
-        os.makedirs(out_dir, exist_ok=True)
-        final_kmz = os.path.join(out_dir, "result.kmz")
+        src = max(candidates, key=os.path.getmtime)
+        shutil.copyfile(src, final_kmz)
 
-        # Search logic similar to original run_ubx2kmz
-        candidates = glob.glob(base + "*.kmz")
-        # Exclude mapm only if we didn't ask for it?
-        # Just pick the newest valid one
-        valid = [c for c in candidates if os.path.getsize(c) > 0]
-        if not valid:
-            raise RuntimeError("No KMZ output found")
-
-        src = max(valid, key=os.path.getmtime)
-        shutil.move(src, final_kmz)
-
-        # HTML report too if requested
-        if opts.get("html"):
-            html_candidates = glob.glob(base + "*.html")
-            if html_candidates:
-                hsrc = max(html_candidates, key=os.path.getmtime)
-                # Copy or move? The original logic kept them. Let's move to clean up upload dir.
-                # But waits: the original didn't move HTML to output dir explicitly in DB, just KMZ.
-                # Let's keep it simple: just KMZ in DB.
-                # Only move KMZ as before.
-                pass
-
-        with sqlite3.connect(db_path) as conn:
+        with get_db() as conn:
             conn.execute(
-                "UPDATE results SET kmz_path=?, status='done', progress=100, error=NULL WHERE id=?",
-                (final_kmz, rid)
+                "UPDATE results SET kmz_path=?, status='done', error=NULL WHERE id=?",
+                (final_kmz, rid),
             )
             conn.commit()
+        logger.info(f"[✅] KMZ generated: {final_kmz}")
 
+    except subprocess.TimeoutExpired:
+        with get_db() as conn:
+            conn.execute("UPDATE results SET status='error', error=? WHERE id=?", ("timeout", rid))
+            conn.commit()
+        logger.error(f"ubx2kmz timed out after {timeout_sec}s")
     except Exception as e:
-        logging.error(f"Worker failed: {e}")
-        with sqlite3.connect(db_path) as conn:
+        with get_db() as conn:
             conn.execute("UPDATE results SET status='error', error=? WHERE id=?", (str(e), rid))
             conn.commit()
+        logger.exception(f"[❌] ubx2kmz failed: {e}")
 
 # =========================
 # Async queue wrapper (limit concurrency)
 # =========================
 async def enqueue_convert(filepath, rid, **opts):
     with get_db() as conn:
-        conn.execute("UPDATE results SET status='queued', error=NULL, progress=0 WHERE id=?", (rid,))
+        conn.execute("UPDATE results SET status='queued', error=NULL WHERE id=?", (rid,))
         conn.commit()
-
-    loop = asyncio.get_event_loop()
     async with SEM:
         with get_db() as conn:
-            conn.execute("UPDATE results SET status='running' WHERE id=?", (rid,))
+            conn.execute("UPDATE results SET status='running', error=NULL WHERE id=?", (rid,))
             conn.commit()
-
-        # Run in process pool
-        await loop.run_in_executor(
-            PROCESS_POOL,
-            worker_convert_task,
-            filepath, rid, opts, DB_PATH
-        )
+        await run_in_threadpool(run_ubx2kmz, filepath, rid, **opts)
 
 # =========================
 # Helpers: ownership checks
@@ -377,22 +371,6 @@ def ensure_owner_or_404(rid: str, user_id: str, admin: bool = False):
 # =========================
 # Routes
 # =========================
-@app.get("/status/{rid}")
-def get_status(rid: str, request: Request):
-    """Simple status poll endpoint"""
-    with get_db() as conn:
-        row = conn.execute("SELECT status, progress, error, kmz_path FROM results WHERE id=?", (rid,)).fetchone()
-    if not row:
-        return {"status": "not_found", "progress": 0}
-
-    st, pg, err, kp = row
-    return {
-        "status": st or "queued",
-        "progress": pg or 0,
-        "error": err,
-        "ready": bool(kp and os.path.exists(kp))
-    }
-
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     # cookie is set by middleware
@@ -414,15 +392,9 @@ async def upload(
 
     rid = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[-8:]
     save_path = os.path.join(UPLOAD_DIR, f"{rid}_{file.filename}")
-
-    # Chunked Write (Memory Protection)
+    raw = await file.read()
     with open(save_path, "wb") as f:
-        while True:
-            chunk = await file.read(1024 * 1024)  # 1MB chunks
-            if not chunk:
-                break
-            f.write(chunk)
-
+        f.write(raw)
     logger.info(f"Uploaded by {user_id}: {save_path}")
 
     summary = quick_ubx_summary(save_path)
@@ -444,8 +416,8 @@ async def upload(
     with get_db() as conn:
         conn.execute("""
             INSERT INTO results (id, user_id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
-                                 kmz_path, opts_json, status, error, progress)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL, 0)
+                                 kmz_path, opts_json, status, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL)
         """, (
             rid, user_id, file.filename, datetime.utcnow().isoformat(),
             summary["epoch_total"], summary["epoch_missing"], summary["crc_errors"],

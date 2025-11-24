@@ -54,25 +54,6 @@
     }
     .done { background: var(--success-bg); color: var(--success-text); }
     .error { background: var(--error-bg); color: var(--error-text); }
-    .progress-container {
-      background: #e5e7eb;
-      border-radius: 6px;
-      height: 24px;
-      overflow: hidden;
-      margin: 16px 0;
-    }
-    .progress-bar {
-      background: var(--primary);
-      height: 100%;
-      width: 0%;
-      transition: width 0.3s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 12px;
-      font-weight: 600;
-    }
     .queued, .running { background: var(--warn-bg); color: var(--warn-text); }
 
     a.btn {
@@ -101,31 +82,10 @@
     footer a:hover { text-decoration: underline; }
   </style>
 
-  {% if r.status in ['queued', 'running'] %}
+  {% if r.status != 'done' %}
   <script>
-    (function(){
-      const rid = "{{ r.id }}";
-      const pBar = document.getElementById("progressBar");
-      const pText = document.getElementById("progressText");
-
-      // Polling logic
-      const interval = setInterval(async () => {
-          try {
-              const res = await fetch(`/status/${rid}`);
-              const data = await res.json();
-              
-              if (data.progress !== undefined) {
-                  if (pBar) pBar.style.width = data.progress + "%";
-                  if (pText) pText.innerText = data.progress + "%";
-              }
-              
-              if (['done', 'error'].includes(data.status)) {
-                  clearInterval(interval);
-                  location.reload(); 
-              }
-          } catch(e) { console.error("Poll error", e); }
-      }, 1000);
-    })();
+    // Auto refresh every 3s until processing is done
+    setTimeout(() => location.reload(), 3000);
   </script>
   {% endif %}
 </head>
@@ -143,17 +103,6 @@
     <ul>
       <li><b>Filename:</b> {{ r.filename }}</li>
       <li><b>Upload Time (UTC):</b> {{ r.uploaded_at }}</li>
-    </ul>
-
-    {% if r.status in ['queued', 'running'] %}
-    <div class="progress-container">
-      <div class="progress-bar" id="progressBar" style="width:{{ r.progress|default(0) }}%">
-        <span id="progressText">{{ r.progress|default(0) }}%</span>
-      </div>
-    </div>
-    {% endif %}
-
-    <ul>
       <li><b>Total Epochs:</b> {{ r.epoch_total }}</li>
       <li><b>Missing Epochs:</b> {{ r.epoch_missing }}</li>
       <li><b>CRC Errors:</b> {{ r.crc_errors }}</li>
@@ -166,7 +115,7 @@
           <a class="btn" href="/download?path={{ r.kmz_path|urlencode }}">Download KMZ</a>
           <a class="btn" href="/map/{{ r.id }}" target="_blank">View on Map</a>
         {% elif r.status in ['queued','running'] %}
-          <span class="status running">Processing…</span>
+          <span class="status running">Processing… (auto-refreshing)</span>
         {% else %}
           <span class="status error">Not generated{% if r.error %}: {{ r.error }}{% endif %}</span>
         {% endif %}
