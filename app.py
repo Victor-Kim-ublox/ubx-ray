@@ -87,6 +87,8 @@ CLN_MAX_TOTAL_BYTES = 10 * 1024**3   # 10GB (uploads + outputs)
 CLN_MAX_RESULTS_PER_USER = 10        # 사용자별 최신 10개만 보존 (queued/running 제외)
 CLN_RETAIN_DAYS = 7                  # 업로드 후 7일 TTL
 CLN_INTERVAL_SEC = 60 * 60           # 60분마다 한 번씩
+MAX_UPLOAD_BYTES = int(os.getenv("UBXRAY_MAX_UPLOAD_MB", "300")) * 1024**2  # 300MB default
+ALLOWED_UPLOAD_EXTS = {".ubx", ".bin"}
 
 # =========================
 # DB utils (WAL + per-request conn)
@@ -391,10 +393,42 @@ async def upload(
     user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
 
     rid = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[-8:]
-    save_path = os.path.join(UPLOAD_DIR, f"{rid}_{file.filename}")
-    raw = await file.read()
+
+    # ===== Upload validation (size + extension + path safety) =====
+    clean_name = os.path.basename(file.filename or "")
+    if not clean_name:
+        clean_name = "upload.ubx"
+
+    ext = Path(clean_name).suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXTS:
+        return PlainTextResponse(
+            f"Unsupported file type: {ext or '(none)'}; allowed: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}",
+            status_code=400,
+        )
+
+    content_len = request.headers.get("content-length")
+    if content_len:
+        try:
+            if int(content_len) > MAX_UPLOAD_BYTES:
+                return PlainTextResponse("File too large", status_code=413)
+        except ValueError:
+            pass
+
+    save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+    total = 0
+    chunk_size = 1024 * 1024  # 1MB
     with open(save_path, "wb") as f:
-        f.write(raw)
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES:
+                f.close()
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(save_path)
+                return PlainTextResponse("File too large", status_code=413)
+            f.write(chunk)
     logger.info(f"Uploaded by {user_id}: {save_path}")
 
     summary = quick_ubx_summary(save_path)
@@ -419,7 +453,7 @@ async def upload(
                                  kmz_path, opts_json, status, error)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL)
         """, (
-            rid, user_id, file.filename, datetime.utcnow().isoformat(),
+            rid, user_id, clean_name, datetime.utcnow().isoformat(),
             summary["epoch_total"], summary["epoch_missing"], summary["crc_errors"],
             None, json.dumps(opts),
         ))
