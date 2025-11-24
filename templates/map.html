@@ -1,0 +1,481 @@
+<!doctype html>
+<html>
+<head>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <meta charset="utf-8">
+  <title>Map View — {{ filename }}</title>
+
+  <!-- OpenLayers -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@latest/ol.css">
+  <script src="https://cdn.jsdelivr.net/npm/ol@latest/dist/ol.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    :root {
+      --header-h: 60px; --border:#e5e7eb; --bg:#f8fafc; --ink:#1e293b; --muted:#6b7280; --accent:#0078ff;
+      --font-ublox: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    html, body {
+      height:100%; margin:0; background:var(--bg); color:var(--ink);
+      font-family: var(--font-ublox);
+      -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    }
+    body { overflow:hidden; }
+
+    /* ===== Header (툴바) ===== */
+    header{
+      position:sticky; top:0; z-index:10;
+      display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+      background:#fff; border-bottom:1px solid var(--border);
+      padding:10px 14px; box-shadow:0 1px 4px rgba(0,0,0,.05);
+    }
+    h1.title{
+      margin:0; font-size:16px; font-weight:700; color:var(--ink); white-space:nowrap;
+      font-family: var(--font-ublox); letter-spacing: -0.2px;
+    }
+
+    .toolbar{ display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+    .seg{
+      display:inline-flex; align-items:center; gap:4px; background:#f3f4f6; padding:4px; border-radius:10px;
+      box-shadow: inset 0 0 0 1px var(--border);
+    }
+
+    .btn{
+      border:0; background:transparent; color:#374151; font-weight:600; font-size:14px;
+      padding:7px 12px; border-radius:8px; cursor:pointer; transition:all .15s ease;
+      display:inline-flex; align-items:center; gap:6px; line-height:1;
+    }
+    .btn:hover{ background:#e5e7eb; }
+    .btn.active{ background:var(--accent); color:#fff; }
+    .btn.primary{ background:var(--accent); color:#fff; }
+    .btn.primary:hover{ filter:brightness(.96); }
+    .btn .ico{ font-size:13px; line-height:1; }
+
+    select, input[type="range"]{
+      border:1px solid #d1d5db; border-radius:8px; padding:6px 8px; background:#fff; font-size:14px;
+      vertical-align: middle;
+    }
+    input[type="range"]{ width:180px; }
+
+    .btn, label, select, .timebox { font-family: var(--font-ublox); font-weight: 500; }
+    .small-label{
+      font-size:12.5px; color: var(--muted); font-weight:600;
+      margin:0 4px; user-select:none; line-height:1; display:inline-block; transform: translateY(1px);
+    }
+
+    .timebox{
+      min-width:220px; text-align:center; background:#fff; border:1px solid #d1d5db;
+      border-radius:8px; padding:6px 8px; font:13px/1.2 ui-monospace,monospace; color:#111827;
+    }
+
+    .badge{
+      background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe;
+      font-weight:700; font-size:12px; border-radius:999px; padding:4px 10px;
+    }
+
+    /* ===== Map container ===== */
+    #map{
+      width:100vw;
+      height: calc(100vh - var(--header-h));
+      border-top:1px solid var(--border);
+      background:#dfe7ef;
+    }
+
+    /* ===== OpenLayers Popup ===== */
+    .ol-popup {
+      position: absolute;
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid rgba(0,0,0,0.2);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      padding: 10px 12px;
+      min-width: 220px; max-width: 320px;
+      color: #111; z-index: 1000;
+    }
+    .ol-popup-closer {
+      position: absolute; top: 6px; right: 8px;
+      text-decoration: none; color: #aaa; font-weight: bold; font-size: 18px;
+    }
+    .ol-popup-closer:hover { color: #000; }
+    #popup-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; }
+    #popup-desc  { font-size: 13px; color: #333; line-height: 1.4; }
+  </style>
+</head>
+<body>
+
+  <!-- ===== Top toolbar ===== -->
+  <header id="app-header">
+    <h1 class="title">📍 Map View — {{ filename }}</h1>
+
+    <div class="toolbar">
+      <!-- Base map toggle -->
+      <div class="seg">
+        <button id="btnBaseMap" class="btn active" title="OSM Streets">Map</button>
+        <button id="btnBaseSat" class="btn" title="Satellite">Satellite</button>
+      </div>
+
+      <!-- Playback -->
+      <div class="seg">
+        <button id="playBtn" class="btn">
+          <span class="ico">▶</span><span>Play</span>
+        </button>
+        <span class="small-label">Speed</span>
+        <select id="speedSel">
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+          <option value="5">5×</option>
+          <option value="10">10×</option>
+        </select>
+        <input id="timeRange" type="range" min="0" max="0" value="0" step="1">
+        <div id="timeLabel" class="timebox">--</div>
+        <button id="followBtn" class="btn" title="Keep marker centered">Follow</button>
+        <div id="hzBadge" class="badge">Hz: --</div>
+      </div>
+
+      <!-- Distance tools -->
+      <div class="seg">
+        <button id="measureBtn" class="btn" title="Measure distance between two points">Measure</button>
+        <button id="clearBtn" class="btn" title="Clear current measurement">Clear</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== Map canvas ===== -->
+  <div id="map"></div>
+
+  <!-- Popup element -->
+  <div id="popup" class="ol-popup" style="display:none;">
+    <a href="#" id="popup-closer" class="ol-popup-closer">×</a>
+    <div id="popup-title"></div>
+    <div id="popup-desc"></div>
+  </div>
+
+  <!-- ===== Layout helper (헤더 높이 반영 + 지도 리사이즈) ===== -->
+  <script>
+    (function (){
+      const header = document.getElementById('app-header');
+      const root = document.documentElement;
+      function applyLayout(){
+        const h = Math.ceil(header.getBoundingClientRect().height);
+        root.style.setProperty('--header-h', h + 'px');
+        try { if (window.map && typeof map.updateSize === 'function') map.updateSize(); } catch(e){}
+      }
+      new ResizeObserver(applyLayout).observe(header);
+      window.addEventListener('resize', applyLayout);
+      setTimeout(applyLayout, 0);
+    })();
+  </script>
+
+  <!-- ===== Map logic ===== -->
+  <script>
+    // ===== Base Map layers =====
+    const osm = new ol.layer.Tile({ source: new ol.source.OSM(), visible: true });
+    const sat = new ol.layer.Tile({
+      visible: false,
+      source: new ol.source.XYZ({
+        url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      })
+    });
+
+    // Map init (global for layout helper)
+    const map = new ol.Map({
+      target: 'map',
+      layers: [osm, sat],
+      view: new ol.View({ center: ol.proj.fromLonLat([127, 37]), zoom: 6 })
+    });
+    window.map = map;
+
+    // KML layer
+    const kmlUrl = '/kml/{{ rid }}';
+    const vectorSource = new ol.source.Vector({
+      url: kmlUrl,
+      format: new ol.format.KML({ extractStyles: true, showPointNames: false })
+    });
+    const vectorLayer = new ol.layer.Vector({ source: vectorSource });
+    map.addLayer(vectorLayer);
+
+    // Base toggles
+    const btnMap = document.getElementById('btnBaseMap');
+    const btnSat = document.getElementById('btnBaseSat');
+    function setBase(toSat){
+      sat.setVisible(toSat); osm.setVisible(!toSat);
+      btnMap.classList.toggle('active', !toSat);
+      btnSat.classList.toggle('active', toSat);
+    }
+    btnMap.addEventListener('click', () => setBase(false));
+    btnSat.addEventListener('click', () => setBase(true));
+
+    // Fit to data when ready
+    vectorSource.on('change', () => {
+      if (vectorSource.getState() === 'ready') {
+        const ext = vectorSource.getExtent();
+        if (ext && !ol.extent.isEmpty(ext)) {
+          map.getView().fit(ext, { padding: [20,20,20,20], maxZoom: 17 });
+        }
+      }
+    });
+
+    // ===== Popup for Placemark =====
+    const container = document.getElementById('popup');
+    const closer = document.getElementById('popup-closer');
+    const titleEl = document.getElementById('popup-title');
+    const descEl = document.getElementById('popup-desc');
+    const overlay = new ol.Overlay({ element: container, autoPan: { animation: { duration: 250 } }, offset: [0, -12] });
+    map.addOverlay(overlay);
+    closer.onclick = () => { overlay.setPosition(undefined); container.style.display = 'none'; return false; };
+
+    function getFeatureInfo(f) {
+      const n = f.get('name') || 'Point';
+      let d = f.get('description') || '';
+      const props = f.getProperties();
+      const extra = [];
+      for (const k in props) {
+        if (['geometry','name','description'].includes(k)) continue;
+        const v = props[k];
+        if (v != null && v !== '') extra.push(`<div><b>${k}</b>: ${v}</div>`);
+      }
+      if (extra.length && !d) d = extra.join(''); else if (extra.length) d += extra.join('');
+      return { n, d };
+    }
+
+    let measureActive = false;
+    map.on('singleclick', evt => {
+      if (measureActive) return;
+      let hit = false;
+      map.forEachFeatureAtPixel(evt.pixel, (f, layer) => {
+        if (layer !== vectorLayer) return;
+        const g = f.getGeometry();
+        if (g && g.getType() === 'Point') {
+          const info = getFeatureInfo(f);
+          titleEl.textContent = info.n;
+          descEl.innerHTML = info.d;
+          overlay.setPosition(evt.coordinate);
+          container.style.display = 'block';
+          hit = true; return true;
+        }
+      }, { hitTolerance: 5 });
+      if (!hit) { overlay.setPosition(undefined); container.style.display = 'none'; }
+    });
+
+    // ===== Measurement =====
+    const measureBtn = document.getElementById('measureBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const measureSrc = new ol.source.Vector();
+    const measureLayer = new ol.layer.Vector({
+      source: measureSrc,
+      style: new ol.style.Style({
+        stroke: new ol.style.Stroke({ color: '#0078ff', width: 3 }),
+        image: new ol.style.Circle({
+          radius: 6,
+          fill: new ol.style.Fill({ color: '#0078ff' }),
+          stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+        })
+      })
+    });
+    map.addLayer(measureLayer);
+    let picked = [];
+    const setMeasureActive = on => {
+      measureActive = on;
+      measureBtn.classList.toggle('active', on);
+      if (on) { picked = []; measureSrc.clear(); container.style.display = 'none'; }
+    };
+    measureBtn.onclick = () => setMeasureActive(!measureActive);
+    clearBtn.onclick = () => { picked = []; measureSrc.clear(); };
+
+    function formatDist(m) { return m >= 1000 ? (m/1000).toFixed(3)+' km' : Math.round(m)+' m'; }
+    map.on('singleclick', evt => {
+      if (!measureActive) return;
+      picked.push(evt.coordinate);
+      measureSrc.addFeature(new ol.Feature(new ol.geom.Point(evt.coordinate)));
+      if (picked.length === 2) {
+        const line = new ol.geom.LineString(picked);
+        measureSrc.addFeature(new ol.Feature(line));
+        const len = ol.sphere.getLength(line, { projection: map.getView().getProjection() });
+        titleEl.textContent = 'Distance';
+        descEl.innerHTML = formatDist(len);
+        overlay.setPosition(line.getCoordinateAt(0.5));
+        container.style.display = 'block';
+        setMeasureActive(false);
+      }
+    });
+
+    // ===== Playback (Hz 자동 감지 + 프레임 기반 진행) =====
+    const playBtn  = document.getElementById('playBtn');
+    const speedSel = document.getElementById('speedSel');
+    const timeRange= document.getElementById('timeRange');
+    const timeLabel= document.getElementById('timeLabel');
+    const followBtn= document.getElementById('followBtn');
+    const hzBadge  = document.getElementById('hzBadge');
+
+    function updatePlayUI(isPlaying){
+      playBtn.classList.toggle('primary', isPlaying);
+      playBtn.innerHTML = isPlaying
+        ? '<span class="ico">⏸</span><span>Pause</span>'
+        : '<span class="ico">▶</span><span>Play</span>';
+    }
+
+    let playback = [], idx = 0, playing = false, raf = null;
+    let floatIdx = 0, lastTs = 0, dataHz = 1;
+    let followEnabled = false;
+    followBtn.onclick = () => {
+      followEnabled = !followEnabled;
+      followBtn.classList.toggle('active', followEnabled);
+      followBtn.textContent = followEnabled ? 'Following' : 'Follow';
+    };
+
+    // Single moving marker
+    const marker = new ol.Feature(new ol.geom.Point(ol.proj.fromLonLat([0,0])));
+    const markerLayer = new ol.layer.Vector({
+      source: new ol.source.Vector({ features: [marker] }),
+      style: new ol.style.Style({
+        image: new ol.style.Circle({
+          radius: 7, fill: new ol.style.Fill({ color: '#10b981' }),
+          stroke: new ol.style.Stroke({ color: '#065f46', width: 2 })
+        })
+      })
+    });
+    map.addLayer(markerLayer);
+
+    function setMarker(i){
+      if (!playback.length) return;
+      const p = playback[i];
+      const coord = ol.proj.fromLonLat([p.lon, p.lat]);
+      marker.getGeometry().setCoordinates(coord);
+      marker.changed();
+      timeLabel.textContent = p.t ? p.t.toISOString().replace('T',' ').replace('Z',' UTC') : '--';
+      if (followEnabled) map.getView().setCenter(coord);
+    }
+
+    function setIndex(i){
+      if (!playback.length) return;
+      idx = Math.max(0, Math.min(playback.length - 1, i|0));
+      floatIdx = idx;
+      timeRange.value = idx;
+      setMarker(idx);
+      lastTs = 0;
+    }
+
+    function tick(ts){
+      if (!playing) return;
+      if (!lastTs) lastTs = ts;
+      const dt = (ts - lastTs) / 1000; // sec
+      lastTs = ts;
+
+      const speed = parseFloat(speedSel.value || '1');
+      floatIdx += dataHz * speed * dt;
+
+      const next = Math.floor(floatIdx);
+      if (next !== idx) {
+        idx = Math.min(next, playback.length - 1);
+        setMarker(idx);
+        timeRange.value = idx;
+      }
+      if (idx >= playback.length - 1) { stop(); return; }
+      raf = requestAnimationFrame(tick);
+    }
+    function start(){ stop(); playing = true; updatePlayUI(true);  lastTs = 0; raf = requestAnimationFrame(tick); }
+    function stop(){  playing = false; updatePlayUI(false); if (raf) cancelAnimationFrame(raf); raf = null; }
+    playBtn.onclick = () => { playing ? stop() : start(); };
+    timeRange.oninput = e => { setIndex(parseInt(e.target.value,10)); if (playing) lastTs = 0; };
+
+    // ===== Hz 추정 (초 단위 버킷 우선) =====
+    function estimateHzSmart(points){
+      const times = points.map(p => p.t?.getTime()).filter(v => Number.isFinite(v));
+      if (times.length < 3) return null;
+
+      // 1) 같은 '초'에 몇 샘플 있는지 → 중앙값을 Hz로
+      const buckets = Object.create(null);
+      for (const ms of times) {
+        const sec = Math.floor(ms / 1000);
+        buckets[sec] = (buckets[sec] || 0) + 1;
+      }
+      const counts = Object.values(buckets);
+      if (counts.length) {
+        counts.sort((a,b) => a - b);
+        const medCount = counts[(counts.length/2) | 0];
+        if (medCount >= 2) return medCount; // 초당 2개 이상이면 그게 Hz로 가장 현실적
+      }
+
+      // 2) 서로 다른 시간 간격 중앙값으로 폴백
+      const deltas = [];
+      for (let i=1;i<times.length;i++){
+        const d = (times[i] - times[i-1]) / 1000;
+        if (d > 0) deltas.push(d);
+      }
+      if (!deltas.length) return null;
+      deltas.sort((a,b)=>a-b);
+      const med = deltas[(deltas.length/2)|0];
+      const hz = 1/med;
+      return Math.min(50, Math.max(0.2, hz));
+    }
+
+    // ===== 데이터 로드 + Hz 자동 감지 (다운샘플 보정 포함) =====
+    async function loadData(){
+      const res = await fetch(kmlUrl);
+      const txt = await res.text();
+      const doc = new DOMParser().parseFromString(txt,'application/xml');
+
+      const KMLNS = 'http://www.opengis.net/kml/2.2';
+      const GXNS  = 'http://www.google.com/kml/ext/2.2';
+
+      // 1) 원본 포인트 수집 (rawPts)
+      let rawPts = [];
+      const tracks = doc.getElementsByTagNameNS(GXNS, 'Track');
+      for (const tr of tracks) {
+        const whens  = Array.from(tr.getElementsByTagNameNS(KMLNS, 'when')).map(n => n.textContent.trim());
+        const coords = Array.from(tr.getElementsByTagNameNS(GXNS , 'coord')).map(n => n.textContent.trim());
+        const N = Math.min(whens.length, coords.length);
+        for (let i = 0; i < N; i++) {
+          const w = whens[i];
+          const c = coords[i].split(/\s+/).map(Number);
+          if (c.length >= 2) rawPts.push({ t: new Date(w), lon: c[0], lat: c[1], alt: c[2] || 0 });
+        }
+      }
+
+      if (!rawPts.length) {
+        const placemarks = doc.getElementsByTagNameNS(KMLNS, 'Placemark');
+        for (const pm of placemarks) {
+          const point = pm.getElementsByTagNameNS(KMLNS, 'Point')[0];
+          if (!point) continue;
+          const coordNode = point.getElementsByTagNameNS(KMLNS, 'coordinates')[0];
+          if (!coordNode) continue;
+          const [lonS, latS, altS] = coordNode.textContent.trim().split(',').map(Number);
+          let whenNode = pm.getElementsByTagNameNS(KMLNS, 'when')[0];
+          if (!whenNode) {
+            const ts = pm.getElementsByTagNameNS(KMLNS, 'TimeStamp')[0];
+            if (ts) whenNode = ts.getElementsByTagNameNS(KMLNS, 'when')[0];
+          }
+          const whenStr = whenNode ? whenNode.textContent.trim() : null;
+          rawPts.push({ t: whenStr ? new Date(whenStr) : null, lon: lonS, lat: latS, alt: altS || 0 });
+        }
+        if (rawPts.some(p => p.t)) rawPts.sort((a,b)=>a.t-b.t);
+      }
+
+      // 2) 원본에서 Hz 먼저 추정
+      let hzRaw = estimateHzSmart(rawPts);
+      if (!hzRaw) hzRaw = 10; // 기본값(필요 시 1로)
+
+      // 3) 다운샘플 (필요 시)
+      let downsample = 1;
+      const MAX = 20000;
+      let pts = rawPts;
+      if (rawPts.length > MAX) {
+        downsample = Math.ceil(rawPts.length / MAX);
+        pts = rawPts.filter((_, i) => i % downsample === 0);
+      }
+
+      // 4) 재생 배열 세팅 + Hz 보정
+      playback = pts;
+      timeRange.max = Math.max(0, playback.length - 1);
+      setIndex(0);
+
+      dataHz = hzRaw / downsample; // ⬅️ 다운샘플 보정
+      const hzBadge = document.getElementById('hzBadge');
+      if (hzBadge) hzBadge.textContent = `Hz: ${dataHz.toFixed(2)}`;
+      console.log('[map] points:', playback.length, 'rawHz≈', hzRaw.toFixed(2), 'ds=', downsample, 'dataHz≈', dataHz.toFixed(2));
+    }
+    loadData().catch(console.error);
+  </script>
+</body>
+</html>

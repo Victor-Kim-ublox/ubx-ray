@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+  <meta charset="utf-8">
+  <title>Analysis Result</title>
+  <style>
+    :root {
+      --bg: #f9fafc;
+      --card-bg: #ffffff;
+      --border: #e5e7eb;
+      --primary: #0078ff;
+      --primary-hover: #005fcc;
+      --success-bg: #e8f7ee;
+      --success-text: #0a6b2e;
+      --error-bg: #fdecea;
+      --error-text: #a1271d;
+      --warn-bg: #fff8e1;
+      --warn-text: #a68a00;
+    }
+    body {
+      background: var(--bg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 40px auto;
+      max-width: 800px;
+      color: #111827;
+    }
+    h1 {
+      text-align: center;
+      color: #111;
+      font-size: 28px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      padding: 24px 28px;
+    }
+    ul {
+      list-style: none;
+      padding-left: 0;
+      margin: 10px 0 20px;
+    }
+    li { padding: 4px 0; }
+
+    .status {
+      padding: 6px 10px;
+      border-radius: 6px;
+      display: inline-block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 10px;
+    }
+    .done { background: var(--success-bg); color: var(--success-text); }
+    .error { background: var(--error-bg); color: var(--error-text); }
+    .queued, .running { background: var(--warn-bg); color: var(--warn-text); }
+
+    a.btn {
+      display: inline-block;
+      background: var(--primary);
+      color: #fff;
+      text-decoration: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.2s ease;
+      margin-right: 8px;
+    }
+    a.btn:hover { background: var(--primary-hover); }
+
+    footer {
+      text-align: center;
+      margin-top: 28px;
+    }
+    footer a {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    footer a:hover { text-decoration: underline; }
+  </style>
+
+  {% if r.status != 'done' %}
+  <script>
+    // Auto refresh every 3s until processing is done
+    setTimeout(() => location.reload(), 3000);
+  </script>
+  {% endif %}
+</head>
+<body>
+  <h1>Analysis Result</h1>
+
+  <div class="card">
+    <p>
+      <span class="status {{ r.status|e }}">
+        Status: {{ r.status|capitalize }}
+        {% if r.status == 'error' and r.error %} — {{ r.error }}{% endif %}
+      </span>
+    </p>
+
+    <ul>
+      <li><b>Filename:</b> {{ r.filename }}</li>
+      <li><b>Upload Time (UTC):</b> {{ r.uploaded_at }}</li>
+      <li><b>Total Epochs:</b> {{ r.epoch_total }}</li>
+      <li><b>Missing Epochs:</b> {{ r.epoch_missing }}</li>
+      <li><b>CRC Errors:</b> {{ r.crc_errors }}</li>
+    </ul>
+
+    <h3>KMZ / Map</h3>
+    <ul>
+      <li>
+        {% if r.kmz_path %}
+          <a class="btn" href="/download?path={{ r.kmz_path|urlencode }}">Download KMZ</a>
+          <a class="btn" href="/map/{{ r.id }}" target="_blank">View on Map</a>
+        {% elif r.status in ['queued','running'] %}
+          <span class="status running">Processing… (auto-refreshing)</span>
+        {% else %}
+          <span class="status error">Not generated{% if r.error %}: {{ r.error }}{% endif %}</span>
+        {% endif %}
+      </li>
+    </ul>
+  </div>
+
+  <footer>
+    <p><a href="/recent">← Back to Recent Results</a> | <a href="/">Upload Another File</a></p>
+  </footer>
+</body>
+</html>

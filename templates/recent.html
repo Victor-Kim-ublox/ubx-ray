@@ -1,0 +1,178 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+  <meta charset="utf-8">
+  <title>Recent Results</title>
+  <style>
+    :root {
+      --bg: #f9fafc;
+      --card-bg: #ffffff;
+      --border: #e5e7eb;
+      --primary: #0078ff;
+      --primary-hover: #005fcc;
+      --success-bg: #e8f7ee;
+      --success-text: #0a6b2e;
+      --error-bg: #fdecea;
+      --error-text: #a1271d;
+      --warn-bg: #fff8e1;
+      --warn-text: #a68a00;
+    }
+    body {
+      background: var(--bg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 40px auto;
+      max-width: 1200px; /* ✅ 더 넓게 */
+      color: #111827;
+    }
+    h1 {
+      text-align: center;
+      color: #111;
+      font-size: 26px;
+      margin-bottom: 24px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: auto; /* ✅ 자동으로 폭 조절 */
+      background: var(--card-bg);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      border-radius: 10px;
+      overflow: hidden;
+      white-space: nowrap; /* ✅ 줄바꿈 방지 */
+    }
+    th {
+      background: #f3f4f6;
+      text-align: left;
+      padding: 10px 12px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    tr:hover {
+      background: #f9fafb;
+    }
+    .status-badge {
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      display: inline-block;
+      white-space: nowrap;
+    }
+    .done { background: var(--success-bg); color: var(--success-text); }
+    .error { background: var(--error-bg); color: var(--error-text); }
+    .queued, .running { background: var(--warn-bg); color: var(--warn-text); }
+
+    a.btn {
+      display: inline-block;
+      background: var(--primary);
+      color: #fff;
+      text-decoration: none;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      transition: background 0.2s ease;
+      white-space: nowrap; /* ✅ 버튼 줄바꿈 금지 */
+    }
+    a.btn:hover {
+      background: var(--primary-hover);
+    }
+
+    .dim {
+      color: #888;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    td:nth-child(2) { min-width: 220px; } /* File */
+    td:nth-child(7), td:nth-child(8) { text-align: center; min-width: 120px; } /* Map / Download */
+
+    footer {
+      text-align: center;
+      margin-top: 24px;
+    }
+    footer a {
+      text-decoration: none;
+      color: var(--primary);
+      font-weight: 500;
+    }
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>Recent Results</h1>
+  <p style="color:#a33; font-size:14px; font-weight:500; margin-top:-6px; margin-bottom:12px;">
+  ⚠️ Data older than 7 days or beyond your latest 10 uploads may be automatically deleted. Please save important results promptly.
+  </p>
+
+<table cellpadding="0" cellspacing="0">
+
+
+  <table>
+    <tr>
+      <th>ID</th>
+      <th>File</th>
+      <th>Epochs</th>
+      <th>Missing</th>
+      <th>CRC</th>
+      <th>Status</th>
+      <th>Map View</th>
+      <th>Download</th>
+      <th>Uploaded (UTC)</th>
+    </tr>
+
+    {% for row in rows %}
+      {% set id = row[0] %}
+      {% set filename = row[1] %}
+      {% set uploaded = row[2] %}
+      {% set epochs = row[3] %}
+      {% set missing = row[4] %}
+      {% set crc = row[5] %}
+      {% set kmz = row[6] if row|length > 6 else None %}
+      {% set status = row[8] if row|length > 8 else ('done' if kmz else 'queued') %}
+      {% set err = row[9] if row|length > 9 else None %}
+
+      <tr>
+        <td><a href="/report/{{ id }}">{{ id }}</a></td>
+        <td>{{ filename }}</td>
+        <td>{{ epochs }}</td>
+        <td>{{ missing }}</td>
+        <td>{{ crc }}</td>
+        <td>
+          <span class="status-badge {{ status|e }}">
+            {{ status|capitalize }}{% if status == 'error' and err %} — {{ err }}{% endif %}
+          </span>
+        </td>
+        <td>
+          {% if kmz %}
+            <a class="btn" href="/map/{{ id }}" target="_blank">View Map</a>
+          {% elif status in ['queued','running'] %}
+            <span class="dim">Processing…</span>
+          {% else %}
+            -
+          {% endif %}
+        </td>
+        <td>
+          {% if kmz %}
+            <a class="btn" href="/download?path={{ kmz|urlencode }}">Download KMZ</a>
+          {% else %}
+            <span class="dim">-</span>
+          {% endif %}
+        </td>
+        <td>{{ uploaded }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+
+  <footer>
+    <p><a href="/">← Back to Upload</a></p>
+  </footer>
+</body>
+</html>
