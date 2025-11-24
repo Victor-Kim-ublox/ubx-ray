@@ -134,7 +134,7 @@ def parse_aid_mapm(payload: memoryview):
         "head_acc": head_acc,
     }
 
-def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = False):
+def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = False, progress_cb=None):
     """Scan UBX and emit KML with ONLY AID-MAPM placemarks (white arrows)."""
     buf = []
     total_frames = 0
@@ -146,7 +146,14 @@ def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = 
         mv = memoryview(mm)
         n = len(mv)
         i = 0
+        last_pct = 0
         while i + 8 <= n:
+            if progress_cb:
+                pct = int(i * 100 / n)
+                if pct > last_pct:
+                    progress_cb(pct)
+                    last_pct = pct
+
             if mv[i] != UBX_SYNC1 or mv[i+1] != UBX_SYNC2:
                 i += 1
                 continue
@@ -274,7 +281,7 @@ def normalize_heading(deg: float) -> float:
 
 def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
               alt_abs: bool = False, verify_ck: bool = False,
-              want_html: bool = False):
+              want_html: bool = False, progress_cb=None):
     buf = []
     total_msgs = 0
     valid_msgs = 0
@@ -296,7 +303,14 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         mv = memoryview(mm)
         n = len(mv)
         i = 0
+        last_pct = 0
         while i + 8 < n:
+            if progress_cb:
+                pct = int(i * 100 / n)
+                if pct > last_pct:
+                    progress_cb(pct)
+                    last_pct = pct
+
             if mv[i] != UBX_SYNC1 or mv[i+1] != UBX_SYNC2:
                 i += 1
                 continue
@@ -947,12 +961,12 @@ updateVisibility();
     return head + data_block + js_rest
 
 def run(ubx_path: str, hz: int = None, use_nav2: bool = False,
-        alt_abs: bool = False, verify_ck: bool = False, html: bool = False, mapm: bool = False):
+        alt_abs: bool = False, verify_ck: bool = False, html: bool = False, mapm: bool = False, progress_cb=None):
     base, _ = os.path.splitext(ubx_path)
     if mapm:
         kmz_path = base + "_mapm.kmz"
         print(f"{now_str()} | MAPM-only mode: writing {kmz_path}")
-        kml_text = build_kml_mapm_only(ubx_path, alt_abs=alt_abs, verify_ck=verify_ck)
+        kml_text = build_kml_mapm_only(ubx_path, alt_abs=alt_abs, verify_ck=verify_ck, progress_cb=progress_cb)
         write_kmz(kml_text, kmz_path)
         return
 
@@ -969,7 +983,7 @@ def run(ubx_path: str, hz: int = None, use_nav2: bool = False,
     kml_text, html_text = build_kml(
         ubx_path, hz=hz, use_nav2=use_nav2,
         alt_abs=alt_abs, verify_ck=verify_ck,
-        want_html=html
+        want_html=html, progress_cb=progress_cb
     )
     write_kmz(kml_text, kmz_path)
     if html and html_text is not None:
