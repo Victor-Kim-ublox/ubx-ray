@@ -292,7 +292,7 @@ def run_ubx2kmz(
     if nav2:
         args += ["--nav2"]
     if alt_abs:
-        args += ["--alt-abs"]  # adjust if your script uses '--abs'
+        args += ["--alt-abs"]
     if ck:
         args += ["--ck"]
     if html:
@@ -330,13 +330,36 @@ def run_ubx2kmz(
         src = max(candidates, key=os.path.getmtime)
         shutil.copyfile(src, final_kmz)
 
+        # === [추가됨] JSON 결과에서 Missing Epoch 정보 읽어서 DB 업데이트 ===
+        json_path = base + "_graph.json"
+        missing_count = 0
+        total_count = 0
+        
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    gdata = json.load(f)
+                    if "stats" in gdata:
+                        missing_count = gdata["stats"].get("epoch_missing", 0)
+                        total_count = gdata["stats"].get("epoch_total", 0)
+            except Exception as e:
+                logger.warning(f"Failed to read stats from {json_path}: {e}")
+
+        # DB Update (missing_count 반영)
         with get_db() as conn:
             conn.execute(
-                "UPDATE results SET kmz_path=?, status='done', error=NULL WHERE id=?",
-                (final_kmz, rid),
+                """
+                UPDATE results 
+                SET kmz_path=?, status='done', error=NULL,
+                    epoch_missing=?, epoch_total=?
+                WHERE id=?
+                """,
+                (final_kmz, missing_count, total_count if total_count > 0 else None, rid),
             )
             conn.commit()
-        logger.info(f"[✅] KMZ generated: {final_kmz}")
+        # ===============================================================
+        
+        logger.info(f"[✅] KMZ generated: {final_kmz} (Total: {total_count}, Missing: {missing_count})")
 
     except subprocess.TimeoutExpired:
         with get_db() as conn:

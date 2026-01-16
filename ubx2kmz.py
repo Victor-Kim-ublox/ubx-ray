@@ -296,22 +296,30 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     valid_msgs = 0
     kept = 0
 
-    # [NEW] Graph data structures (CN0 관련 키 추가)
+    # [수정] 누락 감지를 위한 변수 초기화
+    missing_epochs = 0
+    last_itow = None
+    # Hz 옵션이 있으면 예상 간격(ms)을 미리 설정, 없으면 자동 추정
+    expected_interval = (1000 // hz) if hz else None
+
+    # Graph data structures
     graph_data = {
         "labels": [],
         "acc2d": [],
         "acc3d": [],
         "fix_type": [],
-        "cno_labels": [],      # 시간 (X축) - 이제 iTOW 사용
-        "cno_top_avg": [],     # Top 5 평균 (Line Y축)
-        "cno_scatter": []      # 전체 위성 점들 (Scatter Y축)
+        "cno_labels": [],      
+        "cno_top_avg": [],     
+        "cno_scatter": [],
+        # [추가] 통계 정보 저장용
+        "stats": {
+            "epoch_total": 0,
+            "epoch_missing": 0
+        }
     }
     
-    # iTOW 추적 (CNO 그래프 동기화용)
-    # 기존엔 iTOW -> "HH:MM:SS" 매핑이었으나, 이제 iTOW 자체를 쓰므로 set으로 키만 관리해도 됨.
-    # 하지만 로직 유지 위해 dict 구조는 남기되 값은 None 등으로 처리 가능.
     kept_itows = set() 
-    itow_to_cno = {}  # iTOW -> [cno1, cno2, ...]
+    itow_to_cno = {}
 
     target_class = NAV2_CLASS if use_nav2 else NAV_CLASS
     period = 1000 // hz if hz else None
@@ -347,24 +355,51 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 total_msgs += 1
                 rec = parse_nav_pvt(payload)
                 if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 3, 4):
+                    
+                    # === [추가됨] Missing Epoch 계산 로직 ===
+                    curr_itow = rec["iTOW"]
+                    if last_itow is not None:
+                        diff = curr_itow - last_itow
+                        
+                        # 주(Week) 변경으로 인한 iTOW 리셋 보정 (매우 드문 케이스)
+                        if diff < -500000000: 
+                            diff += 604800000
+                        
+                        if diff > 0:
+                            # 예상 간격이 아직 없으면 첫 간격으로 추정 (단, 너무 작은 노이즈 제외)
+                            if expected_interval is None and diff > 50:
+                                # 일반적인 GNSS 주기에 맞춰 근사값 설정
+                                if 80 <= diff <= 120: expected_interval = 100        # 10Hz
+                                elif 180 <= diff <= 220: expected_interval = 200     # 5Hz
+                                elif 900 <= diff <= 1100: expected_interval = 1000   # 1Hz
+                                else: expected_interval = diff
+                            
+                            # 간격이 예상보다 1.5배 이상 벌어지면 누락으로 간주
+                            if expected_interval and diff > (expected_interval * 1.5):
+                                skipped = round(diff / expected_interval) - 1
+                                if skipped > 0:
+                                    missing_epochs += int(skipped)
+                    
+                    last_itow = curr_itow
+                    # ========================================
+
                     if hz and (rec["iTOW"] % period) != 0:
                         i = frame_end
                         continue
                     
-                    # [MODIFIED] iTOW 저장
                     kept_itows.add(rec["iTOW"])
 
-                    # Graph Data (Accuracy) - Use iTOW as label
+                    # Accuracy Graph Data
                     h_acc = rec.get("pos_acc", 0.0)
                     v_acc = rec.get("alt_acc", 0.0)
                     d3_acc = math.sqrt(h_acc**2 + v_acc**2)
                     
-                    graph_data["labels"].append(rec["iTOW"]) # Use iTOW directly
+                    graph_data["labels"].append(rec["iTOW"])
                     graph_data["acc2d"].append(round(h_acc, 3))
                     graph_data["acc3d"].append(round(d3_acc, 3))
                     graph_data["fix_type"].append(rec["fixType"])
 
-                    # KML Placemark 생성
+                    # KML Placemark 생성 (기존 유지)
                     gnssFixOK = (rec.get("flags", 0) & 0x01) != 0
                     if not gnssFixOK:
                         if rec["headVeh"] is not None:
@@ -392,19 +427,11 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
 
                     ts = f"{rec['year']:04d}-{rec['month']:02d}-{rec['day']:02d}T{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}Z"
                     href = "https://maps.google.com/mapfiles/kml/shapes/arrow.png"
-
+                    
                     if alt_abs:
-                        point_block = (
-                            f"      <Point>\n"
-                            f"        <extrude>1</extrude>\n"
-                            f"        <altitudeMode>absolute</altitudeMode>\n"
-                            f"        <coordinates>{rec['lon']:.7f},{rec['lat']:.7f},{rec['hMSL']:.3f}</coordinates>\n"
-                            f"      </Point>\n"
-                        )
+                        point_block = f"      <Point>\n        <extrude>1</extrude>\n        <altitudeMode>absolute</altitudeMode>\n        <coordinates>{rec['lon']:.7f},{rec['lat']:.7f},{rec['hMSL']:.3f}</coordinates>\n      </Point>\n"
                     else:
-                        point_block = (
-                            f"      <Point><coordinates>{rec['lon']:.7f},{rec['lat']:.7f},{rec['hMSL']:.3f}</coordinates></Point>\n"
-                        )
+                        point_block = f"      <Point><coordinates>{rec['lon']:.7f},{rec['lat']:.7f},{rec['hMSL']:.3f}</coordinates></Point>\n"
 
                     buf.append(PLACEMARK_TEMPLATE.format(
                         ts=ts, href=href,
@@ -418,10 +445,9 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                         flags_hex=f"0x{rec.get('flags',0):02X}",
                     ))
                     valid_msgs += 1
-                    if hz:
-                        kept += 1
+                    if hz: kept += 1
 
-            # 2. [NEW] NAV-SAT 처리 (추가된 부분)
+            # 2. NAV-SAT 처리
             elif cls_ == NAV_CLASS and id_ == SAT_ID:
                 sat_rec = parse_nav_sat(payload)
                 if sat_rec:
@@ -429,29 +455,44 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
 
             i = frame_end
 
-    # [NEW] Merge PVT Time and SAT CN0 (루프 종료 후 처리)
+    # [최적화된 로직] Merge PVT Time and SAT CN0 (Scatter Downsampling 포함)
     sorted_itows = sorted(list(kept_itows))
-    for itow in sorted_itows:
+    
+    estimated_points = len(sorted_itows) * 25
+    MAX_POINTS = 20000 
+    
+    scatter_stride = 1
+    if estimated_points > MAX_POINTS:
+        scatter_stride = math.ceil(estimated_points / MAX_POINTS)
+        print(f"{now_str()} | High density data detected. Downsampling CN0 scatter by factor of {scatter_stride}...")
+
+    all_scatter_points = []
+    
+    for idx, itow in enumerate(sorted_itows):
         if itow in itow_to_cno:
             cnos = itow_to_cno[itow]
-            
             if cnos:
                 sorted_cnos = sorted(cnos, reverse=True)
-                top_k = sorted_cnos[:5] # Top 5
+                top_k = sorted_cnos[:5]
                 avg_cno = sum(top_k) / len(top_k)
                 
-                graph_data["cno_labels"].append(itow) # Use iTOW
+                graph_data["cno_labels"].append(itow)
                 graph_data["cno_top_avg"].append(round(avg_cno, 1))
                 
-                for c in cnos:
-                    graph_data["cno_scatter"].append({"x": itow, "y": c}) # Use iTOW
+                if idx % scatter_stride == 0:
+                    for c in cnos:
+                        all_scatter_points.append({"x": itow, "y": c})
+
+    graph_data["cno_scatter"] = all_scatter_points
+
+    # [수정] 통계 정보 최종 저장
+    graph_data["stats"]["epoch_total"] = valid_msgs
+    graph_data["stats"]["epoch_missing"] = missing_epochs
 
     buf.append(FOOTER)
-    print(f"{now_str()} | Finished doc.kml (frames: {total_msgs}, placemarks: {valid_msgs}"
-          f"{', kept: ' + str(kept) if hz else ''})")
+    print(f"{now_str()} | Finished doc.kml (Total: {valid_msgs}, Missing: {missing_epochs}, kept: {kept if hz else 'All'})")
 
     kml_text = ''.join(buf)
-    
     return kml_text, graph_data
 
 def write_kmz(kml_text: str, kmz_path: str) -> None:

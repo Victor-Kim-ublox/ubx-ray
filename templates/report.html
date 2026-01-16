@@ -98,12 +98,17 @@
         align-items:center; 
         margin-bottom:10px;
     }
+    .chart-controls {
+        display: flex;
+        gap: 6px;
+    }
     .chart-box {
         position: relative; 
         height: 300px; 
         width: 100%;
+        transition: height 0.3s ease; /* 부드러운 전환 */
     }
-    /* 새로 추가된 리셋 버튼 스타일 */
+    /* 리셋 및 토글 버튼 스타일 */
     .reset-btn {
         cursor: pointer;
         padding: 4px 10px;
@@ -124,6 +129,19 @@
     setTimeout(() => location.reload(), 3000);
   </script>
   {% endif %}
+  
+  <script>
+      function toggleChart(boxId, btn) {
+          const box = document.getElementById(boxId);
+          if (box.style.display === 'none') {
+              box.style.display = 'block';
+              btn.innerText = 'Hide Chart';
+          } else {
+              box.style.display = 'none';
+              btn.innerText = 'Show Chart';
+          }
+      }
+  </script>
 </head>
 <body>
   <h1>Analysis Result</h1>
@@ -141,8 +159,7 @@
       <li><b>Upload Time (UTC):</b> {{ r.uploaded_at }}</li>
       <li><b>Total Epochs:</b> {{ r.epoch_total }}</li>
       <li><b>Missing Epochs:</b> {{ r.epoch_missing }}</li>
-      <li><b>CRC Errors:</b> {{ r.crc_errors }}</li>
-    </ul>
+      </ul>
 
     <h3>KMZ / Map</h3>
     <ul>
@@ -162,10 +179,13 @@
     <div class="chart-section">
       <div class="chart-header">
         <h3 style="margin:0;">Position Accuracy (2D vs 3D)</h3>
-        <button class="reset-btn" onclick="if(accChartInstance) accChartInstance.resetZoom()">Reset Zoom</button>
+        <div class="chart-controls">
+            <button class="reset-btn" onclick="toggleChart('accChartBox', this)">Hide Chart</button>
+            <button class="reset-btn" onclick="if(accChartInstance) accChartInstance.resetZoom()">Reset Zoom</button>
+        </div>
       </div>
       <p style="font-size:12px; color:#666; margin-top:0;">* Scroll to zoom, Drag to pan</p>
-      <div class="chart-box">
+      <div class="chart-box" id="accChartBox">
         <canvas id="accChart"></canvas>
       </div>
     </div>
@@ -175,9 +195,12 @@
     <div class="chart-section">
       <div class="chart-header">
         <h3 style="margin:0;">Fix Type Status</h3>
-        <button class="reset-btn" onclick="if(fixChartInstance) fixChartInstance.resetZoom()">Reset Zoom</button>
+        <div class="chart-controls">
+            <button class="reset-btn" onclick="toggleChart('fixChartBox', this)">Hide Chart</button>
+            <button class="reset-btn" onclick="if(fixChartInstance) fixChartInstance.resetZoom()">Reset Zoom</button>
+        </div>
       </div>
-      <div class="chart-box" style="height: 200px;">
+      <div class="chart-box" id="fixChartBox" style="height: 200px;">
         <canvas id="fixChart"></canvas>
       </div>
     </div>
@@ -187,11 +210,14 @@
     <div class="chart-section">
       <div class="chart-header">
         <h3 style="margin:0;">Satellite Signal Density (CN0)</h3>
-        <button class="reset-btn" onclick="if(cnoChartInstance) cnoChartInstance.resetZoom()">Reset Zoom</button>
+        <div class="chart-controls">
+            <button class="reset-btn" onclick="toggleChart('cnoChartBox', this)">Hide Chart</button>
+            <button class="reset-btn" onclick="if(cnoChartInstance) cnoChartInstance.resetZoom()">Reset Zoom</button>
+        </div>
       </div>
       <p style="font-size:12px; color:#666; margin-top:0;">* Green Line: Top 5 Avg | Blue Dots: Individual Satellites</p>
       
-      <div class="chart-box" style="height: 350px;">
+      <div class="chart-box" id="cnoChartBox" style="height: 350px;">
         <canvas id="cnoChart"></canvas>
       </div>
     </div>
@@ -255,6 +281,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { position: 'top' },
@@ -298,6 +325,7 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          animation: false,
           interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { display: false }, 
