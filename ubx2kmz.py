@@ -302,13 +302,15 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         "acc2d": [],
         "acc3d": [],
         "fix_type": [],
-        "cno_labels": [],      # 시간 (X축)
+        "cno_labels": [],      # 시간 (X축) - 이제 iTOW 사용
         "cno_top_avg": [],     # Top 5 평균 (Line Y축)
         "cno_scatter": []      # 전체 위성 점들 (Scatter Y축)
     }
     
-    # iTOW 매칭을 위한 임시 저장소
-    itow_to_time = {} # iTOW -> "HH:MM:SS"
+    # iTOW 추적 (CNO 그래프 동기화용)
+    # 기존엔 iTOW -> "HH:MM:SS" 매핑이었으나, 이제 iTOW 자체를 쓰므로 set으로 키만 관리해도 됨.
+    # 하지만 로직 유지 위해 dict 구조는 남기되 값은 None 등으로 처리 가능.
+    kept_itows = set() 
     itow_to_cno = {}  # iTOW -> [cno1, cno2, ...]
 
     target_class = NAV2_CLASS if use_nav2 else NAV_CLASS
@@ -349,15 +351,15 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                         i = frame_end
                         continue
                     
-                    # [NEW] Time mapping 저장
-                    t_str = f"{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}"
-                    itow_to_time[rec["iTOW"]] = t_str 
+                    # [MODIFIED] iTOW 저장
+                    kept_itows.add(rec["iTOW"])
 
-                    # Graph Data (Accuracy)
+                    # Graph Data (Accuracy) - Use iTOW as label
                     h_acc = rec.get("pos_acc", 0.0)
                     v_acc = rec.get("alt_acc", 0.0)
                     d3_acc = math.sqrt(h_acc**2 + v_acc**2)
-                    graph_data["labels"].append(t_str)
+                    
+                    graph_data["labels"].append(rec["iTOW"]) # Use iTOW directly
                     graph_data["acc2d"].append(round(h_acc, 3))
                     graph_data["acc3d"].append(round(d3_acc, 3))
                     graph_data["fix_type"].append(rec["fixType"])
@@ -428,10 +430,9 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             i = frame_end
 
     # [NEW] Merge PVT Time and SAT CN0 (루프 종료 후 처리)
-    sorted_itows = sorted(list(itow_to_time.keys()))
+    sorted_itows = sorted(list(kept_itows))
     for itow in sorted_itows:
         if itow in itow_to_cno:
-            t_str = itow_to_time[itow]
             cnos = itow_to_cno[itow]
             
             if cnos:
@@ -439,19 +440,17 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 top_k = sorted_cnos[:5] # Top 5
                 avg_cno = sum(top_k) / len(top_k)
                 
-                graph_data["cno_labels"].append(t_str)
+                graph_data["cno_labels"].append(itow) # Use iTOW
                 graph_data["cno_top_avg"].append(round(avg_cno, 1))
                 
                 for c in cnos:
-                    graph_data["cno_scatter"].append({"x": t_str, "y": c})
+                    graph_data["cno_scatter"].append({"x": itow, "y": c}) # Use iTOW
 
     buf.append(FOOTER)
     print(f"{now_str()} | Finished doc.kml (frames: {total_msgs}, placemarks: {valid_msgs}"
           f"{', kept: ' + str(kept) if hz else ''})")
 
     kml_text = ''.join(buf)
-    
-    # HTML 리포트 생성 로직 제거됨
     
     return kml_text, graph_data
 
@@ -491,7 +490,6 @@ def run(ubx_path: str, hz: int = None, use_nav2: bool = False,
     )
     
     write_kmz(kml_text, kmz_path)
-    # HTML 생성 로직 삭제됨
         
     # JSON 파일 저장
     with open(json_path, "w", encoding="utf-8") as f:
@@ -513,7 +511,6 @@ def main():
                     help="Parse only UBX-AID-MAPM and overlay white arrows in KMZ; ignores NAV/NAV2")
     args = ap.parse_args()
     
-    # --html 인자 삭제 및 run 함수 호출 시 관련 파라미터 제거
     run(args.ubx, hz=args.hz, use_nav2=args.nav2,
         alt_abs=args.alt_abs, verify_ck=args.ck, mapm=args.mapm)
 

@@ -262,7 +262,11 @@
           zoom: zoomOptions
         },
         scales: {
-          x: { ticks: { maxTicksLimit: 10 }, grid: { display: false } },
+          x: { 
+            ticks: { maxTicksLimit: 10 }, 
+            grid: { display: false },
+            title: { display: true, text: 'iTOW (ms)' } // [추가] X축 제목
+          },
           y: { 
             beginAtZero: true, 
             title: { display: true, text: 'Accuracy (meters)' },
@@ -308,7 +312,11 @@
             zoom: zoomOptions
           },
           scales: {
-            x: { ticks: { maxTicksLimit: 10 }, grid: { display: false } },
+            x: { 
+              ticks: { maxTicksLimit: 10 }, 
+              grid: { display: false },
+              title: { display: true, text: 'iTOW (ms)' } // [추가] X축 제목
+            },
             y: {
               min: 0, max: 5,
               ticks: {
@@ -369,7 +377,8 @@
               x: {
                 type: 'category',
                 ticks: { maxTicksLimit: 10 },
-                grid: { display: false }
+                grid: { display: false },
+                title: { display: true, text: 'iTOW (ms)' } // [추가] X축 제목
               },
               y: {
                 beginAtZero: true,
@@ -381,8 +390,6 @@
           }
         });
     }
-
-    // [삭제됨] resetAllZooms 함수 삭제
   </script>
   {% endif %}
 </body>
