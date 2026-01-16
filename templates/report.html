@@ -4,6 +4,11 @@
 <link rel="icon" type="image/png" href="/static/favicon.png">
   <meta charset="utf-8">
   <title>Analysis Result</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+
   <style>
     :root {
       --bg: #f9fafc;
@@ -22,7 +27,7 @@
       background: var(--bg);
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       margin: 40px auto;
-      max-width: 800px;
+      max-width: 1200px;
       color: #111827;
     }
     h1 {
@@ -36,6 +41,7 @@
       border-radius: 10px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.05);
       padding: 24px 28px;
+      margin-bottom: 20px;
     }
     ul {
       list-style: none;
@@ -80,11 +86,27 @@
       font-weight: 500;
     }
     footer a:hover { text-decoration: underline; }
+    
+    .chart-section {
+        margin-top: 24px; 
+        border-top: 1px solid #eee; 
+        padding-top: 16px;
+    }
+    .chart-header {
+        display:flex; 
+        justify-content:space-between; 
+        align-items:center; 
+        margin-bottom:10px;
+    }
+    .chart-box {
+        position: relative; 
+        height: 300px; 
+        width: 100%;
+    }
   </style>
 
   {% if r.status != 'done' %}
   <script>
-    // Auto refresh every 3s until processing is done
     setTimeout(() => location.reload(), 3000);
   </script>
   {% endif %}
@@ -121,10 +143,240 @@
         {% endif %}
       </li>
     </ul>
+
+    {% if graph_data %}
+    <div style="text-align:right; margin-top:20px;">
+        <button onclick="resetAllZooms()" style="cursor:pointer; padding:6px 12px;">Reset All Zoom</button>
+    </div>
+    {% endif %}
+
+    {% if graph_data %}
+    <div class="chart-section">
+      <div class="chart-header">
+        <h3 style="margin:0;">Position Accuracy (2D vs 3D)</h3>
+      </div>
+      <p style="font-size:12px; color:#666; margin-top:0;">* Scroll to zoom, Drag to pan</p>
+      <div class="chart-box">
+        <canvas id="accChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data and graph_data.fix_type %}
+    <div class="chart-section">
+      <div class="chart-header">
+        <h3 style="margin:0;">Fix Type Status</h3>
+      </div>
+      <div class="chart-box" style="height: 200px;">
+        <canvas id="fixChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data and graph_data.cno_scatter and graph_data.cno_scatter|length > 0 %}
+    <div class="chart-section">
+      <div class="chart-header">
+        <h3 style="margin:0;">Satellite Signal Density (CN0)</h3>
+      </div>
+      <p style="font-size:12px; color:#666; margin-top:0;">* Green Line: Top 5 Avg | Blue Dots: Individual Satellites</p>
+      
+      <div class="chart-box" style="height: 350px;">
+        <canvas id="cnoChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
   </div>
 
   <footer>
     <p><a href="/recent">← Back to Recent Results</a> | <a href="/">Upload Another File</a></p>
   </footer>
+
+  {% if graph_data %}
+  <script>
+    let accChartInstance = null;
+    let fixChartInstance = null;
+    let cnoChartInstance = null;
+
+    // Y축 영역 너비 고정 (모든 차트 정렬용)
+    const FIXED_Y_WIDTH = 85; 
+
+    // 독립적인 줌 옵션
+    const zoomOptions = {
+        pan: { enabled: true, mode: 'x' },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x'
+        }
+    };
+
+    const gData = {{ graph_data | tojson }};
+
+    // 1. Accuracy Chart
+    const ctxAcc = document.getElementById('accChart').getContext('2d');
+    accChartInstance = new Chart(ctxAcc, {
+      type: 'line',
+      data: {
+        labels: gData.labels,
+        datasets: [
+          {
+            label: '2D Accuracy (m)',
+            data: gData.acc2d,
+            borderColor: '#0078ff',
+            backgroundColor: 'rgba(0, 120, 255, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.1
+          },
+          {
+            label: '3D Accuracy (m)',
+            data: gData.acc3d,
+            borderColor: '#ff4d4d',
+            backgroundColor: 'rgba(255, 77, 77, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { mode: 'index', intersect: false },
+          zoom: zoomOptions
+        },
+        scales: {
+          x: { ticks: { maxTicksLimit: 10 }, grid: { display: false } },
+          y: { 
+            beginAtZero: true, 
+            title: { display: true, text: 'Accuracy (meters)' },
+            afterFit: (ctx) => { ctx.width = FIXED_Y_WIDTH; }
+          }
+        }
+      }
+    });
+
+    // 2. Fix Type Chart
+    if (gData.fix_type && gData.fix_type.length > 0) {
+      const ctxFix = document.getElementById('fixChart').getContext('2d');
+      fixChartInstance = new Chart(ctxFix, {
+        type: 'line',
+        data: {
+          labels: gData.labels,
+          datasets: [{
+            label: 'Fix Type',
+            data: gData.fix_type,
+            borderColor: '#9d7bff',
+            backgroundColor: 'rgba(157, 123, 255, 0.1)',
+            borderWidth: 2,
+            stepped: true, 
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false }, 
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const map = {0:'No fix', 1:'DR', 2:'2D', 3:'3D', 4:'GNSS+DR', 5:'Time'};
+                  return map[context.raw] || context.raw;
+                }
+              }
+            },
+            zoom: zoomOptions
+          },
+          scales: {
+            x: { ticks: { maxTicksLimit: 10 }, grid: { display: false } },
+            y: {
+              min: 0, max: 5,
+              ticks: {
+                stepSize: 1,
+                callback: function(val) {
+                  const map = {0:'No fix', 1:'DR', 2:'2D', 3:'3D', 4:'GNSS+DR', 5:'Time'};
+                  return map[val] !== undefined ? map[val] : '';
+                }
+              },
+              title: { display: true, text: 'Fix Type' },
+              afterFit: (ctx) => { ctx.width = FIXED_Y_WIDTH; }
+            }
+          }
+        }
+      });
+    }
+
+    // 3. CN0 Chart
+    const cnoCanvas = document.getElementById('cnoChart');
+    if (cnoCanvas && gData.cno_scatter && gData.cno_scatter.length > 0) {
+        const ctxCno = cnoCanvas.getContext('2d');
+        cnoChartInstance = new Chart(ctxCno, {
+          data: {
+            labels: gData.cno_labels || gData.labels, 
+            datasets: [
+              {
+                type: 'line',
+                label: 'Top 5 Avg (Quality)',
+                data: gData.cno_top_avg,
+                borderColor: '#00E676',
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.1,
+                order: 1,
+                spanGaps: true // [FIX] 끊어진 선 연결
+              },
+              {
+                type: 'scatter',
+                label: 'Satellite Signal',
+                data: gData.cno_scatter,
+                backgroundColor: 'rgba(33, 150, 243, 0.05)',
+                pointRadius: 2,
+                pointHoverRadius: 2,
+                borderWidth: 0,
+                order: 2
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { position: 'top' },
+              zoom: zoomOptions
+            },
+            scales: {
+              x: {
+                type: 'category',
+                ticks: { maxTicksLimit: 10 },
+                grid: { display: false }
+              },
+              y: {
+                beginAtZero: true,
+                suggestedMax: 60,
+                title: { display: true, text: 'CN0 (dBHz)' },
+                afterFit: (ctx) => { ctx.width = FIXED_Y_WIDTH; }
+              }
+            }
+          }
+        });
+    }
+
+    function resetAllZooms() {
+      if(accChartInstance) accChartInstance.resetZoom();
+      if(fixChartInstance) fixChartInstance.resetZoom();
+      if(cnoChartInstance) cnoChartInstance.resetZoom();
+    }
+  </script>
+  {% endif %}
 </body>
 </html>

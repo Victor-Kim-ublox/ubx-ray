@@ -25,6 +25,7 @@ UBX_SYNC2 = 0x62
 NAV_CLASS  = 0x01
 NAV2_CLASS = 0x29
 PVT_ID     = 0x07
+SAT_ID     = 0x35
 
 VALID_LEN_SET = {92, 96}
 PROGRESS_EVERY = 1000
@@ -266,6 +267,33 @@ def parse_nav_pvt(payload: memoryview):
         "pos_acc": hAcc, "alt_acc": vAcc, "speed_acc": sAcc, "speed_acc_kmh": sAcc_kmh, "head_acc": headAcc, 
     }
 
+def parse_nav_sat(payload: memoryview):
+    """
+    Parse UBX-NAV-SAT (0x01 0x35)
+    Header: 8 bytes [iTOW(4), version(1), numSvs(1), reserved(2)]
+    Block: 12 bytes per SV
+    """
+    if len(payload) < 8:
+        return None
+    iTOW = int.from_bytes(payload[0:4], 'little', signed=False)
+    numSvs = payload[5]
+    
+    # Check length validity
+    if len(payload) < 8 + 12 * numSvs:
+        return None
+
+    cnos = []
+    offset = 8
+    for _ in range(numSvs):
+        # Block structure: gnssId(1), svId(1), cno(1), elev(1), azim(2), prRes(2), flags(4)
+        cno = payload[offset + 2] # dBHz
+        
+        if cno > 0: # 유효한 신호만 수집
+            cnos.append(cno)
+        offset += 12
+        
+    return {"iTOW": iTOW, "cnos": cnos}
+
 def normalize_heading(deg: float) -> float:
     h = math.fmod(deg if deg is not None else 0.0, 360.0)
     if h < 0:
@@ -282,13 +310,27 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
 
     fix_counts = defaultdict(int)
     ok_counts  = defaultdict(int)
-    fix_series = []     # [{t: iTOW_s, fixType: int}]
-    numsv_series = []   # [{t: iTOW_s, v: int}]
-    gspeed_series = []  # [{t: iTOW_s, v: float}]
-    ok_series   = []    # [{t: iTOW_s, ok: 0|1}]
+    fix_series = []
+    numsv_series = []
+    gspeed_series = []
+    ok_series   = []
+
+    # [NEW] Graph data structures (CN0 관련 키 추가)
+    graph_data = {
+        "labels": [],
+        "acc2d": [],
+        "acc3d": [],
+        "cno_labels": [],      # 시간 (X축)
+        "cno_top_avg": [],     # Top 5 평균 (Line Y축)
+        "cno_scatter": []      # 전체 위성 점들 (Scatter Y축)
+    }
+    
+    # iTOW 매칭을 위한 임시 저장소
+    itow_to_time = {} # iTOW -> "HH:MM:SS"
+    itow_to_cno = {}  # iTOW -> [cno1, cno2, ...]
 
     target_class = NAV2_CLASS if use_nav2 else NAV_CLASS
-    period = 1000 // hz if hz else None  # iTOW(ms) 간격
+    period = 1000 // hz if hz else None
 
     buf.append(HEADER)
     with open(ubx_path, "rb") as f:
@@ -300,24 +342,23 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             if mv[i] != UBX_SYNC1 or mv[i+1] != UBX_SYNC2:
                 i += 1
                 continue
-            if i + 6 >= n:
-                break
+            if i + 6 >= n: break
             cls_ = mv[i+2]
             id_  = mv[i+3]
             length = mv[i+4] | (mv[i+5] << 8)
             frame_end = i + 6 + length + 2
-            if frame_end > n:
-                break
+            if frame_end > n: break
 
             payload = mv[i+6:i+6+length]
             ck_a, ck_b = mv[i+6+length], mv[i+6+length+1]
 
             if verify_ck:
-                ca, cb = fletcher_ck(mv[i+2:frame_end-2])  # class,id,len(2),payload
+                ca, cb = fletcher_ck(mv[i+2:frame_end-2])
                 if ca != ck_a or cb != ck_b:
                     i += 2
                     continue
 
+            # 1. NAV-PVT 처리
             if cls_ == target_class and id_ == PVT_ID:
                 total_msgs += 1
                 rec = parse_nav_pvt(payload)
@@ -325,17 +366,27 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     if hz and (rec["iTOW"] % period) != 0:
                         i = frame_end
                         continue
+                    
+                    # [NEW] Time mapping 저장
+                    t_str = f"{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}"
+                    itow_to_time[rec["iTOW"]] = t_str 
 
-                    # gnssFixOK (Fix status flags bit0)
+                    # Graph Data (Accuracy)
+                    h_acc = rec.get("pos_acc", 0.0)
+                    v_acc = rec.get("alt_acc", 0.0)
+                    d3_acc = math.sqrt(h_acc**2 + v_acc**2)
+                    graph_data["labels"].append(t_str)
+                    graph_data["acc2d"].append(round(h_acc, 3))
+                    graph_data["acc3d"].append(round(d3_acc, 3))
+
+                    # KML Placemark 생성 (기존 로직 유지)
                     gnssFixOK = (rec.get("flags", 0) & 0x01) != 0
-
-                    # Decide heading & KML color (AABBGGRR)
                     if not gnssFixOK:
                         if rec["headVeh"] is not None:
                             heading_raw = rec["headVeh"]; heading_src = "headVeh"
                         else:
                             heading_raw = rec["headMot"]; heading_src = "headMot"
-                        color = "FFFF0000"  # blue
+                        color = "FFFF0000"
                     elif rec["fixType"] == 3:
                         heading_raw = rec["headMot"]; heading_src = "headMot"; color = "FF00C800"
                     elif rec["fixType"] == 4:
@@ -344,7 +395,7 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                         else:
                             heading_raw = rec["headMot"]; heading_src = "headMot"
                         color = "FF00A5FF"
-                    else:  # fixType == 1 (DR) or others
+                    else:
                         if rec["headVeh"] is not None:
                             heading_raw = rec["headVeh"]; heading_src = "headVeh"
                         else:
@@ -394,11 +445,32 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                         gspeed_series.append({"t": tsec, "v": float(rec["speed_m_s"])})
                         ok_series.append({"t": tsec, "ok": 1 if gnssFixOK else 0})
 
-                    if (valid_msgs % PROGRESS_EVERY) == 0:
-                        print(f"{now_str()} | Writing placemarks: {valid_msgs}"
-                              f"{' / kept ' + str(kept) if hz else ''} "
-                              f"(total frames: {total_msgs})")
+            # 2. [NEW] NAV-SAT 처리 (추가된 부분)
+            elif cls_ == NAV_CLASS and id_ == SAT_ID:
+                sat_rec = parse_nav_sat(payload)
+                if sat_rec:
+                    itow_to_cno[sat_rec["iTOW"]] = sat_rec["cnos"]
+
             i = frame_end
+
+    # [NEW] Merge PVT Time and SAT CN0 (루프 종료 후 처리)
+    sorted_itows = sorted(list(itow_to_time.keys()))
+    for itow in sorted_itows:
+        if itow in itow_to_cno:
+            t_str = itow_to_time[itow]
+            cnos = itow_to_cno[itow]
+            
+            if cnos:
+                sorted_cnos = sorted(cnos, reverse=True)
+                top_k = sorted_cnos[:5] # Top 5
+                avg_cno = sum(top_k) / len(top_k)
+                
+                graph_data["cno_labels"].append(t_str)
+                graph_data["cno_top_avg"].append(round(avg_cno, 1))
+                
+                for c in cnos:
+                    graph_data["cno_scatter"].append({"x": t_str, "y": c})
+
     buf.append(FOOTER)
     print(f"{now_str()} | Finished doc.kml (frames: {total_msgs}, placemarks: {valid_msgs}"
           f"{', kept: ' + str(kept) if hz else ''})")
@@ -418,7 +490,7 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             ok_series=ok_series,
             ok_counts=dict(sorted(ok_counts.items()))
         )
-    return kml_text, html_text
+    return kml_text, html_text, graph_data
 
 def write_kmz(kml_text: str, kmz_path: str) -> None:
     os.makedirs(os.path.dirname(kmz_path) or '.', exist_ok=True)
@@ -946,6 +1018,7 @@ updateVisibility();
 """
     return head + data_block + js_rest
 
+# [수정] 이 함수를 통째로 덮어쓰세요
 def run(ubx_path: str, hz: int = None, use_nav2: bool = False,
         alt_abs: bool = False, verify_ck: bool = False, html: bool = False, mapm: bool = False):
     base, _ = os.path.splitext(ubx_path)
@@ -964,16 +1037,27 @@ def run(ubx_path: str, hz: int = None, use_nav2: bool = False,
     suffix = suffix + ("_ck" if verify_ck else "_nock")
     kmz_path = base + suffix + ".kmz"
     html_path = base + suffix + ".html" if html else None
+    
+    # JSON 파일 경로
+    json_path = base + "_graph.json"
 
     print(f"{now_str()} | KMZ mode: {kmz_path}{' + HTML' if html else ''}")
-    kml_text, html_text = build_kml(
+    
+    # build_kml에서 graph_data도 함께 받아옴
+    kml_text, html_text, graph_data = build_kml(
         ubx_path, hz=hz, use_nav2=use_nav2,
         alt_abs=alt_abs, verify_ck=verify_ck,
         want_html=html
     )
+    
     write_kmz(kml_text, kmz_path)
     if html and html_text is not None:
         write_html(html_text, html_path)
+        
+    # JSON 파일 저장
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(graph_data, f)
+    print(f"{now_str()} | Graph JSON saved -> {json_path}")
 
 def main():
     ap = argparse.ArgumentParser(description="UBX NAV/NAV2-PVT -> KMZ (+ optional HTML report incl. gnssFixOK) + AID-MAPM (--mapm)")

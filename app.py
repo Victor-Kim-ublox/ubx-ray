@@ -551,7 +551,38 @@ def report(request: Request, rid: str, authorization: Optional[str] = Header(Non
     if r["kmz_path"] and not os.path.exists(r["kmz_path"]):
         r["kmz_path"] = None
 
-    return templates.TemplateResponse("report.html", {"request": request, "r": r})
+    # [NEW] Load graph data if available
+    graph_data = None
+    # JSON file is expected at uploads/{rid}_{filename base}_graph.json
+    # or simpler: verify where ubx2kmz saved it.
+    # ubx2kmz saved it as: os.path.splitext(ubx_path)[0] + "_graph.json"
+    # We reconstruct the original upload path to find it.
+    
+    if r["filename"]:
+        # Reconstruct the original save path used in /upload
+        # save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+        # Note: We need to match the logic in /upload exactly.
+        # Assuming r['filename'] is the clean_name stored in DB.
+        
+        # Original upload path (without extension check, just path construction)
+        base_name = f"{rid}_{r['filename']}"
+        upload_path = os.path.join(UPLOAD_DIR, base_name)
+        
+        # JSON path logic from ubx2kmz: os.path.splitext(ubx_path)[0] + "_graph.json"
+        json_path = os.path.splitext(upload_path)[0] + "_graph.json"
+        
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    graph_data = json.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to load graph JSON {json_path}: {e}")
+
+    return templates.TemplateResponse("report.html", {
+        "request": request, 
+        "r": r, 
+        "graph_data": graph_data
+    })
 
 @app.get("/recent", response_class=HTMLResponse)
 def recent(request: Request, authorization: Optional[str] = Header(None)):
