@@ -205,7 +205,7 @@
     </div>
     {% endif %}
 
-    {% if graph_data and graph_data.cno_scatter and graph_data.cno_scatter|length > 0 %}
+    {% if graph_data and (graph_data.cno_scatter|length > 0 or graph_data.cno_top_avg|length > 0) %}
     <div class="chart-section">
       <div class="chart-header">
         <h3 style="margin:0;">Satellite Signal Density (CN0)</h3>
@@ -265,15 +265,20 @@
     function syncCharts(sourceChart) {
         const x = sourceChart.scales.x;
         if (!x) return;
-        const min = x.min;
-        const max = x.max;
+        
+        // [수정] min/max 값을 100ms 단위로 반올림 (Snap to 100ms Grid)
+        // 예: 12345678 -> 12345700
+        const min = Math.round(x.min / 100) * 100;
+        const max = Math.round(x.max / 100) * 100;
         
         const charts = [accChartInstance, fixChartInstance, cnoChartInstance];
         charts.forEach(chart => {
-            if (chart && chart !== sourceChart && chart.scales.x) {
+            // [수정] sourceChart를 포함한 '모든' 차트에 스냅된 min/max를 강제 적용
+            // 기존 조건 (chart !== sourceChart)를 제거함
+            if (chart && chart.scales.x) {
                 chart.options.scales.x.min = min;
                 chart.options.scales.x.max = max;
-                chart.update('none');
+                chart.update('none'); // 애니메이션 없이 즉시 업데이트
             }
         });
     }
@@ -311,6 +316,7 @@
         ticks: { 
             maxTicksLimit: 8,
             callback: function(value) {
+                const intValue = Math.round(value);
                 // iTOW값 아래에 (HH:MM:SS) 시간 표시
                 return [value, `(${formatITOW(value)})`];
             }
@@ -325,7 +331,7 @@
         intersect: false,
         callbacks: {
             title: function(context) {
-                const val = context[0].parsed.x;
+                const val = Math.round(context[0].parsed.x);
                 return `iTOW: ${val}  |  UTC: ${formatITOW(val)}`;
             }
         }
@@ -440,7 +446,7 @@
 
     // 3. CN0 Chart
     const cnoCanvas = document.getElementById('cnoChart');
-    if (cnoCanvas && gData.cno_scatter && gData.cno_scatter.length > 0) {
+    if (cnoCanvas && ( (gData.cno_scatter && gData.cno_scatter.length > 0) || (gData.cno_top_avg && gData.cno_top_avg.length > 0) )) {
         const ctxCno = cnoCanvas.getContext('2d');
         cnoChartInstance = new Chart(ctxCno, {
           data: {
@@ -477,7 +483,12 @@
             interaction: { mode: 'nearest', intersect: false, axis: 'x' },
             plugins: {
               legend: { position: 'top' },
-              tooltip: commonTooltip,
+              // [수정] 툴팁 모드를 'index'에서 'nearest'로 변경하여 X축 시간이 다른 데이터가 매칭되는 문제 해결
+              tooltip: {
+                mode: 'nearest', 
+                intersect: false,
+                callbacks: commonTooltip.callbacks // 시간 포맷(Title) 등 기존 설정은 유지
+              },
               zoom: zoomOptions
             },
             scales: {

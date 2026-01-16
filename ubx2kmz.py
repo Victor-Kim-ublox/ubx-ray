@@ -459,7 +459,7 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     sorted_itows = sorted(list(kept_itows))
     
     estimated_points = len(sorted_itows) * 25
-    MAX_POINTS = 20000 
+    MAX_POINTS = 300000 
     
     scatter_stride = 1
     if estimated_points > MAX_POINTS:
@@ -471,17 +471,22 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     for idx, itow in enumerate(sorted_itows):
         if itow in itow_to_cno:
             cnos = itow_to_cno[itow]
+            
+            # [수정] 신호가 없으면(empty list) 0으로 처리하여 그래프 끊김 방지
+            avg_cno = 0.0
             if cnos:
                 sorted_cnos = sorted(cnos, reverse=True)
                 top_k = sorted_cnos[:5]
-                avg_cno = sum(top_k) / len(top_k)
-                
-                graph_data["cno_labels"].append(itow)
-                graph_data["cno_top_avg"].append(round(avg_cno, 1))
-                
-                if idx % scatter_stride == 0:
-                    for c in cnos:
-                        all_scatter_points.append({"x": itow, "y": c})
+                avg_cno = sum(top_k) / 5
+
+            # 데이터가 0이어도 항상 추가
+            graph_data["cno_labels"].append(itow)
+            graph_data["cno_top_avg"].append(round(avg_cno, 1))
+            
+            # Scatter는 데이터가 있을 때만 추가
+            if cnos and (idx % scatter_stride == 0):
+                for c in cnos:
+                    all_scatter_points.append({"x": itow, "y": c})
 
     graph_data["cno_scatter"] = all_scatter_points
 
