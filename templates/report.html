@@ -223,7 +223,7 @@
 
     const gData = {{ graph_data | tojson }};
 
-    // 1. Accuracy Chart
+    // 1. Accuracy Chart (애니메이션 유지)
     const ctxAcc = document.getElementById('accChart').getContext('2d');
     accChartInstance = new Chart(ctxAcc, {
       type: 'line',
@@ -265,7 +265,7 @@
           x: { 
             ticks: { maxTicksLimit: 10 }, 
             grid: { display: false },
-            title: { display: true, text: 'iTOW (ms)' } // [추가] X축 제목
+            title: { display: true, text: 'iTOW (ms)' }
           },
           y: { 
             beginAtZero: true, 
@@ -276,7 +276,7 @@
       }
     });
 
-    // 2. Fix Type Chart
+    // 2. Fix Type Chart (애니메이션 유지)
     if (gData.fix_type && gData.fix_type.length > 0) {
       const ctxFix = document.getElementById('fixChart').getContext('2d');
       fixChartInstance = new Chart(ctxFix, {
@@ -315,7 +315,7 @@
             x: { 
               ticks: { maxTicksLimit: 10 }, 
               grid: { display: false },
-              title: { display: true, text: 'iTOW (ms)' } // [추가] X축 제목
+              title: { display: true, text: 'iTOW (ms)' }
             },
             y: {
               min: 0, max: 5,
@@ -334,7 +334,7 @@
       });
     }
 
-    // 3. CN0 Chart
+    // 3. CN0 Chart (최적화 적용: 애니메이션 제거, 단순화)
     const cnoCanvas = document.getElementById('cnoChart');
     if (cnoCanvas && gData.cno_scatter && gData.cno_scatter.length > 0) {
         const ctxCno = cnoCanvas.getContext('2d');
@@ -349,7 +349,7 @@
                 borderColor: '#00E676',
                 borderWidth: 2,
                 pointRadius: 0,
-                tension: 0.1,
+                tension: 0, // [최적화] 곡선 계산 제거 (직선)
                 order: 1,
                 spanGaps: true
               },
@@ -357,8 +357,8 @@
                 type: 'scatter',
                 label: 'Satellite Signal',
                 data: gData.cno_scatter,
-                backgroundColor: 'rgba(33, 150, 243, 0.05)',
-                pointRadius: 2,
+                backgroundColor: 'rgba(33, 150, 243, 0.15)', // 투명도 조절
+                pointRadius: 1.5, // [최적화] 점 크기 축소
                 pointHoverRadius: 2,
                 borderWidth: 0,
                 order: 2
@@ -368,9 +368,12 @@
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
+            animation: false, // [최적화] 애니메이션 제거
+            normalized: true, // [최적화] 데이터 정렬 힌트
+            interaction: { mode: 'nearest', intersect: false, axis: 'x' }, // [최적화] 빠른 상호작용 모드
             plugins: {
               legend: { position: 'top' },
+              tooltip: { animation: false }, // [최적화] 툴팁 애니메이션 제거
               zoom: zoomOptions
             },
             scales: {
@@ -378,7 +381,7 @@
                 type: 'category',
                 ticks: { maxTicksLimit: 10 },
                 grid: { display: false },
-                title: { display: true, text: 'iTOW (ms)' } // [추가] X축 제목
+                title: { display: true, text: 'iTOW (ms)' }
               },
               y: {
                 beginAtZero: true,
