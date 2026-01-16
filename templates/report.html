@@ -103,6 +103,20 @@
         height: 300px; 
         width: 100%;
     }
+    /* 새로 추가된 리셋 버튼 스타일 */
+    .reset-btn {
+        cursor: pointer;
+        padding: 4px 10px;
+        font-size: 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: #fff;
+        color: #555;
+    }
+    .reset-btn:hover {
+        background-color: #f3f3f3;
+        border-color: #ccc;
+    }
   </style>
 
   {% if r.status != 'done' %}
@@ -145,15 +159,10 @@
     </ul>
 
     {% if graph_data %}
-    <div style="text-align:right; margin-top:20px;">
-        <button onclick="resetAllZooms()" style="cursor:pointer; padding:6px 12px;">Reset All Zoom</button>
-    </div>
-    {% endif %}
-
-    {% if graph_data %}
     <div class="chart-section">
       <div class="chart-header">
         <h3 style="margin:0;">Position Accuracy (2D vs 3D)</h3>
+        <button class="reset-btn" onclick="if(accChartInstance) accChartInstance.resetZoom()">Reset Zoom</button>
       </div>
       <p style="font-size:12px; color:#666; margin-top:0;">* Scroll to zoom, Drag to pan</p>
       <div class="chart-box">
@@ -166,6 +175,7 @@
     <div class="chart-section">
       <div class="chart-header">
         <h3 style="margin:0;">Fix Type Status</h3>
+        <button class="reset-btn" onclick="if(fixChartInstance) fixChartInstance.resetZoom()">Reset Zoom</button>
       </div>
       <div class="chart-box" style="height: 200px;">
         <canvas id="fixChart"></canvas>
@@ -177,6 +187,7 @@
     <div class="chart-section">
       <div class="chart-header">
         <h3 style="margin:0;">Satellite Signal Density (CN0)</h3>
+        <button class="reset-btn" onclick="if(cnoChartInstance) cnoChartInstance.resetZoom()">Reset Zoom</button>
       </div>
       <p style="font-size:12px; color:#666; margin-top:0;">* Green Line: Top 5 Avg | Blue Dots: Individual Satellites</p>
       
@@ -332,7 +343,7 @@
                 pointRadius: 0,
                 tension: 0.1,
                 order: 1,
-                spanGaps: true // [FIX] 끊어진 선 연결
+                spanGaps: true
               },
               {
                 type: 'scatter',
@@ -371,11 +382,7 @@
         });
     }
 
-    function resetAllZooms() {
-      if(accChartInstance) accChartInstance.resetZoom();
-      if(fixChartInstance) fixChartInstance.resetZoom();
-      if(cnoChartInstance) cnoChartInstance.resetZoom();
-    }
+    // [삭제됨] resetAllZooms 함수 삭제
   </script>
   {% endif %}
 </body>
