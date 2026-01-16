@@ -106,9 +106,7 @@
         position: relative; 
         height: 300px; 
         width: 100%;
-        transition: height 0.3s ease; /* 부드러운 전환 */
     }
-    /* 리셋 및 토글 버튼 스타일 */
     .reset-btn {
         cursor: pointer;
         padding: 4px 10px;
@@ -131,6 +129,7 @@
   {% endif %}
   
   <script>
+      // 차트 숨기기/보이기 토글 함수
       function toggleChart(boxId, btn) {
           const box = document.getElementById(boxId);
           if (box.style.display === 'none') {
@@ -181,10 +180,10 @@
         <h3 style="margin:0;">Position Accuracy (2D vs 3D)</h3>
         <div class="chart-controls">
             <button class="reset-btn" onclick="toggleChart('accChartBox', this)">Hide Chart</button>
-            <button class="reset-btn" onclick="if(accChartInstance) accChartInstance.resetZoom()">Reset Zoom</button>
+            <button class="reset-btn" onclick="resetAllZooms()">Reset All</button>
         </div>
       </div>
-      <p style="font-size:12px; color:#666; margin-top:0;">* Scroll to zoom, Drag to pan</p>
+      <p style="font-size:12px; color:#666; margin-top:0;">* Scroll to zoom, Drag to pan (Synced)</p>
       <div class="chart-box" id="accChartBox">
         <canvas id="accChart"></canvas>
       </div>
@@ -197,7 +196,7 @@
         <h3 style="margin:0;">Fix Type Status</h3>
         <div class="chart-controls">
             <button class="reset-btn" onclick="toggleChart('fixChartBox', this)">Hide Chart</button>
-            <button class="reset-btn" onclick="if(fixChartInstance) fixChartInstance.resetZoom()">Reset Zoom</button>
+            <button class="reset-btn" onclick="resetAllZooms()">Reset All</button>
         </div>
       </div>
       <div class="chart-box" id="fixChartBox" style="height: 200px;">
@@ -212,7 +211,7 @@
         <h3 style="margin:0;">Satellite Signal Density (CN0)</h3>
         <div class="chart-controls">
             <button class="reset-btn" onclick="toggleChart('cnoChartBox', this)">Hide Chart</button>
-            <button class="reset-btn" onclick="if(cnoChartInstance) cnoChartInstance.resetZoom()">Reset Zoom</button>
+            <button class="reset-btn" onclick="resetAllZooms()">Reset All</button>
         </div>
       </div>
       <p style="font-size:12px; color:#666; margin-top:0;">* Green Line: Top 5 Avg | Blue Dots: Individual Satellites</p>
@@ -228,28 +227,111 @@
     <p><a href="/recent">← Back to Recent Results</a> | <a href="/">Upload Another File</a></p>
   </footer>
 
-  {% if graph_data %}
+{% if graph_data %}
   <script>
     let accChartInstance = null;
     let fixChartInstance = null;
     let cnoChartInstance = null;
 
-    // Y축 영역 너비 고정 (모든 차트 정렬용)
     const FIXED_Y_WIDTH = 85; 
 
-    // 독립적인 줌 옵션
+    // 데이터 로드
+    const gData = {{ graph_data | tojson }};
+    
+    // 데이터의 시작과 끝 계산
+    const xLabels = gData.labels;
+    const minX = xLabels.length > 0 ? xLabels[0] : null;
+    const maxX = xLabels.length > 0 ? xLabels[xLabels.length - 1] : null;
+
+    // [수정됨] iTOW -> UTC 시간 변환 함수 (요일 제거, 시간만 표시)
+    function formatITOW(itow) {
+        if (itow == null) return '';
+        // GPS Time -> UTC (approx -18s)
+        let ms = itow - 18000; 
+        if (ms < 0) ms += 604800000; // 주 넘김 보정
+
+        // 하루(86400초) 내에서의 초 계산
+        const totalSec = Math.floor(ms / 1000);
+        const rem = totalSec % 86400;
+        
+        const hh = Math.floor(rem / 3600).toString().padStart(2, '0');
+        const mm = Math.floor((rem % 3600) / 60).toString().padStart(2, '0');
+        const ss = (rem % 60).toString().padStart(2, '0');
+        
+        return `${hh}:${mm}:${ss}`;
+    }
+
+    // 동기화 함수
+    function syncCharts(sourceChart) {
+        const x = sourceChart.scales.x;
+        if (!x) return;
+        const min = x.min;
+        const max = x.max;
+        
+        const charts = [accChartInstance, fixChartInstance, cnoChartInstance];
+        charts.forEach(chart => {
+            if (chart && chart !== sourceChart && chart.scales.x) {
+                chart.options.scales.x.min = min;
+                chart.options.scales.x.max = max;
+                chart.update('none');
+            }
+        });
+    }
+
+    // 줌 리셋 함수
+    function resetAllZooms() {
+        const charts = [accChartInstance, fixChartInstance, cnoChartInstance];
+        charts.forEach(c => {
+            if(c) {
+                c.resetZoom(); 
+                c.options.scales.x.min = minX;
+                c.options.scales.x.max = maxX;
+                c.update(); 
+            }
+        });
+    }
+
     const zoomOptions = {
-        pan: { enabled: true, mode: 'x' },
+        pan: { 
+            enabled: true, mode: 'x',
+            onPan: ({chart}) => syncCharts(chart) 
+        },
         zoom: {
-          wheel: { enabled: true },
-          pinch: { enabled: true },
-          mode: 'x'
+          wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x',
+          onZoom: ({chart}) => syncCharts(chart)
+        },
+        limits: { x: { min: minX, max: maxX, minRange: 1000 } }
+    };
+
+    // 공통 X축 설정 (UTC 시간 라벨 추가)
+    const commonScalesX = {
+        type: 'linear',
+        min: minX,
+        max: maxX,
+        ticks: { 
+            maxTicksLimit: 8,
+            callback: function(value) {
+                // iTOW값 아래에 (HH:MM:SS) 시간 표시
+                return [value, `(${formatITOW(value)})`];
+            }
+        }, 
+        grid: { display: false },
+        title: { display: true, text: 'iTOW (ms) / UTC Time' }
+    };
+
+    // 공통 툴팁 설정
+    const commonTooltip = {
+        mode: 'index', 
+        intersect: false,
+        callbacks: {
+            title: function(context) {
+                const val = context[0].parsed.x;
+                return `iTOW: ${val}  |  UTC: ${formatITOW(val)}`;
+            }
         }
     };
 
-    const gData = {{ graph_data | tojson }};
-
-    // 1. Accuracy Chart (애니메이션 유지)
+    // 1. Accuracy Chart
     const ctxAcc = document.getElementById('accChart').getContext('2d');
     accChartInstance = new Chart(ctxAcc, {
       type: 'line',
@@ -285,15 +367,11 @@
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { position: 'top' },
-          tooltip: { mode: 'index', intersect: false },
+          tooltip: commonTooltip,
           zoom: zoomOptions
         },
         scales: {
-          x: { 
-            ticks: { maxTicksLimit: 10 }, 
-            grid: { display: false },
-            title: { display: true, text: 'iTOW (ms)' }
-          },
+          x: commonScalesX,
           y: { 
             beginAtZero: true, 
             title: { display: true, text: 'Accuracy (meters)' },
@@ -303,7 +381,7 @@
       }
     });
 
-    // 2. Fix Type Chart (애니메이션 유지)
+    // 2. Fix Type Chart
     if (gData.fix_type && gData.fix_type.length > 0) {
       const ctxFix = document.getElementById('fixChart').getContext('2d');
       fixChartInstance = new Chart(ctxFix, {
@@ -330,21 +408,19 @@
           plugins: {
             legend: { display: false }, 
             tooltip: {
+              ...commonTooltip,
               callbacks: {
+                ...commonTooltip.callbacks,
                 label: function(context) {
                   const map = {0:'No fix', 1:'DR', 2:'2D', 3:'3D', 4:'GNSS+DR', 5:'Time'};
-                  return map[context.raw] || context.raw;
+                  return (map[context.raw] || context.raw);
                 }
               }
             },
             zoom: zoomOptions
           },
           scales: {
-            x: { 
-              ticks: { maxTicksLimit: 10 }, 
-              grid: { display: false },
-              title: { display: true, text: 'iTOW (ms)' }
-            },
+            x: commonScalesX,
             y: {
               min: 0, max: 5,
               ticks: {
@@ -362,7 +438,7 @@
       });
     }
 
-    // 3. CN0 Chart (최적화 적용: 애니메이션 제거, 단순화)
+    // 3. CN0 Chart
     const cnoCanvas = document.getElementById('cnoChart');
     if (cnoCanvas && gData.cno_scatter && gData.cno_scatter.length > 0) {
         const ctxCno = cnoCanvas.getContext('2d');
@@ -377,7 +453,7 @@
                 borderColor: '#00E676',
                 borderWidth: 2,
                 pointRadius: 0,
-                tension: 0, // [최적화] 곡선 계산 제거 (직선)
+                tension: 0,
                 order: 1,
                 spanGaps: true
               },
@@ -385,8 +461,8 @@
                 type: 'scatter',
                 label: 'Satellite Signal',
                 data: gData.cno_scatter,
-                backgroundColor: 'rgba(33, 150, 243, 0.15)', // 투명도 조절
-                pointRadius: 1.5, // [최적화] 점 크기 축소
+                backgroundColor: 'rgba(33, 150, 243, 0.15)', 
+                pointRadius: 1.5,
                 pointHoverRadius: 2,
                 borderWidth: 0,
                 order: 2
@@ -396,21 +472,16 @@
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            animation: false, // [최적화] 애니메이션 제거
-            normalized: true, // [최적화] 데이터 정렬 힌트
-            interaction: { mode: 'nearest', intersect: false, axis: 'x' }, // [최적화] 빠른 상호작용 모드
+            animation: false,
+            normalized: true,
+            interaction: { mode: 'nearest', intersect: false, axis: 'x' },
             plugins: {
               legend: { position: 'top' },
-              tooltip: { animation: false }, // [최적화] 툴팁 애니메이션 제거
+              tooltip: commonTooltip,
               zoom: zoomOptions
             },
             scales: {
-              x: {
-                type: 'category',
-                ticks: { maxTicksLimit: 10 },
-                grid: { display: false },
-                title: { display: true, text: 'iTOW (ms)' }
-              },
+              x: commonScalesX,
               y: {
                 beginAtZero: true,
                 suggestedMax: 60,
