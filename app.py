@@ -666,6 +666,167 @@ def kml_preview(request: Request, rid: str, authorization: Optional[str] = Heade
         logger.exception(f"KML extraction failed: {e}")
         return HTMLResponse(f"<h3>KML extraction failed: {e}</h3>", status_code=500)
 
+# =========================
+# Compare4: 4-file KMZ comparison
+# =========================
+@app.get("/compare4", response_class=HTMLResponse)
+def compare4_page(request: Request):
+    return templates.TemplateResponse("compare4.html", {"request": request})
+
+@app.post("/compare4/upload")
+async def compare4_upload(
+    request: Request,
+    file1: UploadFile = File(...),
+    file2: UploadFile = File(...),
+    file3: UploadFile = File(...),
+    file4: UploadFile = File(...),
+    hz: str = Form(""),
+    nav2: bool = Form(False),
+    alt_abs: bool = Form(False),
+    ck: bool = Form(False),
+    mapm: bool = Form(False),
+):
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+
+    hz_val: Optional[int] = None
+    s = (hz or "").strip()
+    if s.isdigit():
+        hz_val = int(s)
+
+    opts = {
+        "hz": hz_val,
+        "nav2": bool(nav2),
+        "alt_abs": bool(alt_abs),
+        "ck": bool(ck),
+        "html": False,
+        "mapm": bool(mapm),
+    }
+
+    rids = []
+    for idx_f, file in enumerate([file1, file2, file3, file4]):
+        rid = uuid.uuid4().hex[:8]
+        clean_name = os.path.basename(file.filename or "")
+        if not clean_name:
+            clean_name = f"upload{idx_f+1}.ubx"
+
+        ext = Path(clean_name).suffix.lower()
+        if ext not in ALLOWED_UPLOAD_EXTS:
+            return PlainTextResponse(
+                f"File {idx_f+1} unsupported type: {ext or '(none)'}; allowed: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}",
+                status_code=400,
+            )
+
+        save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+        total = 0
+        with open(save_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    with contextlib.suppress(FileNotFoundError):
+                        os.remove(save_path)
+                    return PlainTextResponse(f"File {idx_f+1} too large", status_code=413)
+                f.write(chunk)
+
+        summary = quick_ubx_summary(save_path)
+
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO results (id, user_id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
+                                     kmz_path, opts_json, status, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL)
+            """, (
+                rid, user_id, clean_name, datetime.utcnow().isoformat(),
+                summary["epoch_total"], summary["epoch_missing"], summary["crc_errors"],
+                None, json.dumps(opts),
+            ))
+            conn.commit()
+
+        asyncio.create_task(enqueue_convert(save_path, rid, **opts))
+        rids.append(rid)
+        logger.info(f"[compare4] queued {rid} ({clean_name}) for user {user_id}")
+
+    return RedirectResponse(
+        url=f"/compare4/view/{rids[0]}/{rids[1]}/{rids[2]}/{rids[3]}",
+        status_code=303,
+    )
+
+@app.get("/compare4/view/{rid1}/{rid2}/{rid3}/{rid4}", response_class=HTMLResponse)
+def compare4_view(
+    request: Request,
+    rid1: str, rid2: str, rid3: str, rid4: str,
+    authorization: Optional[str] = Header(None),
+):
+    user_id = getattr(request.state, "user_id", None)
+    admin = is_admin(authorization)
+    rids = [rid1, rid2, rid3, rid4]
+
+    filenames = []
+    for rid in rids:
+        ok, code = ensure_owner_or_404(rid, user_id, admin)
+        if not ok:
+            if code == 403:
+                return HTMLResponse("<h2>Forbidden</h2>", status_code=403)
+            return HTMLResponse("<h2>Result not found</h2>", status_code=404)
+        with get_db() as conn:
+            row = conn.execute("SELECT filename FROM results WHERE id=?", (rid,)).fetchone()
+        filenames.append(row[0] if row else "unknown")
+
+    return templates.TemplateResponse("compare4_view.html", {
+        "request": request,
+        "rids": rids,
+        "filenames": filenames,
+    })
+
+@app.get("/compare4/overlay/{rid1}/{rid2}/{rid3}/{rid4}", response_class=HTMLResponse)
+def compare4_overlay(
+    request: Request,
+    rid1: str, rid2: str, rid3: str, rid4: str,
+    authorization: Optional[str] = Header(None),
+):
+    user_id = getattr(request.state, "user_id", None)
+    admin = is_admin(authorization)
+    rids = [rid1, rid2, rid3, rid4]
+
+    filenames = []
+    for rid in rids:
+        ok, code = ensure_owner_or_404(rid, user_id, admin)
+        if not ok:
+            if code == 403:
+                return HTMLResponse("<h2>Forbidden</h2>", status_code=403)
+            return HTMLResponse("<h2>Result not found</h2>", status_code=404)
+        with get_db() as conn:
+            row = conn.execute("SELECT filename FROM results WHERE id=?", (rid,)).fetchone()
+        filenames.append(row[0] if row else "unknown")
+
+    return templates.TemplateResponse("compare4_overlay.html", {
+        "request": request,
+        "rids": rids,
+        "filenames": filenames,
+    })
+
+@app.get("/api/status/{rid}")
+def api_status(request: Request, rid: str, authorization: Optional[str] = Header(None)):
+    user_id = getattr(request.state, "user_id", None)
+    admin = is_admin(authorization)
+    ok, code = ensure_owner_or_404(rid, user_id, admin)
+    if not ok:
+        return {"status": "error", "code": code}
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT status, kmz_path, error, filename FROM results WHERE id=?", (rid,)
+        ).fetchone()
+    if not row:
+        return {"status": "not_found"}
+    return {
+        "status": row[0],
+        "has_kmz": bool(row[1] and os.path.exists(row[1])),
+        "error": row[2],
+        "filename": row[3],
+    }
+
 @app.get("/download")
 def download(request: Request, path: str, authorization: Optional[str] = Header(None)):
     """

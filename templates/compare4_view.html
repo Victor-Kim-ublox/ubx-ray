@@ -1,0 +1,561 @@
+<!doctype html>
+<html>
+<head>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <meta charset="utf-8">
+  <title>UBX-ray — 4-File Comparison View</title>
+
+  <!-- OpenLayers -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@9.1.0/ol.css">
+  <script src="https://cdn.jsdelivr.net/npm/ol@9.1.0/dist/ol.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    :root {
+      --header-h: 54px;
+      --border: #e5e7eb;
+      --font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      --c1: #0078ff; --c2: #e03e3e; --c3: #16a34a; --c4: #9333ea;
+    }
+    html, body { height:100%; margin:0; background:#f0f2f5; font-family:var(--font);
+      -webkit-font-smoothing:antialiased; overflow:hidden; }
+
+    /* Header */
+    header {
+      position:sticky; top:0; z-index:20;
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      background:#fff; border-bottom:1px solid var(--border);
+      padding:8px 14px; box-shadow:0 1px 4px rgba(0,0,0,.07);
+      height:var(--header-h); box-sizing:border-box;
+    }
+    .brand { font-weight:800; font-size:15px; color:#0f172a; white-space:nowrap; }
+    .sep { width:1px; height:20px; background:var(--border); flex-shrink:0; }
+
+    .seg {
+      display:inline-flex; align-items:center; gap:3px;
+      background:#f3f4f6; padding:3px; border-radius:9px;
+      border:1px solid var(--border);
+    }
+    .btn {
+      border:0; background:transparent; color:#374151; font-weight:600; font-size:13px;
+      padding:5px 10px; border-radius:7px; cursor:pointer; transition:all .15s ease;
+      font-family:var(--font); white-space:nowrap;
+    }
+    .btn:hover { background:#e5e7eb; }
+    .btn.active { background:#0078ff; color:#fff; }
+    a.btn { text-decoration:none; }
+
+    .badge {
+      font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px;
+      white-space:nowrap; max-width:150px; overflow:hidden; text-overflow:ellipsis;
+    }
+    .badge-1 { background:#eff6ff; color:var(--c1); border:1px solid #bfdbfe; }
+    .badge-2 { background:#fff1f2; color:var(--c2); border:1px solid #fecdd3; }
+    .badge-3 { background:#f0fdf4; color:var(--c3); border:1px solid #bbf7d0; }
+    .badge-4 { background:#faf5ff; color:var(--c4); border:1px solid #e9d5ff; }
+
+    /* 2x2 Grid */
+    #grid {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      grid-template-rows:1fr 1fr;
+      width:100vw;
+      height:calc(100vh - var(--header-h));
+    }
+
+    .panel {
+      position:relative;
+      overflow:hidden;
+      border-right:1px solid #d1d5db;
+      border-bottom:1px solid #d1d5db;
+    }
+    .panel:nth-child(2), .panel:nth-child(4) { border-right:none; }
+    .panel:nth-child(3), .panel:nth-child(4) { border-bottom:none; }
+
+    .map-el { width:100%; height:100%; }
+
+    /* Panel label */
+    .panel-label {
+      position:absolute; top:8px; left:8px; z-index:10;
+      background:#ffffffee; border:2px solid;
+      border-radius:8px; padding:4px 10px;
+      font-size:12px; font-weight:700; max-width:220px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      box-shadow:0 2px 8px rgba(0,0,0,.15); pointer-events:none;
+    }
+    .panel-label.c1 { border-color:var(--c1); color:var(--c1); }
+    .panel-label.c2 { border-color:var(--c2); color:var(--c2); }
+    .panel-label.c3 { border-color:var(--c3); color:var(--c3); }
+    .panel-label.c4 { border-color:var(--c4); color:var(--c4); }
+
+    /* Status overlay */
+    .panel-status {
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      z-index:15; background:#ffffffee; border:1px solid #d1d5db;
+      border-radius:12px; padding:14px 20px; text-align:center;
+      font-size:13px; font-weight:600; color:#374151;
+      box-shadow:0 4px 16px rgba(0,0,0,.12);
+      pointer-events:none; transition:opacity .3s;
+    }
+    .panel-status.hidden { opacity:0; pointer-events:none; }
+
+    .spinner-sm {
+      display:inline-block; width:18px; height:18px; margin-right:6px;
+      border:2px solid #d1d5db; border-top-color:#0078ff; border-radius:50%;
+      animation:spin .7s linear infinite; vertical-align:middle;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* Popup */
+    .ol-popup {
+      position:absolute; background:#fff; border-radius:8px;
+      border:1px solid rgba(0,0,0,.15); box-shadow:0 4px 12px rgba(0,0,0,.2);
+      padding:10px 12px; min-width:190px; max-width:280px;
+      color:#111; z-index:100; font-size:12px;
+    }
+    .ol-popup-closer {
+      position:absolute; top:5px; right:8px; text-decoration:none;
+      color:#aaa; font-weight:bold; font-size:15px;
+    }
+    .ol-popup-closer:hover { color:#000; }
+    .popup-title { font-weight:700; font-size:13px; margin-bottom:4px; color:#111827; }
+    .popup-desc { font-size:12px; color:#374151; line-height:1.45; }
+  </style>
+</head>
+<body>
+
+  <!-- Pass data via hidden element to avoid JS template issues -->
+  <div id="app-data"
+       data-rids="{{ rids | join(',') }}"
+       data-filenames="{{ filenames | join('|||') }}"
+       style="display:none"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">UBX-ray</div>
+    <div class="sep"></div>
+
+    <div class="seg">
+      <button id="btnMap" class="btn active">Map</button>
+      <button id="btnSat" class="btn">Satellite</button>
+    </div>
+
+    <button id="btnFit" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;">
+      ⊡ Fit All
+    </button>
+
+    <div class="sep"></div>
+
+    <div style="display:flex;gap:6px;align-items:center;">
+      <div class="badge badge-1" id="badge1"></div>
+      <div class="badge badge-2" id="badge2"></div>
+      <div class="badge badge-3" id="badge3"></div>
+      <div class="badge badge-4" id="badge4"></div>
+    </div>
+
+    <div style="margin-left:auto;display:flex;gap:6px;">
+      <a id="overlayLink" href="#" class="btn" style="background:#0078ff;color:#fff;border:1px solid #0078ff;font-size:12px;">
+        ⊙ Overlay View
+      </a>
+      <a href="/compare4" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">
+        ← New Comparison
+      </a>
+    </div>
+  </header>
+
+  <!-- 2x2 Grid -->
+  <div id="grid">
+    <div class="panel" id="panel1">
+      <div class="map-el" id="map1"></div>
+      <div class="panel-label c1" id="lbl1"></div>
+      <div class="panel-status" id="status1"><span class="spinner-sm"></span>Waiting...</div>
+      <div id="popup1" class="ol-popup" style="display:none;">
+        <a href="#" class="ol-popup-closer" data-idx="0">×</a>
+        <div class="popup-title" id="ptitle1"></div>
+        <div class="popup-desc"  id="pdesc1"></div>
+      </div>
+    </div>
+    <div class="panel" id="panel2">
+      <div class="map-el" id="map2"></div>
+      <div class="panel-label c2" id="lbl2"></div>
+      <div class="panel-status" id="status2"><span class="spinner-sm"></span>Waiting...</div>
+      <div id="popup2" class="ol-popup" style="display:none;">
+        <a href="#" class="ol-popup-closer" data-idx="1">×</a>
+        <div class="popup-title" id="ptitle2"></div>
+        <div class="popup-desc"  id="pdesc2"></div>
+      </div>
+    </div>
+    <div class="panel" id="panel3">
+      <div class="map-el" id="map3"></div>
+      <div class="panel-label c3" id="lbl3"></div>
+      <div class="panel-status" id="status3"><span class="spinner-sm"></span>Waiting...</div>
+      <div id="popup3" class="ol-popup" style="display:none;">
+        <a href="#" class="ol-popup-closer" data-idx="2">×</a>
+        <div class="popup-title" id="ptitle3"></div>
+        <div class="popup-desc"  id="pdesc3"></div>
+      </div>
+    </div>
+    <div class="panel" id="panel4">
+      <div class="map-el" id="map4"></div>
+      <div class="panel-label c4" id="lbl4"></div>
+      <div class="panel-status" id="status4"><span class="spinner-sm"></span>Waiting...</div>
+      <div id="popup4" class="ol-popup" style="display:none;">
+        <a href="#" class="ol-popup-closer" data-idx="3">×</a>
+        <div class="popup-title" id="ptitle4"></div>
+        <div class="popup-desc"  id="pdesc4"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    // ── Read data from DOM (avoids Jinja2 JS escaping issues) ──────────────
+    var appData   = document.getElementById('app-data');
+    var RIDS      = appData.dataset.rids.split(',');
+    var FILENAMES = appData.dataset.filenames.split('|||');
+
+    var COLORS = ['#0078ff', '#e03e3e', '#16a34a', '#9333ea'];
+    var POLL_MS = 3000;
+
+    // ── Set labels / badges ───────────────────────────────────────────────
+    for (var i = 0; i < 4; i++) {
+      var short = FILENAMES[i].length > 28 ? FILENAMES[i].slice(0,26)+'…' : FILENAMES[i];
+      document.getElementById('lbl'+(i+1)).textContent  = (i+1)+'. '+FILENAMES[i];
+      document.getElementById('badge'+(i+1)).textContent = (i+1)+'. '+short;
+      document.getElementById('badge'+(i+1)).title       = FILENAMES[i];
+    }
+
+    // ── Create 4 independent Views (safer than shared view) ──────────────
+    var views = [];
+    for (var j = 0; j < 4; j++) {
+      views.push(new ol.View({
+        center: ol.proj.fromLonLat([127, 37]),
+        zoom: 6
+      }));
+    }
+
+    // ── Sync: when any view changes, update all others ───────────────────
+    var syncing = false;
+    function syncFrom(srcIdx) {
+      if (syncing) return;
+      syncing = true;
+      var src    = views[srcIdx];
+      var center = src.getCenter();
+      var zoom   = src.getZoom();
+      var rot    = src.getRotation();
+      for (var k = 0; k < 4; k++) {
+        if (k === srcIdx) continue;
+        views[k].setCenter(center);
+        views[k].setZoom(zoom);
+        views[k].setRotation(rot);
+      }
+      syncing = false;
+    }
+    (function() {
+      for (var si = 0; si < 4; si++) {
+        (function(idx) {
+          views[idx].on('change:center',     function() { syncFrom(idx); });
+          views[idx].on('change:resolution', function() { syncFrom(idx); });
+          views[idx].on('change:rotation',   function() { syncFrom(idx); });
+        })(si);
+      }
+    })();
+
+    // ── Base tile layers (per map) ────────────────────────────────────────
+    var osmLayers = [], satLayers = [];
+    for (var mi = 0; mi < 4; mi++) {
+      osmLayers.push(new ol.layer.Tile({ source: new ol.source.OSM() }));
+      satLayers.push(new ol.layer.Tile({
+        visible: false,
+        source: new ol.source.XYZ({
+          url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+        })
+      }));
+    }
+
+    // ── KML track layers (one per map) ────────────────────────────────────
+    var vectorSources = [], vectorLayers = [];
+    for (var vi = 0; vi < 4; vi++) {
+      var vsrc = new ol.source.Vector();
+      vectorSources.push(vsrc);
+      (function(idx, color) {
+        vectorLayers.push(new ol.layer.Vector({
+          source: vsrc,
+          style: function(f) { return makeStyle(f, color); }
+        }));
+      })(vi, COLORS[vi]);
+    }
+
+    function makeStyle(feature, color) {
+      var type = feature.getGeometry() ? feature.getGeometry().getType() : '';
+      var role = feature.get('_role');
+      if (type === 'Point') {
+        // 시작점: 채운 원, 끝점: 다이아몬드 느낌(큰 원)
+        var radius = role === 'end' ? 7 : 5;
+        var fill   = role === 'end' ? '#fff' : color;
+        var stroke = role === 'end' ? color   : '#fff';
+        return new ol.style.Style({
+          image: new ol.style.Circle({
+            radius: radius,
+            fill:   new ol.style.Fill({ color: fill }),
+            stroke: new ol.style.Stroke({ color: stroke, width: 2 })
+          })
+        });
+      }
+      // LineString: 경로선
+      return new ol.style.Style({
+        stroke: new ol.style.Stroke({ color: color, width: 2.5 })
+      });
+    }
+
+    // ── Popup overlays ────────────────────────────────────────────────────
+    var popupOverlays = [];
+    for (var pi = 0; pi < 4; pi++) {
+      popupOverlays.push(new ol.Overlay({
+        element: document.getElementById('popup'+(pi+1)),
+        autoPan: { animation: { duration: 200 } },
+        offset: [0, -10]
+      }));
+    }
+
+    // Close buttons
+    document.querySelectorAll('.ol-popup-closer').forEach(function(el) {
+      el.addEventListener('click', function(e) {
+        e.preventDefault();
+        var idx = parseInt(el.dataset.idx, 10);
+        popupOverlays[idx].setPosition(undefined);
+        document.getElementById('popup'+(idx+1)).style.display = 'none';
+      });
+    });
+
+    // ── Build 4 Maps ──────────────────────────────────────────────────────
+    var maps = [];
+    for (var ci = 0; ci < 4; ci++) {
+      var m = new ol.Map({
+        target: 'map'+(ci+1),
+        layers: [osmLayers[ci], satLayers[ci], vectorLayers[ci]],
+        overlays: [popupOverlays[ci]],
+        view: views[ci],
+        controls: []   // minimal controls to avoid version issues
+      });
+      maps.push(m);
+    }
+
+    // Click popup
+    (function() {
+      for (var qi = 0; qi < 4; qi++) {
+        (function(idx) {
+          maps[idx].on('singleclick', function(evt) {
+            var hit = false;
+            maps[idx].forEachFeatureAtPixel(evt.pixel, function(f, layer) {
+              if (layer !== vectorLayers[idx]) return;
+              if (f.getGeometry() && f.getGeometry().getType() === 'Point') {
+                document.getElementById('ptitle'+(idx+1)).textContent = f.get('name') || 'Point';
+                document.getElementById('pdesc'+(idx+1)).innerHTML    = buildDesc(f);
+                popupOverlays[idx].setPosition(evt.coordinate);
+                document.getElementById('popup'+(idx+1)).style.display = 'block';
+                hit = true;
+                return true;
+              }
+            }, { hitTolerance: 6 });
+            if (!hit) {
+              popupOverlays[idx].setPosition(undefined);
+              document.getElementById('popup'+(idx+1)).style.display = 'none';
+            }
+          });
+        })(qi);
+      }
+    })();
+
+    function buildDesc(feature) {
+      var d = feature.get('description') || '';
+      if (d && d.trim().charAt(0) === '<') return d;
+      var props = feature.getProperties(), lines = [];
+      for (var k in props) {
+        if (['geometry','name','description'].indexOf(k) >= 0) continue;
+        if (props[k] != null && props[k] !== '') lines.push('<b>'+k+'</b>: '+props[k]);
+      }
+      return lines.length ? lines.join('<br>') : d;
+    }
+
+    // ── Base map toggle ───────────────────────────────────────────────────
+    document.getElementById('btnMap').addEventListener('click', function() {
+      setBase(false);
+    });
+    document.getElementById('btnSat').addEventListener('click', function() {
+      setBase(true);
+    });
+    function setBase(toSat) {
+      for (var bi = 0; bi < 4; bi++) {
+        osmLayers[bi].setVisible(!toSat);
+        satLayers[bi].setVisible(toSat);
+      }
+      document.getElementById('btnMap').classList.toggle('active', !toSat);
+      document.getElementById('btnSat').classList.toggle('active', toSat);
+    }
+
+    // ── Fit All ───────────────────────────────────────────────────────────
+    document.getElementById('btnFit').addEventListener('click', fitAll);
+    function fitAll() {
+      var combined = ol.extent.createEmpty();
+      for (var fi = 0; fi < 4; fi++) {
+        var ext = vectorSources[fi].getExtent();
+        if (!ol.extent.isEmpty(ext)) ol.extent.extend(combined, ext);
+      }
+      if (!ol.extent.isEmpty(combined)) {
+        // Apply to all views
+        for (var fj = 0; fj < 4; fj++) {
+          views[fj].fit(combined, {
+            size: maps[fj].getSize(),
+            padding: [30,30,30,30],
+            maxZoom: 17
+          });
+        }
+      }
+    }
+
+    // ── Status polling & KML load ─────────────────────────────────────────
+    var loadedCount = 0;
+
+    function pollPanel(idx) {
+      var rid      = RIDS[idx];
+      var statusEl = document.getElementById('status'+(idx+1));
+
+      function check() {
+        fetch('/api/status/' + rid)
+          .then(function(res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+          })
+          .then(function(data) {
+            if (data.status === 'error') {
+              statusEl.innerHTML = '❌ ' + (data.error || 'Conversion failed');
+              return;
+            }
+            if (data.status === 'done' && data.has_kmz) {
+              statusEl.innerHTML = '<span class="spinner-sm"></span>Loading map...';
+              loadKml(idx, rid, statusEl);
+              return;
+            }
+            // Still processing
+            var msg = data.status === 'queued' ? 'Queued...' : 'Converting...';
+            statusEl.innerHTML = '<span class="spinner-sm"></span>' + msg;
+            setTimeout(check, POLL_MS);
+          })
+          .catch(function(err) {
+            statusEl.innerHTML = '<span class="spinner-sm"></span>Retrying...';
+            console.warn('Status poll error for ' + rid + ':', err);
+            setTimeout(check, POLL_MS * 2);
+          });
+      }
+
+      check();
+    }
+
+    function loadKml(idx, rid, statusEl) {
+      var kmlUrl = '/kml/' + rid;
+
+      fetch(kmlUrl)
+        .then(function(res) {
+          if (!res.ok) throw new Error('KML fetch HTTP ' + res.status);
+          return res.text();
+        })
+        .then(function(kmlText) {
+          // ── Parse KML ──────────────────────────────────────────────────
+          var format = new ol.format.KML({ extractStyles: false, showPointNames: false });
+          var features = format.readFeatures(kmlText, {
+            dataProjection: 'EPSG:4326',
+            featureProjection: 'EPSG:3857'
+          });
+
+          // ── Performance fix: 개별 Point 수만개 → LineString 1개 ────────
+          // 비교 뷰에서는 경로 모양만 보이면 충분 → 훨씬 빠름
+          var coords = [];
+          for (var fi = 0; fi < features.length; fi++) {
+            var geom = features[fi].getGeometry();
+            if (!geom) continue;
+            var type = geom.getType();
+            if (type === 'Point') {
+              coords.push(geom.getCoordinates());
+            } else if (type === 'LineString') {
+              // gx:Track 등 이미 LineString인 경우
+              var lCoords = geom.getCoordinates();
+              for (var li = 0; li < lCoords.length; li++) coords.push(lCoords[li]);
+            }
+          }
+
+          if (coords.length === 0) {
+            statusEl.innerHTML = '⚠️ No track data found';
+            console.warn('Panel ' + (idx+1) + ': no coords extracted from ' + features.length + ' features');
+            return;
+          }
+
+          // 비교뷰용 다운샘플: 4000포인트 초과 시 균등 샘플링
+          var MAX_PTS = 4000;
+          var sampled = coords;
+          if (coords.length > MAX_PTS) {
+            var step = coords.length / MAX_PTS;
+            sampled = [];
+            for (var si = 0; si < MAX_PTS; si++) {
+              sampled.push(coords[Math.round(si * step)]);
+            }
+            // 항상 마지막 점 포함
+            sampled.push(coords[coords.length - 1]);
+          }
+
+          // 경로 LineString
+          var trackLine = new ol.Feature({
+            geometry: new ol.geom.LineString(sampled),
+            name: FILENAMES[idx]
+          });
+
+          // 시작점 / 끝점 마커
+          var startPt = new ol.Feature({
+            geometry: new ol.geom.Point(sampled[0]),
+            name: 'Start',
+            _role: 'start'
+          });
+          var endPt = new ol.Feature({
+            geometry: new ol.geom.Point(sampled[sampled.length - 1]),
+            name: 'End',
+            _role: 'end'
+          });
+
+          vectorSources[idx].addFeatures([trackLine, startPt, endPt]);
+
+          statusEl.classList.add('hidden');
+          loadedCount++;
+          fitAll();
+          maps[idx].updateSize();
+          maps[idx].render();
+          console.log('Panel ' + (idx+1) + ' loaded: ' + coords.length + ' pts → ' + sampled.length + ' sampled');
+        })
+        .catch(function(err) {
+          statusEl.innerHTML = '❌ Map load error: ' + err.message;
+          console.error('KML load error panel ' + (idx+1) + ':', err);
+        });
+    }
+
+    // ── Overlay 링크 설정 ─────────────────────────────────────────────────
+    document.getElementById('overlayLink').href =
+      '/compare4/overlay/' + RIDS.join('/');
+
+    // ── Init ──────────────────────────────────────────────────────────────
+    window.addEventListener('DOMContentLoaded', function() {
+      // Give maps a moment to size correctly
+      setTimeout(function() {
+        maps.forEach(function(m) { m.updateSize(); });
+        for (var i = 0; i < 4; i++) {
+          pollPanel(i);
+        }
+      }, 200);
+    });
+
+    window.addEventListener('resize', function() {
+      maps.forEach(function(m) { m.updateSize(); });
+    });
+
+  })(); // end IIFE
+  </script>
+</body>
+</html>
