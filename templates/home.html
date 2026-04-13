@@ -154,6 +154,44 @@
       padding:12px 16px; font-size:13px; color:#a0b4ff;
     }
     .notice strong { color:#cfe0ff; }
+
+    /* Progress UI */
+    .prog-box {
+      background:#0a1030; border:1px solid #2a387c; border-radius:12px;
+      padding:16px 18px; margin:14px 0;
+    }
+    .prog-phase { font-size:14px; font-weight:600; color:#cfe0ff; margin-bottom:10px; }
+    .prog-track {
+      background:#1a2257; border-radius:999px; height:6px;
+      overflow:hidden; margin-bottom:12px;
+    }
+    .prog-bar {
+      height:100%; background:linear-gradient(90deg,#3f5bf0,#9d7bff);
+      border-radius:999px; width:0%; transition:width .4s ease;
+    }
+    .prog-steps { display:flex; gap:6px; flex-wrap:wrap; }
+    .prog-step {
+      display:flex; align-items:center; gap:6px; font-size:12px;
+      color:#3a4a7a; background:#0f143a; border:1px solid #1a2050;
+      border-radius:20px; padding:4px 10px; transition:.2s;
+    }
+    .prog-step .ps-icon { font-size:13px; }
+    .prog-step.active { color:#dfe9ff; border-color:#6ea8ff; background:#111e55; box-shadow:0 0 8px #6ea8ff33; }
+    .prog-step.done   { color:#7eb8ff; border-color:#3f5bf0; }
+    /* Multi file rows */
+    .prog-files { display:flex; flex-direction:column; gap:5px; }
+    .prog-file-row {
+      display:flex; align-items:center; gap:10px; font-size:13px;
+      padding:6px 8px; border-radius:8px; background:#0f143a;
+    }
+    .pf-num   { color:#6ea8ff; font-weight:700; min-width:48px; font-size:11px; text-transform:uppercase; }
+    .pf-name  { flex:1; color:#c7d6ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pf-status{ color:#9bb2ff; font-size:12px; min-width:110px; text-align:right; }
+    .spin-sm  {
+      display:inline-block; width:11px; height:11px;
+      border:2px solid #d7e3ff44; border-top-color:#6ea8ff;
+      border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle;
+    }
   </style>
 </head>
 <body>
@@ -214,10 +252,18 @@
             </div>
           </fieldset>
 
-          <div class="actions row">
-            <button id="submitBtn" class="btn" type="submit">Upload & Analyze</button>
-            <div id="spinner" class="spinner" aria-hidden="true"></div>
-            <div id="loadingText" role="status" aria-live="polite"></div>
+          <div class="actions row" id="singleBtnRow">
+            <button id="submitBtn" class="btn" type="submit">Upload &amp; Analyze</button>
+          </div>
+          <div id="singleProgress" class="prog-box" style="display:none;" aria-live="polite">
+            <div class="prog-phase" id="singlePhase">Uploading...</div>
+            <div class="prog-track"><div class="prog-bar" id="singleBar"></div></div>
+            <div class="prog-steps">
+              <div class="prog-step" id="step-upload"><span class="ps-icon">📤</span><span class="ps-label">Transferring</span></div>
+              <div class="prog-step" id="step-queue"><span class="ps-icon">⏳</span><span class="ps-label">Queued</span></div>
+              <div class="prog-step" id="step-run"><span class="ps-icon">⚙️</span><span class="ps-label">Processing</span></div>
+              <div class="prog-step" id="step-done"><span class="ps-icon">✅</span><span class="ps-label">Done</span></div>
+            </div>
           </div>
         </form>
 
@@ -308,10 +354,13 @@
             </div>
           </fieldset>
 
-          <div class="actions row">
-            <button id="multiSubmitBtn" class="btn" type="submit">Upload & Compare</button>
-            <div id="multiSpinner" class="spinner" aria-hidden="true"></div>
-            <div id="multiLoadingText" role="status" aria-live="polite"></div>
+          <div class="actions row" id="multiBtnRow">
+            <button id="multiSubmitBtn" class="btn" type="submit">Upload &amp; Compare</button>
+          </div>
+          <div id="multiProgress" class="prog-box" style="display:none;" aria-live="polite">
+            <div class="prog-phase" id="multiPhase">Uploading...</div>
+            <div class="prog-track"><div class="prog-bar" id="multiBar"></div></div>
+            <div class="prog-files" id="multiFileRows"></div>
           </div>
         </form>
 
@@ -366,98 +415,257 @@
   </div>
 
   <script>
-    // --- Tab Switching ---
+    // ==============================
+    // Tab Switching
+    // ==============================
     function openTab(tabName, btn) {
-      // Hide all tabs
       document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
-      // Deactivate all buttons
       document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-      
-      // Show target tab
       document.getElementById('tab-' + tabName).classList.add('active');
-      // Activate button
-      if(btn) btn.classList.add('active');
+      if (btn) btn.classList.add('active');
     }
 
-    // --- Single UBX Upload Logic ---
+    // ==============================
+    // Upload helpers
+    // ==============================
+
+    /** XHR upload with progress events. Resolves with final responseURL after redirect. */
+    function uploadWithProgress(formData, url, onProgress) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.upload.addEventListener('progress', e => {
+          if (e.lengthComputable) onProgress(e.loaded / e.total);
+        });
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 500) resolve(xhr.responseURL);
+          else reject(new Error(`Server error ${xhr.status}: ${xhr.statusText}`));
+        });
+        xhr.addEventListener('error', () => reject(new Error('Network error')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+        xhr.send(formData);
+      });
+    }
+
+    /** Poll /api/status/{rid} every second, calling onStatus(status, error) each tick.
+     *  Resolves when status='done', rejects on status='error'. */
+    async function pollUntilDone(rid, onStatus) {
+      while (true) {
+        const res  = await fetch(`/api/status/${rid}`);
+        const data = await res.json();
+        onStatus(data.status, data.error, data.filename);
+        if (data.status === 'done')  return data;
+        if (data.status === 'error') throw new Error(data.error || 'Processing failed');
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+
+    function setBar(id, frac) {
+      const el = document.getElementById(id);
+      if (el) el.style.width = Math.min(100, Math.round(frac * 100)) + '%';
+    }
+    function setPhase(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    }
+    function setStep(id, state) {  // state: '' | 'active' | 'done'
+      const el = document.getElementById(id);
+      if (el) el.className = 'prog-step' + (state ? ' ' + state : '');
+    }
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ==============================
+    // Single UBX Upload Logic
+    // ==============================
     let uploading = false;
-
-    function setUploadingState(on) {
-      uploading = on;
-      const btn   = document.getElementById("submitBtn");
-      const opts  = document.getElementById("opts");
-      const spin  = document.getElementById("spinner");
-      const text  = document.getElementById("loadingText");
-
-      btn.disabled = on;
-      if (opts) Array.from(opts.querySelectorAll("input, select")).forEach(el => el.disabled = on);
-
-      spin.style.display = on ? "inline-block" : "none";
-      text.style.display = on ? "inline-block" : "none";
-      text.textContent   = on ? "Uploading... please wait" : "";
-    }
 
     async function startUpload(event) {
       event.preventDefault();
       if (uploading) return;
 
-      const form = document.getElementById("uploadForm");
       const fi = document.getElementById("fileInput");
       if (!fi.files.length) { alert("Please select a UBX/BIN file."); return; }
 
-      const formData = new FormData(form);
-      setUploadingState(true);
+      uploading = true;
+      document.getElementById("singleBtnRow").style.display = "none";
+      document.getElementById("opts").querySelectorAll("input,select").forEach(el => el.disabled = true);
+
+      const prog = document.getElementById("singleProgress");
+      prog.style.display = "block";
+      setBar("singleBar", 0);
+      setPhase("singlePhase", "📤 Uploading...");
+      ['step-upload','step-queue','step-run','step-done'].forEach(id => setStep(id, ''));
+      setStep("step-upload", "active");
 
       try {
-        const res = await fetch("/upload", { method: "POST", body: formData });
+        // Phase 1: file transfer (0 → 40%)
+        const redirectUrl = await uploadWithProgress(
+          new FormData(document.getElementById("uploadForm")),
+          '/upload',
+          pct => {
+            setBar("singleBar", pct * 0.4);
+            setPhase("singlePhase", `📤 Uploading... ${Math.round(pct * 100)}%`);
+          }
+        );
 
-        if (res.redirected) { window.location.href = res.url; return; }
-        if (!res.ok) { alert("Upload failed: " + res.status + " " + res.statusText); setUploadingState(false); return; }
+        const ridMatch = redirectUrl.match(/\/report\/([a-f0-9]+)/);
+        if (!ridMatch) throw new Error("Unexpected server response");
+        const rid = ridMatch[1];
 
-        const ct = res.headers.get("content-type") || "";
-        if (ct.includes("application/json")) {
-          const data = await res.json();
-          if (data.redirect_url) { window.location.href = data.redirect_url; return; }
-        }
-        window.location.reload();
+        setBar("singleBar", 0.4);
+        setStep("step-upload", "done");
+        setStep("step-queue", "active");
+        setPhase("singlePhase", "⏳ Queued...");
+
+        // Phase 2: processing (40 → 95%)
+        await pollUntilDone(rid, (status) => {
+          if (status === 'queued') {
+            setBar("singleBar", 0.5);
+            setPhase("singlePhase", "⏳ Queued...");
+            setStep("step-queue", "active");
+          } else if (status === 'running') {
+            setBar("singleBar", 0.75);
+            setPhase("singlePhase", "⚙️ Processing...");
+            setStep("step-queue", "done");
+            setStep("step-run", "active");
+          }
+        });
+
+        setBar("singleBar", 1);
+        setPhase("singlePhase", "✅ Done!  Redirecting...");
+        setStep("step-run", "done");
+        setStep("step-done", "done");
+        await new Promise(r => setTimeout(r, 400));
+        window.location.href = redirectUrl;
+
       } catch (err) {
-        alert("Error: " + (err?.message || err));
-        setUploadingState(false);
+        setPhase("singlePhase", "❌ " + (err?.message || String(err)));
+        await new Promise(r => setTimeout(r, 2500));
+        prog.style.display = "none";
+        document.getElementById("singleBtnRow").style.display = "flex";
+        document.getElementById("opts").querySelectorAll("input,select").forEach(el => el.disabled = false);
+        uploading = false;
       }
     }
 
-    // --- NMEA Comparison Logic ---
+    // ==============================
+    // Multi UBX Upload Logic
+    // ==============================
+    let multiUploading = false;
+
+    async function startMultiUpload(event) {
+      event.preventDefault();
+      if (multiUploading) return;
+
+      const fi1 = document.getElementById("mFile1");
+      if (!fi1.files.length) { alert("Please select at least File 1."); return; }
+
+      multiUploading = true;
+
+      const fileNames = Array.from({length: 4}, (_, i) => {
+        const fi = document.getElementById(`mFile${i + 1}`);
+        return fi.files.length ? fi.files[0].name : null;
+      });
+      const count = fileNames.filter(Boolean).length;
+
+      document.getElementById("multiBtnRow").style.display = "none";
+      const prog = document.getElementById("multiProgress");
+      prog.style.display = "block";
+      setBar("multiBar", 0);
+      setPhase("multiPhase", `📤 Uploading ${count} file${count > 1 ? 's' : ''}...`);
+
+      // Build per-file status rows
+      document.getElementById("multiFileRows").innerHTML = fileNames.map((name, i) => `
+        <div class="prog-file-row">
+          <span class="pf-num">File ${i + 1}</span>
+          <span class="pf-name">${name ? escHtml(name) : '<em style="opacity:.4">empty</em>'}</span>
+          <span class="pf-status" id="mfst${i}">${name ? '⏳ Queued' : '—'}</span>
+        </div>`).join('');
+
+      try {
+        // Phase 1: file transfer (0 → 35%)
+        const redirectUrl = await uploadWithProgress(
+          new FormData(document.getElementById("multiForm")),
+          '/compare4/upload',
+          pct => {
+            setBar("multiBar", pct * 0.35);
+            setPhase("multiPhase", `📤 Uploading ${count} file${count > 1 ? 's' : ''}... ${Math.round(pct * 100)}%`);
+          }
+        );
+
+        setBar("multiBar", 0.35);
+        setPhase("multiPhase", "⚙️ Processing files...");
+
+        const cgMatch = redirectUrl.match(/\/compare4\/report\/(.+)$/);
+        if (!cgMatch) throw new Error("Unexpected server response");
+        const rids = cgMatch[1].split('/');
+
+        // Poll all rids in parallel (35 → 95%)
+        let doneCount = 0;
+        const realCount = rids.filter(r => r !== '_').length;
+
+        const polls = rids.map((rid, i) => {
+          if (rid === '_') {
+            const el = document.getElementById(`mfst${i}`);
+            if (el) el.textContent = '—';
+            return Promise.resolve();
+          }
+          return pollUntilDone(rid, (status, error) => {
+            const el = document.getElementById(`mfst${i}`);
+            if (!el) return;
+            if      (status === 'queued')  el.textContent = '⏳ Queued';
+            else if (status === 'running') el.innerHTML   = '<span class="spin-sm"></span> Processing…';
+            else if (status === 'error')   el.textContent = '❌ ' + (error || 'Error');
+          }).then(() => {
+            const el = document.getElementById(`mfst${i}`);
+            if (el) el.textContent = '✅ Done';
+            doneCount++;
+            setBar("multiBar", 0.35 + 0.60 * (doneCount / realCount));
+          });
+        });
+
+        await Promise.all(polls);
+        setBar("multiBar", 1);
+        setPhase("multiPhase", "✅ All done!  Redirecting...");
+        await new Promise(r => setTimeout(r, 400));
+        window.location.href = redirectUrl;
+
+      } catch (err) {
+        setPhase("multiPhase", "❌ " + (err?.message || String(err)));
+        await new Promise(r => setTimeout(r, 2500));
+        prog.style.display = "none";
+        document.getElementById("multiBtnRow").style.display = "flex";
+        multiUploading = false;
+      }
+    }
+
+    // ==============================
+    // NMEA Comparison Logic
+    // ==============================
     async function startComparison(event) {
       event.preventDefault();
-      const form = document.getElementById("compareForm");
-      const refIn = document.getElementById("refInput");
+      const refIn  = document.getElementById("refInput");
       const testIn = document.getElementById("testInput");
-      
       if (!refIn.files.length || !testIn.files.length) {
         alert("Please select both Reference and Test NMEA files.");
         return;
       }
 
-      const btn = document.getElementById("compareBtn");
+      const btn  = document.getElementById("compareBtn");
       const spin = document.getElementById("compareSpinner");
       const text = document.getElementById("compareLoadingText");
-
       btn.disabled = true;
       spin.style.display = "inline-block";
       text.style.display = "inline-block";
       text.textContent = "Analyzing...";
 
-      const formData = new FormData(form);
-
       try {
-        const res = await fetch("/analyze_nmea", { method: "POST", body: formData });
+        const res = await fetch("/analyze_nmea", { method: "POST", body: new FormData(document.getElementById("compareForm")) });
         if (!res.ok) throw new Error("Analysis failed: " + res.statusText);
-        
-        // Assuming the server returns HTML or redirects
         const html = await res.text();
-        document.open();
-        document.write(html);
-        document.close();
+        document.open(); document.write(html); document.close();
       } catch (err) {
         alert("Error: " + err.message);
         btn.disabled = false;
@@ -466,58 +674,40 @@
       }
     }
 
-    // --- Drag & Drop / File Input Wiring ---
-    function wireDropzone(dropId, inputId, nameId){
+    // ==============================
+    // Drag & Drop / File Input Wiring
+    // ==============================
+    function wireDropzone(dropId, inputId, nameId) {
       const dz = document.getElementById(dropId);
       const fi = document.getElementById(inputId);
       const fn = document.getElementById(nameId);
-
-      dz.addEventListener("dragover", e => {
-        e.preventDefault(); e.stopPropagation();
-        dz.classList.add("dragover");
-      });
-      dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
-
-      dz.addEventListener("drop", e => {
-        e.preventDefault(); e.stopPropagation();
-        dz.classList.remove("dragover");
-
-        const files = e.dataTransfer?.files;
-        if (!files || !files.length) return;
-
-        const dt = new DataTransfer();
-        dt.items.add(files[0]);
-        fi.files = dt.files;
-        fn.textContent = files[0].name;
-      });
-
-      fi.addEventListener("change", () => {
-        fn.textContent = fi.files.length ? fi.files[0].name : "";
-      });
-    }
-
-    // --- Multi UBX Logic ---
-    function wireMultiDropzone(dropId, inputId, nameId) {
-      const dz = document.getElementById(dropId);
-      const fi = document.getElementById(inputId);
-      const fn = document.getElementById(nameId);
-
-      dz.addEventListener("dragover", e => {
-        e.preventDefault(); e.stopPropagation();
-        dz.classList.add("dragover");
-      });
+      dz.addEventListener("dragover", e => { e.preventDefault(); e.stopPropagation(); dz.classList.add("dragover"); });
       dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
       dz.addEventListener("drop", e => {
         e.preventDefault(); e.stopPropagation();
         dz.classList.remove("dragover");
         const files = e.dataTransfer?.files;
         if (!files?.length) return;
-        const dt = new DataTransfer();
-        dt.items.add(files[0]);
-        fi.files = dt.files;
+        const dt = new DataTransfer(); dt.items.add(files[0]); fi.files = dt.files;
         fn.textContent = files[0].name;
-        dz.style.borderColor = '#6ea8ff';
-        dz.style.opacity = '1';
+      });
+      fi.addEventListener("change", () => { fn.textContent = fi.files.length ? fi.files[0].name : ""; });
+    }
+
+    function wireMultiDropzone(dropId, inputId, nameId) {
+      const dz = document.getElementById(dropId);
+      const fi = document.getElementById(inputId);
+      const fn = document.getElementById(nameId);
+      dz.addEventListener("dragover", e => { e.preventDefault(); e.stopPropagation(); dz.classList.add("dragover"); });
+      dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+      dz.addEventListener("drop", e => {
+        e.preventDefault(); e.stopPropagation();
+        dz.classList.remove("dragover");
+        const files = e.dataTransfer?.files;
+        if (!files?.length) return;
+        const dt = new DataTransfer(); dt.items.add(files[0]); fi.files = dt.files;
+        fn.textContent = files[0].name;
+        dz.style.borderColor = '#6ea8ff'; dz.style.opacity = '1';
       });
       fi.addEventListener("change", () => {
         fn.textContent = fi.files.length ? fi.files[0].name : "";
@@ -525,34 +715,24 @@
       });
     }
 
+    // ==============================
+    // Init
+    // ==============================
     window.addEventListener("DOMContentLoaded", () => {
-      // Tab 1 (Single)
+      // Tab 1 — Single
       document.getElementById("uploadForm").addEventListener("submit", startUpload);
       wireDropzone("dropzone", "fileInput", "fileName");
 
-      // Tab 2 (Multi)
-      for (let i = 1; i <= 4; i++) {
-        wireMultiDropzone(`mDrop${i}`, `mFile${i}`, `mName${i}`);
-      }
-      document.getElementById("multiForm").addEventListener("submit", e => {
-        const fi1 = document.getElementById("mFile1");
-        if (!fi1.files.length) { alert("Please select at least File 1."); e.preventDefault(); return; }
-        let count = 0;
-        for (let i = 1; i <= 4; i++) {
-          if (document.getElementById(`mFile${i}`).files.length) count++;
-        }
-        document.getElementById("multiSubmitBtn").disabled = true;
-        document.getElementById("multiSpinner").style.display = "inline-block";
-        document.getElementById("multiLoadingText").style.display = "inline-block";
-        document.getElementById("multiLoadingText").textContent = `Uploading ${count} file${count > 1 ? 's' : ''}... please wait`;
-      });
+      // Tab 2 — Multi
+      for (let i = 1; i <= 4; i++) wireMultiDropzone(`mDrop${i}`, `mFile${i}`, `mName${i}`);
+      document.getElementById("multiForm").addEventListener("submit", startMultiUpload);
 
-      // Tab 3 (NMEA)
+      // Tab 3 — NMEA
       document.getElementById("compareForm").addEventListener("submit", startComparison);
       wireDropzone("dropRef", "refInput", "refName");
       wireDropzone("dropTest", "testInput", "testName");
 
-      // URL 파라미터로 탭 활성화
+      // URL param tab activation
       const params = new URLSearchParams(window.location.search);
       if (params.get('tab') === 'nmea') {
         openTab('comparison', document.getElementById('tabBtnNmea'));
