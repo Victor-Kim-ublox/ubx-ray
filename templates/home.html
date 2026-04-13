@@ -3,7 +3,7 @@
 <head>
 <link rel="icon" type="image/png" href="/static/favicon.png">
   <meta charset="utf-8">
-  <title>UBX-ray Upload</title>
+  <title>ubX-ray</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
@@ -132,20 +132,42 @@
     .hidden-input{
     position:absolute; left:-9999px; width:1px; height:1px; opacity:0;
     }
+
+    /* Multi tab grid + slots */
+    .grid4 {
+      display:grid; grid-template-columns:1fr 1fr; gap:14px;
+    }
+    .slot { display:flex; flex-direction:column; gap:6px; }
+    .slot-label {
+      font-size:12px; font-weight:700; color:var(--accent); letter-spacing:.5px;
+      text-transform:uppercase;
+    }
+    .slot-tag {
+      font-weight:400; text-transform:none; font-size:11px; letter-spacing:0;
+    }
+    .required-tag { color:#6ea8ff; }
+    .optional-tag { color:#9bb2ff; }
+
+    /* Notice box */
+    .notice {
+      background:#0d1540; border:1px solid #2a387c; border-radius:10px;
+      padding:12px 16px; font-size:13px; color:#a0b4ff;
+    }
+    .notice strong { color:#cfe0ff; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-    <div class="brand">UBX-ray</div>
+    <div class="brand">ubX-ray</div>
     <div class="badge">GNSS UBX log analyzer</div>
     </header>
 
     <div class="card">
       <!-- Tabs Navigation -->
       <div class="tabs">
-        <button class="tab-btn active" onclick="openTab('single', this)">Single .ubx analysis</button>
-        <button class="tab-btn" onclick="openTab('comparison', this)">NMEA comparison analysis</button>
+        <button class="tab-btn active" id="tabBtnSingle" onclick="openTab('single', this)">Single .ubx Analysis</button>
+        <button class="tab-btn" id="tabBtnMulti" onclick="openTab('multi', this)">Multi .ubx Analysis</button>
       </div>
 
       <!-- Tab 1: Single UBX Analysis -->
@@ -207,25 +229,121 @@
         </div>
       </div>
 
-      <!-- Tab 2: NMEA Comparison Analysis -->
+      <!-- Tab 2: Multi UBX Analysis -->
+      <div id="tab-multi" class="tab-pane">
+        <div class="notice row">
+          <strong>How it works:</strong> Upload 1–4 UBX/BIN files. Each is converted to KMZ in the background.
+          The comparison view loads each track as it becomes ready — all maps share the same zoom &amp; position.
+        </div>
+
+        <form id="multiForm" enctype="multipart/form-data" action="/compare4/upload" method="post">
+          <div class="grid4 row">
+            <!-- File 1 -->
+            <div class="slot">
+              <div class="slot-label">File 1 <span class="slot-tag required-tag">required</span></div>
+              <label id="mDrop1" class="drop" for="mFile1">
+                <h3>Drop UBX/BIN file here</h3>
+                <div class="hint">or click to browse</div>
+                <div class="file-name" id="mName1"></div>
+              </label>
+              <input id="mFile1" class="hidden-input" type="file" name="file1" accept=".ubx,.bin" required>
+            </div>
+            <!-- File 2 -->
+            <div class="slot">
+              <div class="slot-label">File 2 <span class="slot-tag optional-tag">optional</span></div>
+              <label id="mDrop2" class="drop" for="mFile2" style="opacity:.75;">
+                <h3>Drop UBX/BIN file here</h3>
+                <div class="hint">or click to browse · leave empty to skip</div>
+                <div class="file-name" id="mName2"></div>
+              </label>
+              <input id="mFile2" class="hidden-input" type="file" name="file2" accept=".ubx,.bin">
+            </div>
+            <!-- File 3 -->
+            <div class="slot">
+              <div class="slot-label">File 3 <span class="slot-tag optional-tag">optional</span></div>
+              <label id="mDrop3" class="drop" for="mFile3" style="opacity:.75;">
+                <h3>Drop UBX/BIN file here</h3>
+                <div class="hint">or click to browse · leave empty to skip</div>
+                <div class="file-name" id="mName3"></div>
+              </label>
+              <input id="mFile3" class="hidden-input" type="file" name="file3" accept=".ubx,.bin">
+            </div>
+            <!-- File 4 -->
+            <div class="slot">
+              <div class="slot-label">File 4 <span class="slot-tag optional-tag">optional</span></div>
+              <label id="mDrop4" class="drop" for="mFile4" style="opacity:.75;">
+                <h3>Drop UBX/BIN file here</h3>
+                <div class="hint">or click to browse · leave empty to skip</div>
+                <div class="file-name" id="mName4"></div>
+              </label>
+              <input id="mFile4" class="hidden-input" type="file" name="file4" accept=".ubx,.bin">
+            </div>
+          </div>
+
+          <fieldset class="row">
+            <legend>Conversion Options (applied to all files)</legend>
+            <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:center; margin-top:6px;">
+              <div>
+                <label>Downsample (Hz):</label>
+                <select name="hz">
+                  <option value="">(None)</option>
+                  <option value="1">1 Hz</option>
+                  <option value="2">2 Hz</option>
+                  <option value="5">5 Hz</option>
+                  <option value="10">10 Hz</option>
+                </select>
+              </div>
+              <label class="chk">
+                <input type="checkbox" name="nav2">
+                <span>Use NAV2-PVT</span>
+              </label>
+              <label class="chk">
+                <input type="checkbox" name="alt_abs">
+                <span>altitudeMode = absolute</span>
+              </label>
+              <label class="chk">
+                <input type="checkbox" name="mapm">
+                <span>AID-MAPM only (KMZ)</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="actions row">
+            <button id="multiSubmitBtn" class="btn" type="submit">Upload & Compare</button>
+            <div id="multiSpinner" class="spinner" aria-hidden="true"></div>
+            <div id="multiLoadingText" role="status" aria-live="polite"></div>
+          </div>
+        </form>
+
+        <div class="footer">
+          <div class="links">
+            <a href="/recent">View Recent Results</a>
+          </div>
+          <div class="hint">Each file is processed in parallel. Maps sync automatically.</div>
+        </div>
+      </div>
+
+      <!-- Tab 3: NMEA Comparison Analysis -->
       <div id="tab-comparison" class="tab-pane">
         <form id="compareForm" enctype="multipart/form-data" action="/analyze_nmea" method="post">
-          <div class="row" style="display:flex; gap:15px; flex-wrap:wrap;">
+          <div class="row" style="display:flex; gap:14px; flex-wrap:wrap;">
             <!-- Reference Input -->
-            <div style="flex:1; min-width:250px;">
-              <label id="dropRef" class="drop" for="refInput" style="padding:20px;">
-                <h3>Reference NMEA</h3>
-                <div class="hint">Click to browse</div>
+            <div class="slot" style="flex:1; min-width:250px;">
+              <div class="slot-label">Reference NMEA <span class="slot-tag required-tag">required</span></div>
+              <label id="dropRef" class="drop" for="refInput">
+                <h3>Drop NMEA file here</h3>
+                <div class="hint">or click to browse · .nmea / .txt / .log</div>
                 <div class="file-name" id="refName"></div>
               </label>
               <input id="refInput" class="hidden-input" type="file" name="ref_file" accept=".nmea,.txt,.log" required>
             </div>
 
             <!-- Test Input -->
-            <div style="flex:1; min-width:250px;">
-              <label id="dropTest" class="drop" for="testInput" style="padding:20px;">
-                <h3>Test Device NMEA</h3>
-                <div class="hint">Click to browse</div>
+            <div class="slot" style="flex:1; min-width:250px;">
+              <div class="slot-label">Test Device NMEA <span class="slot-tag required-tag">required</span></div>
+              <label id="dropTest" class="drop" for="testInput">
+                <h3>Drop NMEA file here</h3>
+                <div class="hint">or click to browse · .nmea / .txt / .log</div>
                 <div class="file-name" id="testName"></div>
               </label>
               <input id="testInput" class="hidden-input" type="file" name="test_file" accept=".nmea,.txt,.log" required>
@@ -238,6 +356,10 @@
             <div id="compareLoadingText" role="status" aria-live="polite"></div>
           </div>
         </form>
+
+        <div class="footer">
+          <div class="hint">Compares position accuracy between Reference and Test device.</div>
+        </div>
       </div>
 
     </div>
@@ -374,15 +496,69 @@
       });
     }
 
+    // --- Multi UBX Logic ---
+    function wireMultiDropzone(dropId, inputId, nameId) {
+      const dz = document.getElementById(dropId);
+      const fi = document.getElementById(inputId);
+      const fn = document.getElementById(nameId);
+
+      dz.addEventListener("dragover", e => {
+        e.preventDefault(); e.stopPropagation();
+        dz.classList.add("dragover");
+      });
+      dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+      dz.addEventListener("drop", e => {
+        e.preventDefault(); e.stopPropagation();
+        dz.classList.remove("dragover");
+        const files = e.dataTransfer?.files;
+        if (!files?.length) return;
+        const dt = new DataTransfer();
+        dt.items.add(files[0]);
+        fi.files = dt.files;
+        fn.textContent = files[0].name;
+        dz.style.borderColor = '#6ea8ff';
+        dz.style.opacity = '1';
+      });
+      fi.addEventListener("change", () => {
+        fn.textContent = fi.files.length ? fi.files[0].name : "";
+        if (fi.files.length) { dz.style.borderColor = '#6ea8ff'; dz.style.opacity = '1'; }
+      });
+    }
+
     window.addEventListener("DOMContentLoaded", () => {
-      // Tab 1
+      // Tab 1 (Single)
       document.getElementById("uploadForm").addEventListener("submit", startUpload);
       wireDropzone("dropzone", "fileInput", "fileName");
 
-      // Tab 2
+      // Tab 2 (Multi)
+      for (let i = 1; i <= 4; i++) {
+        wireMultiDropzone(`mDrop${i}`, `mFile${i}`, `mName${i}`);
+      }
+      document.getElementById("multiForm").addEventListener("submit", e => {
+        const fi1 = document.getElementById("mFile1");
+        if (!fi1.files.length) { alert("Please select at least File 1."); e.preventDefault(); return; }
+        let count = 0;
+        for (let i = 1; i <= 4; i++) {
+          if (document.getElementById(`mFile${i}`).files.length) count++;
+        }
+        document.getElementById("multiSubmitBtn").disabled = true;
+        document.getElementById("multiSpinner").style.display = "inline-block";
+        document.getElementById("multiLoadingText").style.display = "inline-block";
+        document.getElementById("multiLoadingText").textContent = `Uploading ${count} file${count > 1 ? 's' : ''}... please wait`;
+      });
+
+      // Tab 3 (NMEA)
       document.getElementById("compareForm").addEventListener("submit", startComparison);
       wireDropzone("dropRef", "refInput", "refName");
       wireDropzone("dropTest", "testInput", "testName");
+
+      // URL 파라미터로 탭 활성화
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') === 'nmea') {
+        openTab('comparison', document.getElementById('tabBtnNmea'));
+      } else if (params.get('tab') === 'multi') {
+        openTab('multi', document.getElementById('tabBtnMulti'));
+      }
     });
   </script>
 </body>

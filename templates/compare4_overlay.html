@@ -1,0 +1,791 @@
+<!doctype html>
+<html>
+<head>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <meta charset="utf-8">
+  <title>4-Track Overlay — UBX-ray</title>
+
+  <!-- OpenLayers (pinned version) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@9.1.0/ol.css">
+  <script src="https://cdn.jsdelivr.net/npm/ol@9.1.0/dist/ol.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    :root {
+      --header-h: 60px;
+      --border: #e5e7eb;
+      --bg: #f8fafc;
+      --ink: #1e293b;
+      --muted: #6b7280;
+      --accent: #0078ff;
+      --font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      /* Track colors */
+      --c1: #0078ff; --c2: #e03e3e; --c3: #16a34a; --c4: #9333ea;
+    }
+
+    html, body {
+      height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    }
+    body { overflow: hidden; }
+
+    /* ===== Header ===== */
+    header {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; flex-wrap: wrap;
+      background: #fff; border-bottom: 1px solid var(--border);
+      padding: 10px 14px; box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    }
+    h1.title {
+      margin: 0; font-size: 15px; font-weight: 700; color: var(--ink);
+      white-space: nowrap; letter-spacing: -0.2px;
+    }
+
+    .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex: 1; }
+
+    .seg {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #f3f4f6; padding: 4px; border-radius: 10px;
+      box-shadow: inset 0 0 0 1px var(--border);
+    }
+
+    .btn {
+      border: 0; background: transparent; color: #374151;
+      font-weight: 600; font-size: 13px;
+      padding: 6px 11px; border-radius: 8px; cursor: pointer;
+      transition: all .15s ease;
+      display: inline-flex; align-items: center; gap: 5px; line-height: 1;
+      font-family: var(--font);
+    }
+    .btn:hover { background: #e5e7eb; }
+    .btn.active { background: var(--accent); color: #fff; }
+    .btn.primary { background: var(--accent); color: #fff; }
+    .btn.primary:hover { filter: brightness(.96); }
+    .btn .ico { font-size: 12px; line-height: 1; }
+    a.btn { text-decoration: none; }
+
+    /* Track toggle buttons — colored when active */
+    .track-btn          { border: 2px solid transparent; }
+    .track-btn.t1.active { background: var(--c1); color: #fff; border-color: var(--c1); }
+    .track-btn.t2.active { background: var(--c2); color: #fff; border-color: var(--c2); }
+    .track-btn.t3.active { background: var(--c3); color: #fff; border-color: var(--c3); }
+    .track-btn.t4.active { background: var(--c4); color: #fff; border-color: var(--c4); }
+    .track-btn.t1:not(.active) { color: var(--c1); }
+    .track-btn.t2:not(.active) { color: var(--c2); }
+    .track-btn.t3:not(.active) { color: var(--c3); }
+    .track-btn.t4:not(.active) { color: var(--c4); }
+
+    /* Track color dot */
+    .dot {
+      display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+      margin-right: 3px; flex-shrink: 0;
+    }
+    .dot1 { background: var(--c1); }
+    .dot2 { background: var(--c2); }
+    .dot3 { background: var(--c3); }
+    .dot4 { background: var(--c4); }
+
+    select, input[type="range"] {
+      border: 1px solid #d1d5db; border-radius: 8px;
+      padding: 5px 7px; background: #fff; font-size: 13px;
+      vertical-align: middle; font-family: var(--font);
+    }
+    input[type="range"] { width: 160px; }
+
+    .small-label {
+      font-size: 12px; color: var(--muted); font-weight: 600;
+      margin: 0 3px; user-select: none; white-space: nowrap;
+    }
+    .timebox {
+      min-width: 200px; text-align: center; background: #fff;
+      border: 1px solid #d1d5db; border-radius: 8px;
+      padding: 5px 8px; font: 12px/1.2 ui-monospace, monospace; color: #111827;
+    }
+    .badge {
+      background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;
+      font-weight: 700; font-size: 11px; border-radius: 999px;
+      padding: 4px 9px; white-space: nowrap;
+    }
+
+    /* Loading overlay */
+    #loadingOverlay {
+      position: fixed; inset: 0; z-index: 50;
+      background: rgba(248,250,252,.88); backdrop-filter: blur(3px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+    }
+    #loadingOverlay.hidden { display: none; }
+    .load-spinner {
+      width: 40px; height: 40px;
+      border: 4px solid #d1d5db; border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .load-text { font-size: 15px; font-weight: 600; color: var(--ink); }
+    .load-progress { display: flex; flex-direction: column; gap: 5px; min-width: 260px; }
+    .load-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+    .load-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ===== Map ===== */
+    #map {
+      width: 100vw;
+      height: calc(100vh - var(--header-h));
+      border-top: 1px solid var(--border);
+      background: #dfe7ef;
+    }
+
+    /* ===== Popup ===== */
+    .ol-popup {
+      position: absolute; background: #fff; border-radius: 8px;
+      border: 1px solid rgba(0,0,0,.2);
+      box-shadow: 0 4px 12px rgba(0,0,0,.25);
+      padding: 10px 12px; min-width: 220px; max-width: 320px;
+      color: #111; z-index: 1000;
+    }
+    .ol-popup-closer {
+      position: absolute; top: 6px; right: 8px;
+      text-decoration: none; color: #aaa; font-weight: bold; font-size: 18px;
+    }
+    .ol-popup-closer:hover { color: #000; }
+    #popup-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; }
+    #popup-desc  { font-size: 13px; color: #333; line-height: 1.4; }
+  </style>
+</head>
+<body>
+
+  <!-- Data from server -->
+  <div id="app-data"
+       data-rids="{{ rids | join(',') }}"
+       data-filenames="{{ filenames | join('|||') }}"
+       style="display:none"></div>
+
+  <!-- Loading overlay -->
+  <div id="loadingOverlay">
+    <div class="load-spinner"></div>
+    <div class="load-text" id="loadTitle">Loading tracks…</div>
+    <div class="load-progress" id="loadProgress"></div>
+  </div>
+
+  <!-- ===== Header ===== -->
+  <header id="app-header">
+    <h1 class="title">📍 4-Track Overlay</h1>
+
+    <div class="toolbar">
+
+      <!-- Base map toggle -->
+      <div class="seg">
+        <button id="btnBaseMap" class="btn active">Map</button>
+        <button id="btnBaseSat" class="btn">Satellite</button>
+      </div>
+
+      <!-- Track toggles -->
+      <div class="seg" id="trackToggles">
+        <button class="btn track-btn t1 active" data-track="0">
+          <span class="dot dot1"></span><span id="tlbl0">Track 1</span>
+        </button>
+        <button class="btn track-btn t2 active" data-track="1">
+          <span class="dot dot2"></span><span id="tlbl1">Track 2</span>
+        </button>
+        <button class="btn track-btn t3 active" data-track="2">
+          <span class="dot dot3"></span><span id="tlbl2">Track 3</span>
+        </button>
+        <button class="btn track-btn t4 active" data-track="3">
+          <span class="dot dot4"></span><span id="tlbl3">Track 4</span>
+        </button>
+      </div>
+
+      <!-- Fit button -->
+      <button id="btnFit" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;">⊡ Fit All</button>
+
+      <!-- Playback -->
+      <div class="seg">
+        <button id="playBtn" class="btn"><span class="ico">▶</span><span>Play</span></button>
+        <span class="small-label">Speed</span>
+        <select id="speedSel">
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+          <option value="5">5×</option>
+          <option value="10">10×</option>
+        </select>
+        <input id="timeRange" type="range" min="0" max="0" value="0" step="1">
+        <div id="timeLabel" class="timebox">--</div>
+        <button id="followBtn" class="btn">Follow</button>
+        <div id="hzBadge" class="badge">Hz: --</div>
+      </div>
+
+      <!-- Measure -->
+      <div class="seg">
+        <button id="measureBtn" class="btn">Measure</button>
+        <button id="clearBtn" class="btn">Clear</button>
+      </div>
+
+    </div>
+
+    <!-- Right side: view switcher -->
+    <div style="display:flex;gap:6px;flex-shrink:0;">
+      <a id="reportLink"    href="#" class="btn" style="background:#0f172a;color:#fff;border:1px solid #0f172a;font-size:12px;">📊 Report</a>
+      <a id="splitViewLink" href="#" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">⊞ Split Map View</a>
+      <a href="/compare4" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">← New</a>
+    </div>
+  </header>
+
+  <!-- ===== Map ===== -->
+  <div id="map"></div>
+
+  <!-- Popup -->
+  <div id="popup" class="ol-popup" style="display:none;">
+    <a href="#" id="popup-closer" class="ol-popup-closer">×</a>
+    <div id="popup-title"></div>
+    <div id="popup-desc"></div>
+  </div>
+
+  <!-- Layout helper (header height → CSS var) -->
+  <script>
+    (function() {
+      var header = document.getElementById('app-header');
+      var root   = document.documentElement;
+      function applyLayout() {
+        var h = Math.ceil(header.getBoundingClientRect().height);
+        root.style.setProperty('--header-h', h + 'px');
+        if (window._olMap) window._olMap.updateSize();
+      }
+      new ResizeObserver(applyLayout).observe(header);
+      window.addEventListener('resize', applyLayout);
+      setTimeout(applyLayout, 0);
+    })();
+  </script>
+
+  <!-- ===== Map logic ===== -->
+  <script>
+  (function() {
+    // ── Data ──────────────────────────────────────────────────────────────
+    var el        = document.getElementById('app-data');
+    var RIDS      = el.dataset.rids.split(',');
+    var FILENAMES = el.dataset.filenames.split('|||');
+    var COLORS    = ['#0078ff', '#e03e3e', '#16a34a', '#9333ea'];
+    var LINE_W    = [3, 2.5, 2.5, 2];   // slightly different widths to distinguish overlapping tracks
+    var MAX_PTS   = 5000;
+
+    // Split view / Report link
+    document.getElementById('splitViewLink').href =
+      '/compare4/view/' + RIDS.join('/');
+    document.getElementById('reportLink').href =
+      '/compare4/report/' + RIDS.join('/');
+
+    // Count active (non-sentinel) tracks
+    var activeTrackCount = RIDS.filter(function(r) { return r !== '_'; }).length;
+    document.getElementById('loadTitle').textContent = 'Loading ' + activeTrackCount + ' track' + (activeTrackCount !== 1 ? 's' : '') + '…';
+
+    // Track label (short filename), hide toggle buttons for empty slots
+    for (var li = 0; li < 4; li++) {
+      var trackBtn = document.querySelector('.track-btn[data-track="' + li + '"]');
+      if (RIDS[li] === '_') {
+        // Hide this toggle button entirely
+        if (trackBtn) trackBtn.style.display = 'none';
+        continue;
+      }
+      var fn = FILENAMES[li] || ('Track ' + (li+1));
+      var short = fn.length > 16 ? fn.slice(0, 14) + '…' : fn;
+      document.getElementById('tlbl' + li).textContent = short;
+      // Loading progress rows (only for active tracks)
+      var row = document.createElement('div');
+      row.className = 'load-row';
+      row.id = 'loadrow' + li;
+      var dot = document.createElement('span');
+      dot.className = 'load-dot';
+      dot.style.background = COLORS[li];
+      row.appendChild(dot);
+      var txt = document.createElement('span');
+      txt.id = 'loadtxt' + li;
+      txt.textContent = fn.length > 40 ? fn.slice(0,38)+'…' : fn;
+      row.appendChild(txt);
+      document.getElementById('loadProgress').appendChild(row);
+    }
+
+    // ── Base layers ───────────────────────────────────────────────────────
+    var osm = new ol.layer.Tile({ source: new ol.source.OSM() });
+    var sat = new ol.layer.Tile({
+      visible: false,
+      source: new ol.source.XYZ({
+        url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      })
+    });
+
+    // ── Per-track vector layers ────────────────────────────────────────────
+    var trackSources = [], trackLayers = [], markerFeatures = [];
+
+    for (var ti = 0; ti < 4; ti++) {
+      (function(idx) {
+        var src = new ol.source.Vector();
+        trackSources.push(src);
+
+        var color = COLORS[idx];
+        var lw    = LINE_W[idx];
+
+        var layer = new ol.layer.Vector({
+          source: src,
+          style: function(f) {
+            var role = f.get('_role');
+            if (role === 'marker') {
+              return new ol.style.Style({
+                image: new ol.style.Circle({
+                  radius: 7,
+                  fill:   new ol.style.Fill({ color: color }),
+                  stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+                })
+              });
+            }
+            if (role === 'start') {
+              return new ol.style.Style({
+                image: new ol.style.Circle({
+                  radius: 6,
+                  fill:   new ol.style.Fill({ color: color }),
+                  stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+                })
+              });
+            }
+            if (role === 'end') {
+              return new ol.style.Style({
+                image: new ol.style.Circle({
+                  radius: 7,
+                  fill:   new ol.style.Fill({ color: '#fff' }),
+                  stroke: new ol.style.Stroke({ color: color, width: 2.5 })
+                })
+              });
+            }
+            // LineString
+            return new ol.style.Style({
+              stroke: new ol.style.Stroke({ color: color, width: lw })
+            });
+          }
+        });
+        trackLayers.push(layer);
+
+        // Moving marker feature (hidden until data loads)
+        var mf = new ol.Feature({ geometry: new ol.geom.Point([0, 0]), _role: 'marker' });
+        mf.setStyle(new ol.style.Style({})); // hidden initially
+        markerFeatures.push(mf);
+        src.addFeature(mf);
+      })(ti);
+    }
+
+    // ── Measure layer ─────────────────────────────────────────────────────
+    var measureSrc = new ol.source.Vector();
+    var measureLayer = new ol.layer.Vector({
+      source: measureSrc,
+      style: new ol.style.Style({
+        stroke: new ol.style.Stroke({ color: '#0078ff', width: 3 }),
+        image: new ol.style.Circle({
+          radius: 6,
+          fill:   new ol.style.Fill({ color: '#0078ff' }),
+          stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+        })
+      })
+    });
+
+    // ── Map ───────────────────────────────────────────────────────────────
+    var map = new ol.Map({
+      target: 'map',
+      layers: [osm, sat].concat(trackLayers).concat([measureLayer]),
+      view: new ol.View({ center: ol.proj.fromLonLat([127, 37]), zoom: 6 })
+    });
+    window._olMap = map;
+
+    // ── Popup ─────────────────────────────────────────────────────────────
+    var popupEl     = document.getElementById('popup');
+    var popupTitle  = document.getElementById('popup-title');
+    var popupDesc   = document.getElementById('popup-desc');
+    var popupOverlay = new ol.Overlay({
+      element: popupEl,
+      autoPan: { animation: { duration: 250 } },
+      offset: [0, -12]
+    });
+    map.addOverlay(popupOverlay);
+
+    document.getElementById('popup-closer').onclick = function(e) {
+      e.preventDefault();
+      popupOverlay.setPosition(undefined);
+      popupEl.style.display = 'none';
+    };
+
+    // ── Base map toggle ───────────────────────────────────────────────────
+    var btnMap = document.getElementById('btnBaseMap');
+    var btnSat = document.getElementById('btnBaseSat');
+    function setBase(toSat) {
+      osm.setVisible(!toSat); sat.setVisible(toSat);
+      btnMap.classList.toggle('active', !toSat);
+      btnSat.classList.toggle('active', toSat);
+    }
+    btnMap.addEventListener('click', function() { setBase(false); });
+    btnSat.addEventListener('click', function() { setBase(true);  });
+
+    // ── Track toggles ─────────────────────────────────────────────────────
+    document.querySelectorAll('.track-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var idx = parseInt(btn.dataset.track, 10);
+        var on  = !btn.classList.contains('active');
+        btn.classList.toggle('active', on);
+        trackLayers[idx].setVisible(on);
+      });
+    });
+
+    // ── Fit All ───────────────────────────────────────────────────────────
+    function fitAll() {
+      var combined = ol.extent.createEmpty();
+      for (var fi = 0; fi < 4; fi++) {
+        if (RIDS[fi] === '_') continue;
+        if (!trackLayers[fi].getVisible()) continue;
+        var ext = trackSources[fi].getExtent();
+        if (!ol.extent.isEmpty(ext)) ol.extent.extend(combined, ext);
+      }
+      if (!ol.extent.isEmpty(combined)) {
+        map.getView().fit(combined, { padding: [30, 30, 30, 30], maxZoom: 17, duration: 400 });
+      }
+    }
+    document.getElementById('btnFit').addEventListener('click', fitAll);
+
+    // ── Popup on click ────────────────────────────────────────────────────
+    var measureActive = false;
+    map.on('singleclick', function(evt) {
+      if (measureActive) return;
+      var hit = false;
+      map.forEachFeatureAtPixel(evt.pixel, function(f, layer) {
+        if (!trackLayers.includes(layer)) return;
+        var g = f.getGeometry();
+        if (g && g.getType() === 'Point' && f.get('_role') !== 'marker') {
+          popupTitle.textContent = f.get('name') || 'Point';
+          popupDesc.innerHTML    = buildDesc(f);
+          popupOverlay.setPosition(evt.coordinate);
+          popupEl.style.display  = 'block';
+          hit = true; return true;
+        }
+      }, { hitTolerance: 6 });
+      if (!hit) { popupOverlay.setPosition(undefined); popupEl.style.display = 'none'; }
+    });
+
+    function buildDesc(feature) {
+      var d = feature.get('description') || '';
+      if (d && d.trim().charAt(0) === '<') return d;
+      var props = feature.getProperties(), lines = [];
+      for (var k in props) {
+        if (['geometry','name','description','_role'].indexOf(k) >= 0) continue;
+        if (props[k] != null && props[k] !== '') lines.push('<b>' + k + '</b>: ' + props[k]);
+      }
+      return lines.length ? lines.join('<br>') : (d || '');
+    }
+
+    // ── Measure tool ──────────────────────────────────────────────────────
+    var measureBtn = document.getElementById('measureBtn');
+    var clearBtn   = document.getElementById('clearBtn');
+    var picked     = [];
+    function setMeasure(on) {
+      measureActive = on;
+      measureBtn.classList.toggle('active', on);
+      if (on) { picked = []; measureSrc.clear(); popupEl.style.display = 'none'; }
+    }
+    measureBtn.onclick = function() { setMeasure(!measureActive); };
+    clearBtn.onclick   = function() { picked = []; measureSrc.clear(); };
+
+    function formatDist(m) {
+      return m >= 1000 ? (m / 1000).toFixed(3) + ' km' : Math.round(m) + ' m';
+    }
+    map.on('singleclick', function(evt) {
+      if (!measureActive) return;
+      picked.push(evt.coordinate);
+      measureSrc.addFeature(new ol.Feature(new ol.geom.Point(evt.coordinate)));
+      if (picked.length === 2) {
+        var line = new ol.geom.LineString(picked);
+        measureSrc.addFeature(new ol.Feature(line));
+        var len = ol.sphere.getLength(line, { projection: map.getView().getProjection() });
+        popupTitle.textContent = 'Distance';
+        popupDesc.innerHTML    = formatDist(len);
+        popupOverlay.setPosition(line.getCoordinateAt(0.5));
+        popupEl.style.display  = 'block';
+        setMeasure(false);
+      }
+    });
+
+    // ── Playback ──────────────────────────────────────────────────────────
+    var allPlayback = [[], [], [], []];   // raw pts per track
+    var maxLen = 0;
+
+    var playBtn   = document.getElementById('playBtn');
+    var speedSel  = document.getElementById('speedSel');
+    var timeRange = document.getElementById('timeRange');
+    var timeLabel = document.getElementById('timeLabel');
+    var followBtn = document.getElementById('followBtn');
+    var hzBadge   = document.getElementById('hzBadge');
+
+    var playing = false, raf = null, floatIdx = 0, lastTs = 0, dataHz = 1;
+    var playIdx = 0, followEnabled = false;
+
+    function updatePlayUI(on) {
+      playBtn.classList.toggle('primary', on);
+      playBtn.innerHTML = on
+        ? '<span class="ico">⏸</span><span>Pause</span>'
+        : '<span class="ico">▶</span><span>Play</span>';
+    }
+
+    followBtn.onclick = function() {
+      followEnabled = !followEnabled;
+      followBtn.classList.toggle('active', followEnabled);
+      followBtn.textContent = followEnabled ? 'Following' : 'Follow';
+    };
+
+    function setPlayIndex(i) {
+      if (maxLen === 0) return;
+      playIdx   = Math.max(0, Math.min(maxLen - 1, i | 0));
+      floatIdx  = playIdx;
+      timeRange.value = playIdx;
+
+      // Move each track's marker proportionally
+      var pct = maxLen > 1 ? playIdx / (maxLen - 1) : 0;
+      var refTime = null;
+      for (var mi = 0; mi < 4; mi++) {
+        var pts = allPlayback[mi];
+        if (!pts.length) continue;
+        var pidx  = Math.min(pts.length - 1, Math.round(pct * (pts.length - 1)));
+        var pt    = pts[pidx];
+        var coord = ol.proj.fromLonLat([pt.lon, pt.lat]);
+        markerFeatures[mi].getGeometry().setCoordinates(coord);
+        markerFeatures[mi].changed();
+        if (mi === 0 && pt.t) refTime = pt.t;
+        if (followEnabled && mi === 0) map.getView().setCenter(coord);
+      }
+      timeLabel.textContent = refTime
+        ? refTime.toISOString().replace('T', ' ').replace('Z', ' UTC')
+        : (playIdx + 1) + ' / ' + maxLen;
+    }
+
+    function tick(ts) {
+      if (!playing) return;
+      if (!lastTs) lastTs = ts;
+      var dt = (ts - lastTs) / 1000;
+      lastTs = ts;
+      floatIdx += dataHz * parseFloat(speedSel.value || '1') * dt;
+      var next = Math.floor(floatIdx);
+      if (next !== playIdx) {
+        playIdx = Math.min(next, maxLen - 1);
+        setPlayIndex(playIdx);
+        timeRange.value = playIdx;
+      }
+      if (playIdx >= maxLen - 1) { stopPlay(); return; }
+      raf = requestAnimationFrame(tick);
+    }
+    function startPlay() { stopPlay(); playing = true; updatePlayUI(true);  lastTs = 0; raf = requestAnimationFrame(tick); }
+    function stopPlay()  { playing = false; updatePlayUI(false); if (raf) cancelAnimationFrame(raf); raf = null; }
+
+    playBtn.onclick = function() { playing ? stopPlay() : startPlay(); };
+    timeRange.oninput = function(e) { setPlayIndex(parseInt(e.target.value, 10)); if (playing) lastTs = 0; };
+
+    // ── Hz estimation (same logic as map.html) ────────────────────────────
+    function estimateHz(pts) {
+      var times = pts.map(function(p) { return p.t ? p.t.getTime() : NaN; })
+                     .filter(function(v) { return isFinite(v); });
+      if (times.length < 3) return null;
+      var buckets = {};
+      times.forEach(function(ms) {
+        var sec = Math.floor(ms / 1000);
+        buckets[sec] = (buckets[sec] || 0) + 1;
+      });
+      var counts = Object.values(buckets).sort(function(a,b){return a-b;});
+      if (counts.length) {
+        var med = counts[(counts.length / 2) | 0];
+        if (med >= 2) return med;
+      }
+      var deltas = [];
+      for (var i = 1; i < times.length; i++) {
+        var d = (times[i] - times[i-1]) / 1000;
+        if (d > 0) deltas.push(d);
+      }
+      if (!deltas.length) return null;
+      deltas.sort(function(a,b){return a-b;});
+      var mDelta = deltas[(deltas.length/2)|0];
+      return Math.min(50, Math.max(0.2, 1 / mDelta));
+    }
+
+    // ── KML loading ───────────────────────────────────────────────────────
+    var loadedCount = 0;
+
+    function setLoadStatus(idx, text) {
+      var el = document.getElementById('loadtxt' + idx);
+      if (el) el.textContent = text;
+    }
+
+    function loadTrack(idx) {
+      var rid = RIDS[idx];
+      // Skip empty slots immediately
+      if (rid === '_') {
+        onTrackLoaded(idx, [], []);
+        return;
+      }
+      setLoadStatus(idx, '⏳ Checking status…');
+
+      function checkStatus() {
+        fetch('/api/status/' + rid)
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d.status === 'error') {
+              setLoadStatus(idx, '❌ ' + (d.error || 'failed'));
+              return;
+            }
+            if (d.status === 'done' && d.has_kmz) {
+              setLoadStatus(idx, '⬇️ Loading KML…');
+              fetchAndParse(idx);
+            } else {
+              var msg = d.status === 'queued' ? '⏳ Queued…' : '⚙️ Converting…';
+              setLoadStatus(idx, msg);
+              setTimeout(checkStatus, 3000);
+            }
+          })
+          .catch(function() { setTimeout(checkStatus, 5000); });
+      }
+      checkStatus();
+    }
+
+    function fetchAndParse(idx) {
+      fetch('/kml/' + RIDS[idx])
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function(kmlText) {
+          // ── Parse KML → rawPts (시간 + 좌표) ─────────────────────────
+          var parser = new DOMParser();
+          var doc    = parser.parseFromString(kmlText, 'application/xml');
+          var KMLNS  = 'http://www.opengis.net/kml/2.2';
+          var GXNS   = 'http://www.google.com/kml/ext/2.2';
+
+          var rawPts = [];
+
+          // gx:Track (선호)
+          var tracks = doc.getElementsByTagNameNS(GXNS, 'Track');
+          for (var ti = 0; ti < tracks.length; ti++) {
+            var whens  = Array.from(tracks[ti].getElementsByTagNameNS(KMLNS,'when')).map(function(n){return n.textContent.trim();});
+            var coords = Array.from(tracks[ti].getElementsByTagNameNS(GXNS,'coord')).map(function(n){return n.textContent.trim();});
+            var N = Math.min(whens.length, coords.length);
+            for (var i = 0; i < N; i++) {
+              var c = coords[i].split(/\s+/).map(Number);
+              if (c.length >= 2) rawPts.push({ t: new Date(whens[i]), lon: c[0], lat: c[1], alt: c[2]||0 });
+            }
+          }
+
+          // Placemark fallback
+          if (!rawPts.length) {
+            var pms = doc.getElementsByTagNameNS(KMLNS, 'Placemark');
+            for (var pi = 0; pi < pms.length; pi++) {
+              var pt = pms[pi].getElementsByTagNameNS(KMLNS,'Point')[0];
+              if (!pt) continue;
+              var cn = pt.getElementsByTagNameNS(KMLNS,'coordinates')[0];
+              if (!cn) continue;
+              var parts = cn.textContent.trim().split(',').map(Number);
+              var wn = pms[pi].getElementsByTagNameNS(KMLNS,'when')[0];
+              if (!wn) {
+                var ts2 = pms[pi].getElementsByTagNameNS(KMLNS,'TimeStamp')[0];
+                if (ts2) wn = ts2.getElementsByTagNameNS(KMLNS,'when')[0];
+              }
+              rawPts.push({ t: wn ? new Date(wn.textContent.trim()) : null, lon: parts[0], lat: parts[1], alt: parts[2]||0 });
+            }
+            if (rawPts.some(function(p){return p.t;})) rawPts.sort(function(a,b){return a.t-b.t;});
+          }
+
+          if (!rawPts.length) {
+            setLoadStatus(idx, '⚠️ No track data');
+            onTrackLoaded(idx, [], []);
+            return;
+          }
+
+          // ── Downsample for display (비교뷰용) ────────────────────────
+          var MAP_MAX = MAX_PTS;
+          var mapPts  = rawPts;
+          if (rawPts.length > MAP_MAX) {
+            var step = rawPts.length / MAP_MAX;
+            mapPts = [];
+            for (var si = 0; si < MAP_MAX; si++) mapPts.push(rawPts[Math.round(si * step)]);
+            mapPts.push(rawPts[rawPts.length - 1]);
+          }
+
+          // ── Build OL features ─────────────────────────────────────────
+          var proj3857 = 'EPSG:3857';
+          var proj4326 = 'EPSG:4326';
+
+          var lineCoords = mapPts.map(function(p) {
+            return ol.proj.transform([p.lon, p.lat], proj4326, proj3857);
+          });
+
+          var lineF = new ol.Feature({ geometry: new ol.geom.LineString(lineCoords), name: FILENAMES[idx] });
+          var startF = new ol.Feature({
+            geometry: new ol.geom.Point(lineCoords[0]),
+            name: 'Start — ' + FILENAMES[idx], _role: 'start'
+          });
+          var endF = new ol.Feature({
+            geometry: new ol.geom.Point(lineCoords[lineCoords.length - 1]),
+            name: 'End — ' + FILENAMES[idx], _role: 'end'
+          });
+
+          trackSources[idx].addFeatures([lineF, startF, endF]);
+
+          // Show marker (initially at start)
+          var mColor = COLORS[idx];
+          markerFeatures[idx].setStyle(new ol.style.Style({
+            image: new ol.style.Circle({
+              radius: 7,
+              fill:   new ol.style.Fill({ color: mColor }),
+              stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+            })
+          }));
+
+          setLoadStatus(idx, '✅ ' + rawPts.length.toLocaleString() + ' points');
+          onTrackLoaded(idx, rawPts, lineCoords);
+        })
+        .catch(function(err) {
+          setLoadStatus(idx, '❌ ' + err.message);
+          onTrackLoaded(idx, [], []);
+        });
+    }
+
+    function onTrackLoaded(idx, rawPts, lineCoords) {
+      allPlayback[idx] = rawPts;
+      loadedCount++;
+
+      if (loadedCount === 4) {
+        // All slots resolved — update playback with active tracks only
+        maxLen = 0;
+        for (var i = 0; i < 4; i++) {
+          if (allPlayback[i].length > maxLen) maxLen = allPlayback[i].length;
+        }
+        timeRange.max = Math.max(0, maxLen - 1);
+        setPlayIndex(0);
+
+        // Hz from first non-empty track
+        dataHz = 10;
+        for (var hi = 0; hi < 4; hi++) {
+          if (allPlayback[hi].length > 0) {
+            var hz0 = estimateHz(allPlayback[hi]);
+            if (hz0) { dataHz = hz0; break; }
+          }
+        }
+        hzBadge.textContent = 'Hz: ' + dataHz.toFixed(1);
+
+        // Fit map
+        fitAll();
+
+        // Hide loading overlay
+        document.getElementById('loadingOverlay').classList.add('hidden');
+      } else if (loadedCount === 1 && rawPts.length > 0) {
+        // Fit to first loaded track immediately
+        fitAll();
+      }
+    }
+
+    // ── Start loading all 4 tracks ────────────────────────────────────────
+    for (var i = 0; i < 4; i++) {
+      loadTrack(i);
+    }
+
+  })();
+  </script>
+</body>
+</html>

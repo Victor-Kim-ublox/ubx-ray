@@ -22,7 +22,7 @@
       background: var(--bg);
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       margin: 40px auto;
-      max-width: 1200px; /* ✅ 더 넓게 */
+      max-width: 1280px;
       color: #111827;
     }
     h1 {
@@ -34,12 +34,12 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      table-layout: auto; /* ✅ 자동으로 폭 조절 */
+      table-layout: auto;
       background: var(--card-bg);
       box-shadow: 0 2px 8px rgba(0,0,0,0.05);
       border-radius: 10px;
       overflow: hidden;
-      white-space: nowrap; /* ✅ 줄바꿈 방지 */
+      white-space: nowrap;
     }
     th {
       background: #f3f4f6;
@@ -53,9 +53,8 @@
       border-bottom: 1px solid var(--border);
       vertical-align: middle;
     }
-    tr:hover {
-      background: #f9fafb;
-    }
+    tr:hover { background: #f9fafb; }
+
     .status-badge {
       padding: 3px 8px;
       border-radius: 6px;
@@ -64,115 +63,155 @@
       display: inline-block;
       white-space: nowrap;
     }
-    .done { background: var(--success-bg); color: var(--success-text); }
-    .error { background: var(--error-bg); color: var(--error-text); }
+    .done    { background: var(--success-bg); color: var(--success-text); }
+    .error   { background: var(--error-bg);   color: var(--error-text); }
     .queued, .running { background: var(--warn-bg); color: var(--warn-text); }
+
+    /* Type badges */
+    .type-badge {
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-block;
+      white-space: nowrap;
+    }
+    .type-single { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .type-multi  { background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; }
 
     a.btn {
       display: inline-block;
       background: var(--primary);
       color: #fff;
       text-decoration: none;
-      padding: 6px 10px;
+      padding: 5px 9px;
       border-radius: 6px;
-      font-size: 13px;
+      font-size: 12px;
+      font-weight: 600;
       transition: background 0.2s ease;
-      white-space: nowrap; /* ✅ 버튼 줄바꿈 금지 */
-    }
-    a.btn:hover {
-      background: var(--primary-hover);
-    }
-
-    .dim {
-      color: #888;
-      font-size: 13px;
       white-space: nowrap;
+      margin-right: 3px;
     }
+    a.btn:hover { background: var(--primary-hover); }
+    a.btn.secondary {
+      background: #f3f4f6;
+      color: #374151;
+      border: 1px solid var(--border);
+    }
+    a.btn.secondary:hover { background: #e5e7eb; }
 
-    td:nth-child(2) { min-width: 220px; } /* File */
-    td:nth-child(7), td:nth-child(8) { text-align: center; min-width: 120px; } /* Map / Download */
+    .dim { color: #888; font-size: 13px; white-space: nowrap; }
 
-    footer {
-      text-align: center;
-      margin-top: 24px;
-    }
-    footer a {
-      text-decoration: none;
-      color: var(--primary);
-      font-weight: 500;
-    }
-    footer a:hover {
-      text-decoration: underline;
-    }
+    footer { text-align: center; margin-top: 24px; }
+    footer a { text-decoration: none; color: var(--primary); font-weight: 500; }
+    footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <h1>Recent Results</h1>
-  <p style="color:#a33; font-size:14px; font-weight:500; margin-top:-6px; margin-bottom:12px;">
-  ⚠️ Data older than 7 days or beyond your latest 10 uploads may be automatically deleted. Please save important results promptly.
+  <p style="color:#a33; font-size:14px; font-weight:500; margin-top:-6px; margin-bottom:12px; text-align:center;">
+    ⚠️ Data older than 7 days or beyond your latest 10 uploads may be automatically deleted. Please save important results promptly.
   </p>
-
-<table cellpadding="0" cellspacing="0">
-
 
   <table>
     <tr>
       <th>ID</th>
+      <th>Type</th>
       <th>File</th>
       <th>Epochs</th>
       <th>Missing</th>
-      <th>CRC</th>
       <th>Status</th>
-      <th>Map View</th>
-      <th>Download</th>
+      <th>Actions</th>
       <th>Uploaded (UTC)</th>
     </tr>
 
     {% for row in rows %}
-      {% set id = row[0] %}
-      {% set filename = row[1] %}
-      {% set uploaded = row[2] %}
-      {% set epochs = row[3] %}
-      {% set missing = row[4] %}
-      {% set crc = row[5] %}
-      {% set kmz = row[6] if row|length > 6 else None %}
-      {% set status = row[8] if row|length > 8 else ('done' if kmz else 'queued') %}
-      {% set err = row[9] if row|length > 9 else None %}
+      {% set id            = row[0] %}
+      {% set filename      = row[1] %}
+      {% set uploaded      = row[2] %}
+      {% set epochs        = row[3] %}
+      {% set missing       = row[4] %}
+      {% set kmz           = row[6] if row|length > 6 else None %}
+      {% set status        = row[8] if row|length > 8 else ('done' if kmz else 'queued') %}
+      {% set err           = row[9] if row|length > 9 else None %}
+      {% set utype         = row[10] if row|length > 10 else 'single' %}
+      {% set cgroup        = row[11] if row|length > 11 else None %}
+      {% set is_multi      = (utype == 'multi' and cgroup) %}
 
       <tr>
-        <td><a href="/report/{{ id }}">{{ id }}</a></td>
+        <!-- ID -->
+        <td>
+          {% if is_multi %}
+            <a href="/compare4/report/{{ cgroup }}">{{ id }}</a>
+          {% else %}
+            <a href="/report/{{ id }}">{{ id }}</a>
+          {% endif %}
+        </td>
+
+        <!-- Type badge -->
+        <td>
+          {% if is_multi %}
+            <span class="type-badge type-multi">Multi</span>
+          {% else %}
+            <span class="type-badge type-single">Single</span>
+          {% endif %}
+        </td>
+
+        <!-- Filename -->
         <td>{{ filename }}</td>
-        <td>{{ epochs }}</td>
-        <td>{{ missing }}</td>
-        <td>{{ crc }}</td>
+
+        <!-- Epochs -->
+        <td>{{ epochs if epochs else '—' }}</td>
+
+        <!-- Missing -->
+        <td>
+          {% if missing and missing > 0 %}
+            <span style="color:var(--warn-text);font-weight:600;">{{ missing }}</span>
+          {% else %}
+            {{ missing if missing is not none else '—' }}
+          {% endif %}
+        </td>
+
+        <!-- Status -->
         <td>
           <span class="status-badge {{ status|e }}">
             {{ status|capitalize }}{% if status == 'error' and err %} — {{ err }}{% endif %}
           </span>
         </td>
+
+        <!-- Actions -->
         <td>
-          {% if kmz %}
-            <a class="btn" href="/map/{{ id }}" target="_blank">View Map</a>
-          {% elif status in ['queued','running'] %}
-            <span class="dim">Processing…</span>
+          {% if is_multi %}
+            {% if status == 'done' or status == 'running' or status == 'queued' %}
+              <a class="btn" href="/compare4/report/{{ cgroup }}">Comparison Report</a>
+            {% endif %}
+            {% if kmz %}
+              <a class="btn secondary" href="/compare4/view/{{ cgroup }}">Split Map</a>
+              <a class="btn secondary" href="/compare4/overlay/{{ cgroup }}">Overlay</a>
+              <a class="btn secondary" href="/download?path={{ kmz|urlencode }}">KMZ</a>
+            {% endif %}
           {% else %}
-            -
+            {% if status == 'done' %}
+              <a class="btn secondary" href="/report/{{ id }}">Report</a>
+              <a class="btn secondary" href="/map/{{ id }}">Map</a>
+              <a class="btn secondary" href="/download?path={{ kmz|urlencode }}">KMZ</a>
+            {% elif status in ['queued', 'running'] %}
+              <a class="btn secondary" href="/report/{{ id }}">Report</a>
+              <span class="dim">Processing…</span>
+            {% else %}
+              <a class="btn secondary" href="/report/{{ id }}">Report</a>
+            {% endif %}
           {% endif %}
         </td>
-        <td>
-          {% if kmz %}
-            <a class="btn" href="/download?path={{ kmz|urlencode }}">Download KMZ</a>
-          {% else %}
-            <span class="dim">-</span>
-          {% endif %}
-        </td>
+
+        <!-- Uploaded -->
         <td>{{ uploaded }}</td>
       </tr>
     {% endfor %}
   </table>
 
   <footer>
-    <p><a href="/">← Back to Upload</a></p>
+    <p><a href="/">← Back to Home</a></p>
   </footer>
 </body>
 </html>

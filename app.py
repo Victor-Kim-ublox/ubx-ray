@@ -133,12 +133,14 @@ def init_db():
         c.commit()
 
 def ensure_columns():
-    """기존 DB에 누락된 컬럼이 있으면 추가"""
+    """Add any missing columns to legacy databases."""
     need = {
         "user_id": "TEXT",
         "opts_json": "TEXT",
         "status": "TEXT DEFAULT 'queued'",
         "error": "TEXT",
+        "upload_type": "TEXT DEFAULT 'single'",
+        "compare_group": "TEXT",
     }
     with sqlite3.connect(DB_PATH) as c:
         cols = {row[1] for row in c.execute("PRAGMA table_info(results)").fetchall()}
@@ -331,7 +333,8 @@ def run_ubx2kmz(
         shutil.copyfile(src, final_kmz)
 
         # === [추가됨] JSON 결과에서 Missing Epoch 정보 읽어서 DB 업데이트 ===
-        json_path = base + "_graph.json"
+        # graph JSON 경로: KMZ와 같은 basename (_graph.json suffix)
+        json_path = src.replace(".kmz", "_graph.json")
         missing_count = 0
         total_count = 0
         
@@ -574,32 +577,17 @@ def report(request: Request, rid: str, authorization: Optional[str] = Header(Non
     if r["kmz_path"] and not os.path.exists(r["kmz_path"]):
         r["kmz_path"] = None
 
-    # [NEW] Load graph data if available
+    # Load graph data — ubx2kmz appends a suffix (e.g. _nav_nock) before _graph.json,
+    # so we use glob with the rid prefix instead of reconstructing the exact filename.
     graph_data = None
-    # JSON file is expected at uploads/{rid}_{filename base}_graph.json
-    # or simpler: verify where ubx2kmz saved it.
-    # ubx2kmz saved it as: os.path.splitext(ubx_path)[0] + "_graph.json"
-    # We reconstruct the original upload path to find it.
-    
-    if r["filename"]:
-        # Reconstruct the original save path used in /upload
-        # save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
-        # Note: We need to match the logic in /upload exactly.
-        # Assuming r['filename'] is the clean_name stored in DB.
-        
-        # Original upload path (without extension check, just path construction)
-        base_name = f"{rid}_{r['filename']}"
-        upload_path = os.path.join(UPLOAD_DIR, base_name)
-        
-        # JSON path logic from ubx2kmz: os.path.splitext(ubx_path)[0] + "_graph.json"
-        json_path = os.path.splitext(upload_path)[0] + "_graph.json"
-        
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, "r", encoding="utf-8") as f:
-                    graph_data = json.load(f)
-            except Exception as e:
-                logger.warning(f"Failed to load graph JSON {json_path}: {e}")
+    candidates = glob.glob(os.path.join(UPLOAD_DIR, f"{rid}_*_graph.json"))
+    if candidates:
+        json_path = max(candidates, key=os.path.getmtime)
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                graph_data = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load graph JSON {json_path}: {e}")
 
     return templates.TemplateResponse("report.html", {
         "request": request, 
@@ -616,13 +604,13 @@ def recent(request: Request, authorization: Optional[str] = Header(None)):
         if admin:
             rows = conn.execute("""
                 SELECT id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
-                       kmz_path, opts_json, status, error
+                       kmz_path, opts_json, status, error, upload_type, compare_group
                 FROM results ORDER BY uploaded_at DESC LIMIT 50
             """).fetchall()
         else:
             rows = conn.execute("""
                 SELECT id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
-                       kmz_path, opts_json, status, error
+                       kmz_path, opts_json, status, error, upload_type, compare_group
                 FROM results WHERE user_id=? ORDER BY uploaded_at DESC LIMIT 50
             """, (user_id,)).fetchall()
 
@@ -665,6 +653,249 @@ def kml_preview(request: Request, rid: str, authorization: Optional[str] = Heade
     except Exception as e:
         logger.exception(f"KML extraction failed: {e}")
         return HTMLResponse(f"<h3>KML extraction failed: {e}</h3>", status_code=500)
+
+# =========================
+# Compare4: 4-file KMZ comparison
+# =========================
+@app.get("/compare4", response_class=HTMLResponse)
+def compare4_page(request: Request):
+    return templates.TemplateResponse("compare4.html", {"request": request})
+
+@app.post("/compare4/upload")
+async def compare4_upload(
+    request: Request,
+    file1: UploadFile = File(...),
+    file2: Optional[UploadFile] = File(None),
+    file3: Optional[UploadFile] = File(None),
+    file4: Optional[UploadFile] = File(None),
+    hz: str = Form(""),
+    nav2: bool = Form(False),
+    alt_abs: bool = Form(False),
+    ck: bool = Form(False),
+    mapm: bool = Form(False),
+):
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+
+    hz_val: Optional[int] = None
+    s = (hz or "").strip()
+    if s.isdigit():
+        hz_val = int(s)
+
+    opts = {
+        "hz": hz_val,
+        "nav2": bool(nav2),
+        "alt_abs": bool(alt_abs),
+        "ck": bool(ck),
+        "html": False,
+        "mapm": bool(mapm),
+    }
+
+    SENTINEL = "_"
+    rids = []
+    for idx_f, file in enumerate([file1, file2, file3, file4]):
+        # Empty/missing optional slots get the sentinel value
+        if file is None or not (file.filename or "").strip():
+            rids.append(SENTINEL)
+            continue
+
+        rid = uuid.uuid4().hex[:8]
+        clean_name = os.path.basename(file.filename or "")
+        if not clean_name:
+            clean_name = f"upload{idx_f+1}.ubx"
+
+        ext = Path(clean_name).suffix.lower()
+        if ext not in ALLOWED_UPLOAD_EXTS:
+            return PlainTextResponse(
+                f"File {idx_f+1} unsupported type: {ext or '(none)'}; allowed: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}",
+                status_code=400,
+            )
+
+        save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+        total = 0
+        with open(save_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    with contextlib.suppress(FileNotFoundError):
+                        os.remove(save_path)
+                    return PlainTextResponse(f"File {idx_f+1} too large", status_code=413)
+                f.write(chunk)
+
+        summary = quick_ubx_summary(save_path)
+
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO results (id, user_id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
+                                     kmz_path, opts_json, status, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL)
+            """, (
+                rid, user_id, clean_name, datetime.utcnow().isoformat(),
+                summary["epoch_total"], summary["epoch_missing"], summary["crc_errors"],
+                None, json.dumps(opts),
+            ))
+            conn.commit()
+
+        asyncio.create_task(enqueue_convert(save_path, rid, **opts))
+        rids.append(rid)
+        logger.info(f"[compare4] queued {rid} ({clean_name}) for user {user_id}")
+
+    # Tag all real slots as 'multi' and record the full group path
+    compare_group = f"{rids[0]}/{rids[1]}/{rids[2]}/{rids[3]}"
+    with get_db() as conn:
+        for rid in rids:
+            if rid != "_":
+                conn.execute(
+                    "UPDATE results SET upload_type='multi', compare_group=? WHERE id=?",
+                    (compare_group, rid),
+                )
+        conn.commit()
+
+    return RedirectResponse(
+        url=f"/compare4/report/{compare_group}",
+        status_code=303,
+    )
+
+@app.get("/compare4/view/{rid1}/{rid2}/{rid3}/{rid4}", response_class=HTMLResponse)
+def compare4_view(
+    request: Request,
+    rid1: str, rid2: str, rid3: str, rid4: str,
+    authorization: Optional[str] = Header(None),
+):
+    user_id = getattr(request.state, "user_id", None)
+    admin = is_admin(authorization)
+    rids = [rid1, rid2, rid3, rid4]
+
+    filenames = []
+    for rid in rids:
+        if rid == "_":
+            filenames.append("")
+            continue
+        ok, code = ensure_owner_or_404(rid, user_id, admin)
+        if not ok:
+            if code == 403:
+                return HTMLResponse("<h2>Forbidden</h2>", status_code=403)
+            return HTMLResponse("<h2>Result not found</h2>", status_code=404)
+        with get_db() as conn:
+            row = conn.execute("SELECT filename FROM results WHERE id=?", (rid,)).fetchone()
+        filenames.append(row[0] if row else "unknown")
+
+    return templates.TemplateResponse("compare4_view.html", {
+        "request": request,
+        "rids": rids,
+        "filenames": filenames,
+    })
+
+@app.get("/compare4/overlay/{rid1}/{rid2}/{rid3}/{rid4}", response_class=HTMLResponse)
+def compare4_overlay(
+    request: Request,
+    rid1: str, rid2: str, rid3: str, rid4: str,
+    authorization: Optional[str] = Header(None),
+):
+    user_id = getattr(request.state, "user_id", None)
+    admin = is_admin(authorization)
+    rids = [rid1, rid2, rid3, rid4]
+
+    filenames = []
+    for rid in rids:
+        if rid == "_":
+            filenames.append("")
+            continue
+        ok, code = ensure_owner_or_404(rid, user_id, admin)
+        if not ok:
+            if code == 403:
+                return HTMLResponse("<h2>Forbidden</h2>", status_code=403)
+            return HTMLResponse("<h2>Result not found</h2>", status_code=404)
+        with get_db() as conn:
+            row = conn.execute("SELECT filename FROM results WHERE id=?", (rid,)).fetchone()
+        filenames.append(row[0] if row else "unknown")
+
+    return templates.TemplateResponse("compare4_overlay.html", {
+        "request": request,
+        "rids": rids,
+        "filenames": filenames,
+    })
+
+@app.get("/api/status/{rid}")
+def api_status(request: Request, rid: str, authorization: Optional[str] = Header(None)):
+    if rid == "_":
+        return {"status": "empty"}
+    user_id = getattr(request.state, "user_id", None)
+    admin = is_admin(authorization)
+    ok, code = ensure_owner_or_404(rid, user_id, admin)
+    if not ok:
+        return {"status": "error", "code": code}
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT status, kmz_path, error, filename FROM results WHERE id=?", (rid,)
+        ).fetchone()
+    if not row:
+        return {"status": "not_found"}
+    return {
+        "status": row[0],
+        "has_kmz": bool(row[1] and os.path.exists(row[1])),
+        "error": row[2],
+        "filename": row[3],
+    }
+
+@app.get("/api/graph/{rid}")
+def api_graph(request: Request, rid: str, authorization: Optional[str] = Header(None)):
+    """graph_data JSON 반환 (compare4_report 등에서 사용)"""
+    if rid == "_":
+        return {"status": "empty"}
+    user_id = getattr(request.state, "user_id", None)
+    admin = is_admin(authorization)
+    ok, code = ensure_owner_or_404(rid, user_id, admin)
+    if not ok:
+        return PlainTextResponse("Forbidden" if code == 403 else "Not found", status_code=code)
+    with get_db() as conn:
+        row = conn.execute("SELECT kmz_path, filename, status FROM results WHERE id=?", (rid,)).fetchone()
+    if not row:
+        return {"status": "not_found"}
+    if row[2] != "done":
+        return {"status": "not_ready"}
+    # graph JSON은 UPLOAD_DIR에 {rid}_*_graph.json 패턴으로 저장됨
+    candidates = glob.glob(os.path.join(UPLOAD_DIR, f"{rid}_*_graph.json"))
+    if not candidates:
+        return {"status": "no_graph"}
+    graph_path = max(candidates, key=os.path.getmtime)
+    with open(graph_path, encoding="utf-8") as f:
+        data = json.load(f)
+    data["filename"] = row[1]
+    data["status"] = "ok"
+    return data
+
+@app.get("/compare4/report/{rid1}/{rid2}/{rid3}/{rid4}", response_class=HTMLResponse)
+def compare4_report(
+    request: Request,
+    rid1: str, rid2: str, rid3: str, rid4: str,
+    authorization: Optional[str] = Header(None),
+):
+    user_id = getattr(request.state, "user_id", None)
+    admin = is_admin(authorization)
+    rids = [rid1, rid2, rid3, rid4]
+
+    filenames = []
+    for rid in rids:
+        if rid == "_":
+            filenames.append("")
+            continue
+        ok, code = ensure_owner_or_404(rid, user_id, admin)
+        if not ok:
+            if code == 403:
+                return HTMLResponse("<h2>Forbidden</h2>", status_code=403)
+            return HTMLResponse("<h2>Result not found</h2>", status_code=404)
+        with get_db() as conn:
+            row = conn.execute("SELECT filename FROM results WHERE id=?", (rid,)).fetchone()
+        filenames.append(row[0] if row else "unknown")
+
+    return templates.TemplateResponse("compare4_report.html", {
+        "request": request,
+        "rids": rids,
+        "filenames": filenames,
+    })
 
 @app.get("/download")
 def download(request: Request, path: str, authorization: Optional[str] = Header(None)):
