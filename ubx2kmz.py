@@ -308,8 +308,11 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         "acc2d": [],
         "acc3d": [],
         "fix_type": [],
-        "cno_labels": [],      
-        "cno_top_avg": [],     
+        "speed": [],        # km/h
+        "altitude": [],     # m (hMSL)
+        "num_sv": [],       # satellite count
+        "cno_labels": [],
+        "cno_top_avg": [],
         "cno_scatter": [],
         # [추가] 통계 정보 저장용
         "stats": {
@@ -398,6 +401,9 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     graph_data["acc2d"].append(round(h_acc, 3))
                     graph_data["acc3d"].append(round(d3_acc, 3))
                     graph_data["fix_type"].append(rec["fixType"])
+                    graph_data["speed"].append(round(rec["speed_kmh"], 2))
+                    graph_data["altitude"].append(round(rec["hMSL"], 2))
+                    graph_data["num_sv"].append(int(rec.get("numSV", 0)))
 
                     # KML Placemark 생성 (기존 유지)
                     gnssFixOK = (rec.get("flags", 0) & 0x01) != 0
@@ -523,20 +529,20 @@ def run(ubx_path: str, hz: int = None, use_nav2: bool = False,
         suffix = suffix + "_abs"
     suffix = suffix + ("_ck" if verify_ck else "_nock")
     kmz_path = base + suffix + ".kmz"
-    
-    # JSON 파일 경로
-    json_path = base + "_graph.json"
+
+    # JSON 경로: KMZ와 같은 base (API 엔드포인트에서 .kmz → _graph.json 치환)
+    json_path = kmz_path.replace(".kmz", "_graph.json")
 
     print(f"{now_str()} | KMZ mode: {kmz_path}")
-    
+
     # build_kml에서 graph_data도 함께 받아옴 (HTML 관련 인자 제거)
     kml_text, graph_data = build_kml(
         ubx_path, hz=hz, use_nav2=use_nav2,
         alt_abs=alt_abs, verify_ck=verify_ck
     )
-    
+
     write_kmz(kml_text, kmz_path)
-        
+
     # JSON 파일 저장
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(graph_data, f)

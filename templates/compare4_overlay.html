@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <title>4-Track Overlay — UBX-ray</title>
 
-  <!-- OpenLayers (버전 고정) -->
+  <!-- OpenLayers (pinned version) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@9.1.0/ol.css">
   <script src="https://cdn.jsdelivr.net/npm/ol@9.1.0/dist/ol.js"></script>
 
@@ -164,7 +164,7 @@
   <!-- Loading overlay -->
   <div id="loadingOverlay">
     <div class="load-spinner"></div>
-    <div class="load-text">Loading 4 tracks…</div>
+    <div class="load-text" id="loadTitle">Loading tracks…</div>
     <div class="load-progress" id="loadProgress"></div>
   </div>
 
@@ -225,7 +225,8 @@
 
     <!-- Right side: view switcher -->
     <div style="display:flex;gap:6px;flex-shrink:0;">
-      <a id="splitViewLink" href="#" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">⊞ Split View</a>
+      <a id="reportLink"    href="#" class="btn" style="background:#0f172a;color:#fff;border:1px solid #0f172a;font-size:12px;">📊 Report</a>
+      <a id="splitViewLink" href="#" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">⊞ Split Map View</a>
       <a href="/compare4" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">← New</a>
     </div>
   </header>
@@ -264,19 +265,31 @@
     var RIDS      = el.dataset.rids.split(',');
     var FILENAMES = el.dataset.filenames.split('|||');
     var COLORS    = ['#0078ff', '#e03e3e', '#16a34a', '#9333ea'];
-    var LINE_W    = [3, 2.5, 2.5, 2];   // 겹침 시 구분을 위해 약간 다른 두께
+    var LINE_W    = [3, 2.5, 2.5, 2];   // slightly different widths to distinguish overlapping tracks
     var MAX_PTS   = 5000;
 
-    // Split view link
+    // Split view / Report link
     document.getElementById('splitViewLink').href =
       '/compare4/view/' + RIDS.join('/');
+    document.getElementById('reportLink').href =
+      '/compare4/report/' + RIDS.join('/');
 
-    // Track label (short filename)
+    // Count active (non-sentinel) tracks
+    var activeTrackCount = RIDS.filter(function(r) { return r !== '_'; }).length;
+    document.getElementById('loadTitle').textContent = 'Loading ' + activeTrackCount + ' track' + (activeTrackCount !== 1 ? 's' : '') + '…';
+
+    // Track label (short filename), hide toggle buttons for empty slots
     for (var li = 0; li < 4; li++) {
+      var trackBtn = document.querySelector('.track-btn[data-track="' + li + '"]');
+      if (RIDS[li] === '_') {
+        // Hide this toggle button entirely
+        if (trackBtn) trackBtn.style.display = 'none';
+        continue;
+      }
       var fn = FILENAMES[li] || ('Track ' + (li+1));
       var short = fn.length > 16 ? fn.slice(0, 14) + '…' : fn;
       document.getElementById('tlbl' + li).textContent = short;
-      // Loading progress rows
+      // Loading progress rows (only for active tracks)
       var row = document.createElement('div');
       row.className = 'load-row';
       row.id = 'loadrow' + li;
@@ -422,6 +435,7 @@
     function fitAll() {
       var combined = ol.extent.createEmpty();
       for (var fi = 0; fi < 4; fi++) {
+        if (RIDS[fi] === '_') continue;
         if (!trackLayers[fi].getVisible()) continue;
         var ext = trackSources[fi].getExtent();
         if (!ol.extent.isEmpty(ext)) ol.extent.extend(combined, ext);
@@ -494,7 +508,7 @@
     });
 
     // ── Playback ──────────────────────────────────────────────────────────
-    var allPlayback = [[], [], [], []];   // 트랙별 rawPts
+    var allPlayback = [[], [], [], []];   // raw pts per track
     var maxLen = 0;
 
     var playBtn   = document.getElementById('playBtn');
@@ -602,6 +616,11 @@
 
     function loadTrack(idx) {
       var rid = RIDS[idx];
+      // Skip empty slots immediately
+      if (rid === '_') {
+        onTrackLoaded(idx, [], []);
+        return;
+      }
       setLoadStatus(idx, '⏳ Checking status…');
 
       function checkStatus() {
@@ -732,7 +751,7 @@
       loadedCount++;
 
       if (loadedCount === 4) {
-        // All done — update playback
+        // All slots resolved — update playback with active tracks only
         maxLen = 0;
         for (var i = 0; i < 4; i++) {
           if (allPlayback[i].length > maxLen) maxLen = allPlayback[i].length;
@@ -740,9 +759,14 @@
         timeRange.max = Math.max(0, maxLen - 1);
         setPlayIndex(0);
 
-        // Hz from track 0
-        var hz0 = estimateHz(allPlayback[0]);
-        dataHz  = hz0 || 10;
+        // Hz from first non-empty track
+        dataHz = 10;
+        for (var hi = 0; hi < 4; hi++) {
+          if (allPlayback[hi].length > 0) {
+            var hz0 = estimateHz(allPlayback[hi]);
+            if (hz0) { dataHz = hz0; break; }
+          }
+        }
         hzBadge.textContent = 'Hz: ' + dataHz.toFixed(1);
 
         // Fit map
@@ -750,7 +774,7 @@
 
         // Hide loading overlay
         document.getElementById('loadingOverlay').classList.add('hidden');
-      } else if (loadedCount === 1) {
+      } else if (loadedCount === 1 && rawPts.length > 0) {
         // Fit to first loaded track immediately
         fitAll();
       }

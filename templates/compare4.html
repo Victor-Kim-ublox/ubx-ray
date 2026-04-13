@@ -3,7 +3,7 @@
 <head>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <meta charset="utf-8">
-  <title>UBX-ray — 4-File Comparison</title>
+  <title>UBX-ray — Multi .ubx Analysis</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
@@ -38,11 +38,16 @@
       border:1px solid #3b4bab; padding:4px 8px; border-radius:999px;
       background: linear-gradient(180deg, #1a2257cc, #121848cc);
     }
-    .back-link {
-      font-size:13px; color:var(--muted); text-decoration:none;
-      border-bottom:1px dashed #9bb2ff55;
+    /* Shared tab nav (matches home.html style) */
+    .tabs { display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:10px; }
+    .tab-btn {
+      background: transparent; border:none; color:var(--muted); cursor:pointer;
+      font-size:15px; font-weight:600; padding:8px 12px; border-radius:8px;
+      transition:.2s; text-decoration:none; display:inline-flex; align-items:center; gap:6px;
+      font-family: inherit;
     }
-    .back-link:hover{ color:#cfe0ff; }
+    .tab-btn:hover { color:#cfe0ff; background:#ffffff0a; }
+    .tab-btn.active { color:#fff; background:var(--accent); box-shadow:0 4px 12px #3f5bf055; }
 
     .card{
       background: linear-gradient(180deg, rgba(21,26,68,.9), rgba(16,20,50,.9));
@@ -125,27 +130,31 @@
   <div class="wrap">
     <header>
       <div class="brand">UBX-ray</div>
-      <div style="display:flex;align-items:center;gap:14px;">
-        <div class="badge">4-File Comparison</div>
-        <a href="/" class="back-link">← Back to Home</a>
-      </div>
+      <div class="badge">GNSS UBX log analyzer</div>
     </header>
 
     <div class="card">
-      <div class="card-title">4-File UBX Comparison</div>
-      <div class="card-sub">Upload 4 UBX/BIN log files to convert and compare side-by-side on a synchronized map.</div>
+      <!-- Shared Tab Navigation -->
+      <div class="tabs">
+        <a href="/" class="tab-btn">Single .ubx Analysis</a>
+        <span class="tab-btn active">Multi .ubx Analysis</span>
+        <a href="/?tab=nmea" class="tab-btn">NMEA Comparison</a>
+      </div>
+
+      <div class="card-title">Multi .ubx Analysis</div>
+      <div class="card-sub">Upload 1–4 UBX/BIN log files. Empty slots will appear as blank panels.</div>
 
       <div class="notice">
         <strong>How it works:</strong> Each file is converted to KMZ in the background.
         The comparison view will automatically load each track as it becomes ready.
-        All 4 maps share the same zoom level and position for easy comparison.
+        All maps share the same zoom level and position for easy comparison.
       </div>
 
       <form id="compare4Form" enctype="multipart/form-data" action="/compare4/upload" method="post">
         <div class="grid4">
-          <!-- File 1 -->
+          <!-- File 1 (required) -->
           <div class="slot">
-            <div class="slot-label">File 1</div>
+            <div class="slot-label">File 1 <span style="color:#6ea8ff;font-weight:400;text-transform:none;font-size:11px;">required</span></div>
             <label id="drop1" class="drop" for="file1Input">
               <h3>Drop UBX/BIN file here</h3>
               <div class="hint">or click to browse</div>
@@ -154,37 +163,37 @@
             <input id="file1Input" class="hidden-input" type="file" name="file1" accept=".ubx,.bin" required>
           </div>
 
-          <!-- File 2 -->
+          <!-- File 2 (optional) -->
           <div class="slot">
-            <div class="slot-label">File 2</div>
-            <label id="drop2" class="drop" for="file2Input">
+            <div class="slot-label">File 2 <span style="color:#9bb2ff;font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
+            <label id="drop2" class="drop" for="file2Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse</div>
+              <div class="hint">or click to browse · leave empty to skip</div>
               <div class="file-name" id="name2"></div>
             </label>
-            <input id="file2Input" class="hidden-input" type="file" name="file2" accept=".ubx,.bin" required>
+            <input id="file2Input" class="hidden-input" type="file" name="file2" accept=".ubx,.bin">
           </div>
 
-          <!-- File 3 -->
+          <!-- File 3 (optional) -->
           <div class="slot">
-            <div class="slot-label">File 3</div>
-            <label id="drop3" class="drop" for="file3Input">
+            <div class="slot-label">File 3 <span style="color:#9bb2ff;font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
+            <label id="drop3" class="drop" for="file3Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse</div>
+              <div class="hint">or click to browse · leave empty to skip</div>
               <div class="file-name" id="name3"></div>
             </label>
-            <input id="file3Input" class="hidden-input" type="file" name="file3" accept=".ubx,.bin" required>
+            <input id="file3Input" class="hidden-input" type="file" name="file3" accept=".ubx,.bin">
           </div>
 
-          <!-- File 4 -->
+          <!-- File 4 (optional) -->
           <div class="slot">
-            <div class="slot-label">File 4</div>
-            <label id="drop4" class="drop" for="file4Input">
+            <div class="slot-label">File 4 <span style="color:#9bb2ff;font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
+            <label id="drop4" class="drop" for="file4Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse</div>
+              <div class="hint">or click to browse · leave empty to skip</div>
               <div class="file-name" id="name4"></div>
             </label>
-            <input id="file4Input" class="hidden-input" type="file" name="file4" accept=".ubx,.bin" required>
+            <input id="file4Input" class="hidden-input" type="file" name="file4" accept=".ubx,.bin">
           </div>
         </div>
 
@@ -261,18 +270,22 @@
       }
 
       document.getElementById('compare4Form').addEventListener('submit', e => {
-        // Validate all 4 files selected
+        // Only File 1 is required
+        const fi1 = document.getElementById('file1Input');
+        if (!fi1.files.length) {
+          alert('Please select at least File 1.');
+          e.preventDefault();
+          return;
+        }
+        // Count how many files are selected for loading text
+        let count = 0;
         for (let i = 1; i <= 4; i++) {
-          const fi = document.getElementById(`file${i}Input`);
-          if (!fi.files.length) {
-            alert(`Please select File ${i}.`);
-            e.preventDefault();
-            return;
-          }
+          if (document.getElementById(`file${i}Input`).files.length) count++;
         }
         document.getElementById('submitBtn').disabled = true;
         document.getElementById('spinner').style.display = 'inline-block';
         document.getElementById('loadingText').style.display = 'inline-block';
+        document.getElementById('loadingText').textContent = `Uploading ${count} file${count > 1 ? 's' : ''}... please wait`;
       });
     });
   </script>

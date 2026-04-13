@@ -1,0 +1,732 @@
+<!doctype html>
+<html>
+<head>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <meta charset="utf-8">
+  <title>4-File Comparison Report — ubX-ray</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e5e7eb;
+      --ink: #111827;
+      --muted: #6b7280;
+      --font: 'Inter', system-ui, sans-serif;
+      --c1: #0078ff; --c2: #e03e3e; --c3: #16a34a; --c4: #9333ea;
+      --c1a: rgba(0,120,255,.13); --c2a: rgba(224,62,62,.13);
+      --c3a: rgba(22,163,74,.13);  --c4a: rgba(147,51,234,.13);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg); color: var(--ink);
+      font-family: var(--font); margin: 0; padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      position: sticky; top: 0; z-index: 20;
+      background: #fff; border-bottom: 1px solid var(--border);
+      padding: 10px 20px;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .brand { font-weight: 800; font-size: 15px; color: #0f172a; }
+    .sep   { width: 1px; height: 20px; background: var(--border); }
+    .hbtn {
+      border: 1px solid var(--border); background: #f3f4f6;
+      color: #374151; font-weight: 600; font-size: 12px;
+      padding: 5px 10px; border-radius: 7px; cursor: pointer;
+      text-decoration: none; font-family: var(--font);
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .hbtn:hover { background: #e5e7eb; }
+    .hbtn.primary { background: #0078ff; color: #fff; border-color: #0078ff; }
+    .hbtn.primary:hover { background: #005fcc; }
+
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    .page { max-width: 1280px; margin: 0 auto; padding: 28px 20px 60px; }
+
+    .section-title {
+      font-size: 17px; font-weight: 700; color: var(--ink);
+      margin: 32px 0 14px; display: flex; align-items: center; gap: 8px;
+    }
+    .section-title::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px 24px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.05);
+      margin-bottom: 20px;
+    }
+
+    /* ── Loading overlay ─────────────────────────────────────────────── */
+    #loadingOverlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(248,250,252,.92); backdrop-filter: blur(4px);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    }
+    #loadingOverlay.hidden { display: none; }
+    .spin {
+      width: 42px; height: 42px;
+      border: 4px solid #d1d5db; border-top-color: #0078ff;
+      border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .load-txt { font-size: 15px; font-weight: 600; color: var(--ink); }
+    .load-rows { display: flex; flex-direction: column; gap: 6px; min-width: 280px; }
+    .load-row  { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+    .load-dot  { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── Summary table ───────────────────────────────────────────────── */
+    .sum-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .sum-table th {
+      text-align: left; padding: 8px 12px;
+      background: #f8fafc; border-bottom: 2px solid var(--border);
+      font-weight: 700; color: var(--muted); font-size: 11px; text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .sum-table td { padding: 9px 12px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
+    .sum-table tr:last-child td { border-bottom: none; }
+    .sum-table tr:hover td { background: #fafbfc; }
+
+    .file-header {
+      display: flex; align-items: center; gap: 6px;
+      font-weight: 700; font-size: 13px;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    .best  { background: #dcfce7; color: #166534; font-weight: 700; border-radius: 5px; padding: 2px 6px; }
+    .worst { background: #fef2f2; color: #991b1b; font-weight: 600; border-radius: 5px; padding: 2px 6px; }
+
+    /* Fix type badge */
+    .fix-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; width: 120px; gap: 1px; }
+    .fix-seg { height: 100%; }
+
+    /* ── Charts ──────────────────────────────────────────────────────── */
+    .chart-wrap { position: relative; width: 100%; }
+    .chart-wrap canvas { width: 100% !important; }
+
+    .chart-controls {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .chart-controls .ctl-btn {
+      border: 1px solid var(--border); background: #f9fafb;
+      color: #374151; font-size: 12px; font-weight: 600;
+      padding: 4px 9px; border-radius: 6px; cursor: pointer;
+      font-family: var(--font);
+    }
+    .chart-controls .ctl-btn:hover { background: #e5e7eb; }
+    .chart-note { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ── Fix type legend ─────────────────────────────────────────────── */
+    .fix-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .fix-legend span { display: flex; align-items: center; gap: 5px; }
+    .fix-swatch { width: 12px; height: 12px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+  <!-- Data bridge -->
+  <div id="app-data"
+       data-rids="{{ rids | join(',') }}"
+       data-filenames="{{ filenames | join('|||') }}"
+       style="display:none"></div>
+
+  <!-- Loading overlay -->
+  <div id="loadingOverlay">
+    <div class="spin"></div>
+    <div class="load-txt" id="loadTxt">Loading data...</div>
+    <div class="load-rows" id="loadRows"></div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">ubX-ray</div>
+    <div class="sep"></div>
+    <span style="font-size:14px;font-weight:700;color:#374151;">📊 Comparison Report</span>
+    <div style="margin-left:auto;display:flex;gap:8px;">
+      <a id="splitLink"   href="#" class="hbtn">⊞ Split Map View</a>
+      <a id="overlayLink" href="#" class="hbtn">⊙ Overlay Map View</a>
+      <a href="/recent"           class="hbtn">🕘 Recent</a>
+      <a href="/compare4"         class="hbtn">← New</a>
+    </div>
+  </header>
+
+  <div class="page">
+
+    <!-- ① Summary statistics table -->
+    <div class="section-title">① Summary Statistics</div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table class="sum-table" id="sumTable">
+        <thead>
+          <tr>
+            <th style="width:40px">#</th>
+            <th>File</th>
+            <th>Epochs</th>
+            <th>Avg 2D Acc.</th>
+            <th>Avg 3D Acc.</th>
+            <th>95th pct (2D)</th>
+            <th>Fix Type</th>
+            <th>Avg CNO</th>
+            <th>Avg Speed</th>
+            <th>Avg SV</th>
+          </tr>
+        </thead>
+        <tbody id="sumBody"></tbody>
+      </table>
+    </div>
+
+    <!-- ② Accuracy overlay chart -->
+    <div class="section-title">② 2D Accuracy Overlay</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetZoom('acc')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="toggleDataset('acc')">👁 Toggle Tracks</button>
+      </div>
+      <p class="chart-note">Scroll to zoom, drag to pan · all chart X-axes synchronized</p>
+      <div class="chart-wrap" style="height:280px"><canvas id="accChart"></canvas></div>
+    </div>
+
+    <!-- ③ Fix Type distribution -->
+    <div class="two-col">
+
+      <div>
+        <div class="section-title">③ Fix Type Distribution</div>
+        <div class="card">
+          <div class="chart-wrap" style="height:240px"><canvas id="fixChart"></canvas></div>
+          <div class="fix-legend">
+            <span><span class="fix-swatch" style="background:#0078ff"></span>RTK / Dead Reck.</span>
+            <span><span class="fix-swatch" style="background:#16a34a"></span>3D Fix</span>
+            <span><span class="fix-swatch" style="background:#f59e0b"></span>2D Fix</span>
+            <span><span class="fix-swatch" style="background:#ef4444"></span>No Fix</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-title">④ Accuracy CDF</div>
+        <div class="card">
+          <p class="chart-note">X: error (m) · Y: cumulative % — left curve = more accurate</p>
+          <div class="chart-wrap" style="height:240px"><canvas id="cdfChart"></canvas></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ⑤ Speed / Altitude / SV -->
+    <div class="section-title">⑤ Speed / Altitude / Satellite Count</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetZoom('spd')">Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('alt')">Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('sv')">Reset Zoom</button>
+      </div>
+      <p class="chart-note">Scroll to zoom, drag to pan</p>
+      <div style="display:grid;grid-template-columns:1fr;gap:16px;">
+        <div class="chart-wrap" style="height:200px"><canvas id="spdChart"></canvas></div>
+        <div class="chart-wrap" style="height:200px"><canvas id="altChart"></canvas></div>
+        <div class="chart-wrap" style="height:160px"><canvas id="svChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ⑥ CNO signal strength -->
+    <div class="section-title">⑥ Satellite Signal Strength (CNO Top-5 Avg)</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetZoom('cno')">Reset Zoom</button>
+      </div>
+      <div class="chart-wrap" style="height:220px"><canvas id="cnoChart"></canvas></div>
+    </div>
+
+  </div><!-- /page -->
+
+  <script>
+  (function() {
+    // ── Read data ─────────────────────────────────────────────────────
+    var el        = document.getElementById('app-data');
+    var RIDS      = el.dataset.rids.split(',');
+    var FILENAMES = el.dataset.filenames.split('|||');
+    var COLORS    = ['#0078ff','#e03e3e','#16a34a','#9333ea'];
+    var COLORSEMI = ['rgba(0,120,255,.18)','rgba(224,62,62,.18)',
+                     'rgba(22,163,74,.18)','rgba(147,51,234,.18)'];
+    var FIX_COLORS = { rtk:'#0078ff', fix3:'#16a34a', fix2:'#f59e0b', none:'#ef4444' };
+
+    // Set links
+    document.getElementById('splitLink').href   = '/compare4/view/'   + RIDS.join('/');
+    document.getElementById('overlayLink').href = '/compare4/overlay/' + RIDS.join('/');
+
+    // Build loading rows
+    var loadRows = document.getElementById('loadRows');
+    RIDS.forEach(function(rid, i) {
+      if (rid === '_') return;
+      var row = document.createElement('div'); row.className = 'load-row';
+      var dot = document.createElement('span'); dot.className = 'load-dot';
+      dot.style.background = COLORS[i];
+      var txt = document.createElement('span'); txt.id = 'lrow' + i;
+      var fn = FILENAMES[i] || 'Track '+(i+1);
+      txt.textContent = fn.length > 45 ? fn.slice(0,43)+'…' : fn;
+      row.appendChild(dot); row.appendChild(txt);
+      loadRows.appendChild(row);
+    });
+
+    // ── Load data ─────────────────────────────────────────────────────
+    var allData   = [null, null, null, null];
+    var remaining = RIDS.filter(function(r){return r!=='_';}).length;
+    var loaded    = 0;
+
+    function setLrow(i, txt) {
+      var el = document.getElementById('lrow'+i); if(el) el.textContent = txt;
+    }
+
+    function fetchGraph(idx) {
+      var rid = RIDS[idx];
+      if (rid === '_') return;
+      setLrow(idx, '⏳ Loading…');
+
+      function tryFetch() {
+        fetch('/api/graph/' + rid)
+          .then(function(r){ return r.json(); })
+          .then(function(d) {
+            if (d.status === 'ok') {
+              allData[idx] = d;
+              setLrow(idx, '✅ ' + (d.stats ? d.stats.epoch_total.toLocaleString() : '') + ' pts');
+              loaded++;
+              if (loaded === remaining) buildReport();
+            } else if (d.status === 'no_graph' || d.status === 'not_ready') {
+              setLrow(idx, '⏳ Converting…');
+              setTimeout(tryFetch, 3000);
+            } else {
+              setLrow(idx, '❌ ' + (d.status || 'error'));
+              loaded++; if (loaded === remaining) buildReport();
+            }
+          })
+          .catch(function() { setTimeout(tryFetch, 5000); });
+      }
+      tryFetch();
+    }
+
+    RIDS.forEach(function(r, i){ fetchGraph(i); });
+
+    // ── iTOW → HH:MM:SS ─────────────────────────────────────────────────
+    function fmtITOW(itow) {
+      var ms = itow - 18000; if (ms < 0) ms += 604800000;
+      var s  = Math.floor(ms / 1000) % 86400;
+      var hh = String(Math.floor(s/3600)).padStart(2,'0');
+      var mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
+      var ss = String(s%60).padStart(2,'0');
+      return hh+':'+mm+':'+ss;
+    }
+
+    // ── Compute CDF ────────────────────────────────────────────────────────
+    function makeCDF(arr, steps) {
+      if (!arr || !arr.length) return { xs:[], ys:[] };
+      steps = steps || 200;
+      var sorted = arr.slice().sort(function(a,b){return a-b;});
+      var max = sorted[sorted.length-1] * 1.05;
+      var xs = [], ys = [];
+      for (var i = 0; i <= steps; i++) {
+        var x = (max * i) / steps;
+        var count = 0;
+        for (var j = 0; j < sorted.length; j++) { if(sorted[j] <= x) count++; else break; }
+        xs.push(Math.round(x*1000)/1000);
+        ys.push(Math.round(count / sorted.length * 10000) / 100);
+      }
+      return { xs: xs, ys: ys };
+    }
+
+    // ── Percentile ────────────────────────────────────────────────────────
+    function percentile(arr, p) {
+      if (!arr || !arr.length) return null;
+      var sorted = arr.slice().sort(function(a,b){return a-b;});
+      var idx = Math.ceil(p/100 * sorted.length) - 1;
+      return sorted[Math.max(0, idx)];
+    }
+
+    // ── Mean ────────────────────────────────────────────────────────────
+    function mean(arr) {
+      if (!arr || !arr.length) return null;
+      return arr.reduce(function(s,v){return s+v;},0) / arr.length;
+    }
+
+    // ── Downsample (chart perf) ─────────────────────────────────────────────
+    function downsample(arr, maxPts) {
+      if (!arr || arr.length <= maxPts) return arr;
+      var step = arr.length / maxPts;
+      var out = [];
+      for (var i = 0; i < maxPts; i++) out.push(arr[Math.round(i*step)]);
+      return out;
+    }
+    function downsampleXY(labels, vals, maxPts) {
+      if (!labels || labels.length <= maxPts) return { labels: labels, vals: vals };
+      var step = labels.length / maxPts;
+      var outL = [], outV = [];
+      for (var i = 0; i < maxPts; i++) {
+        var idx = Math.round(i*step);
+        outL.push(labels[idx]); outV.push(vals[idx]);
+      }
+      return { labels: outL, vals: outV };
+    }
+
+    // ── Shared zoom options ────────────────────────────────────────────────
+    var chartRegistry = {};
+
+    function zoomPlugin(groupKey) {
+      return {
+        pan: { enabled:true, mode:'x',
+          onPan: function(ctx){ syncGroup(groupKey, ctx.chart); }},
+        zoom: { wheel:{ enabled:true }, pinch:{ enabled:true }, mode:'x',
+          onZoom: function(ctx){ syncGroup(groupKey, ctx.chart); }},
+      };
+    }
+
+    function syncGroup(key, src) {
+      var group = chartRegistry[key];
+      if (!group) return;
+      var xsc = src.scales.x;
+      if (!xsc) return;
+      group.forEach(function(c) {
+        if (c === src || !c.scales.x) return;
+        c.options.scales.x.min = xsc.min;
+        c.options.scales.x.max = xsc.max;
+        c.update('none');
+      });
+    }
+
+    function resetZoom(key) {
+      var group = chartRegistry[key];
+      if (!group) return;
+      group.forEach(function(c){ c.resetZoom(); });
+    }
+    window.resetZoom = resetZoom;
+
+    function toggleDataset(key) {
+      var group = chartRegistry[key];
+      if (!group) return;
+      group.forEach(function(c){
+        c.data.datasets.forEach(function(ds){
+          ds.hidden = !ds.hidden;
+        });
+        c.update();
+      });
+    }
+    window.toggleDataset = toggleDataset;
+
+    function register(key, chart) {
+      if (!chartRegistry[key]) chartRegistry[key] = [];
+      chartRegistry[key].push(chart);
+    }
+
+    var MAX_PTS = 2000;
+
+    // ── Build report ──────────────────────────────────────────────────────
+    function buildReport() {
+      document.getElementById('loadingOverlay').classList.add('hidden');
+
+      // ────────────────────────────────────────────────────────────────
+      // ① Summary table
+      // ────────────────────────────────────────────────────────────────
+      var tbody = document.getElementById('sumBody');
+
+      // Compute best/worst per metric
+      var metrics = { acc2d:[], acc3d:[], p95:[], cno:[], spd:[], sv:[] };
+      allData.forEach(function(d, i) {
+        if (!d) return;
+        metrics.acc2d.push({ i:i, v: mean(d.acc2d) });
+        metrics.acc3d.push({ i:i, v: mean(d.acc3d) });
+        metrics.p95.push({   i:i, v: percentile(d.acc2d, 95) });
+        metrics.cno.push({   i:i, v: mean(d.cno_top_avg) });
+        metrics.spd.push({   i:i, v: mean(d.speed) });
+        metrics.sv.push({    i:i, v: mean(d.num_sv) });
+      });
+
+      function getBestWorst(arr, lowerBetter) {
+        if (arr.length < 2) return { best:null, worst:null };
+        var sorted = arr.slice().sort(function(a,b){ return lowerBetter ? a.v-b.v : b.v-a.v; });
+        return { best: sorted[0].i, worst: sorted[sorted.length-1].i };
+      }
+
+      var bwAcc   = getBestWorst(metrics.acc2d, true);
+      var bwAcc3  = getBestWorst(metrics.acc3d, true);
+      var bwP95   = getBestWorst(metrics.p95,   true);
+      var bwCno   = getBestWorst(metrics.cno,   false);
+      var bwSpd   = getBestWorst(metrics.spd,   false);
+      var bwSv    = getBestWorst(metrics.sv,    false);
+
+      function cell(val, unit, bw, idx, decimals) {
+        if (val == null) return '<td>—</td>';
+        var fmt = val.toFixed(decimals != null ? decimals : 2) + (unit||'');
+        var cls = '';
+        if (bw.best  === idx) cls = 'best';
+        if (bw.worst === idx) cls = 'worst';
+        return '<td>' + (cls ? '<span class="'+cls+'">'+fmt+'</span>' : fmt) + '</td>';
+      }
+
+      allData.forEach(function(d, i) {
+        if (!d && RIDS[i] === '_') return;
+        if (!d) { tbody.innerHTML += '<tr><td colspan="10" style="color:#9ca3af;padding:12px">—</td></tr>'; return; }
+
+        // Fix type ratio
+        var fixCounts = { rtk:0, fix3:0, fix2:0, none:0, total:0 };
+        (d.fix_type||[]).forEach(function(ft) {
+          fixCounts.total++;
+          if (ft===4||ft===1)      fixCounts.rtk++;
+          else if (ft===3)         fixCounts.fix3++;
+          else if (ft===2)         fixCounts.fix2++;
+          else                     fixCounts.none++;
+        });
+        var tot = fixCounts.total || 1;
+        var rtkPct  = (fixCounts.rtk  / tot * 100).toFixed(1);
+        var fix3Pct = (fixCounts.fix3 / tot * 100).toFixed(1);
+        var fix2Pct = (fixCounts.fix2 / tot * 100).toFixed(1);
+        var nonePct = (fixCounts.none / tot * 100).toFixed(1);
+
+        var fixBar = '<div class="fix-bar">'
+          + '<div class="fix-seg" style="width:'+rtkPct+'%;background:#0078ff" title="RTK/DR: '+rtkPct+'%"></div>'
+          + '<div class="fix-seg" style="width:'+fix3Pct+'%;background:#16a34a" title="3D: '+fix3Pct+'%"></div>'
+          + '<div class="fix-seg" style="width:'+fix2Pct+'%;background:#f59e0b" title="2D: '+fix2Pct+'%"></div>'
+          + '<div class="fix-seg" style="width:'+nonePct+'%;background:#ef4444" title="None: '+nonePct+'%"></div>'
+          + '</div>'
+          + '<div style="font-size:11px;color:#6b7280;margin-top:2px">RTK '+rtkPct+'% / 3D '+fix3Pct+'%</div>';
+
+        var fn = FILENAMES[i] || 'Track '+(i+1);
+        var fnShort = fn.length > 30 ? fn.slice(0,28)+'…' : fn;
+
+        var row = '<tr>';
+        row += '<td><div class="dot" style="background:'+COLORS[i]+'"></div></td>';
+        row += '<td><div class="file-header"><span title="'+fn+'">'+fnShort+'</span></div></td>';
+        row += '<td>'+(d.stats ? d.stats.epoch_total.toLocaleString() : '—')+'</td>';
+        row += cell(mean(d.acc2d),   ' m', bwAcc,  i, 3);
+        row += cell(mean(d.acc3d),   ' m', bwAcc3, i, 3);
+        row += cell(percentile(d.acc2d,95), ' m', bwP95, i, 3);
+        row += '<td>'+fixBar+'</td>';
+        row += cell(mean(d.cno_top_avg), ' dBHz', bwCno, i, 1);
+        row += cell(mean(d.speed),       ' km/h', bwSpd, i, 1);
+        row += cell(mean(d.num_sv),      '',   bwSv,  i, 1);
+        row += '</tr>';
+        tbody.innerHTML += row;
+      });
+
+      // ────────────────────────────────────────────────────────────────
+      // ② Accuracy Overlay
+      // ────────────────────────────────────────────────────────────────
+      var accDatasets = [];
+      allData.forEach(function(d, i) {
+        if (!d) return;
+        var ds = downsampleXY(d.labels, d.acc2d, MAX_PTS);
+        accDatasets.push({
+          label: shortName(FILENAMES[i], i),
+          data:  ds.labels.map(function(l,j){ return { x:l, y:ds.vals[j] }; }),
+          borderColor: COLORS[i], backgroundColor: COLORSEMI[i],
+          borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false
+        });
+      });
+
+      var accChart = new Chart(document.getElementById('accChart'), {
+        type: 'line',
+        data: { datasets: accDatasets },
+        options: {
+          animation: false, responsive: true, maintainAspectRatio: false,
+          interaction: { mode:'index', intersect:false },
+          plugins: {
+            legend: { position:'top', labels:{ boxWidth:12, font:{size:12} } },
+            zoom: zoomPlugin('acc')
+          },
+          scales: {
+            x: {
+              type:'linear', ticks:{ maxTicksLimit:8, callback: fmtITOW },
+              title:{ display:true, text:'Time (UTC)', font:{size:11} }
+            },
+            y: {
+              title:{ display:true, text:'2D Accuracy (m)', font:{size:11} },
+              min: 0
+            }
+          }
+        }
+      });
+      register('acc', accChart);
+
+      // ────────────────────────────────────────────────────────────────
+      // ③ Fix Type grouped bar chart
+      // ────────────────────────────────────────────────────────────────
+      var fixLabels = [], rtkArr = [], fix3Arr = [], fix2Arr = [], noneArr = [];
+      allData.forEach(function(d, i) {
+        if (!d) return;
+        var lbl = shortName(FILENAMES[i], i);
+        fixLabels.push(lbl);
+        var tot = (d.fix_type||[]).length || 1;
+        var c = { rtk:0, fix3:0, fix2:0, none:0 };
+        (d.fix_type||[]).forEach(function(ft){
+          if(ft===4||ft===1) c.rtk++; else if(ft===3) c.fix3++;
+          else if(ft===2) c.fix2++; else c.none++;
+        });
+        rtkArr.push( +(c.rtk  /tot*100).toFixed(2));
+        fix3Arr.push(+(c.fix3 /tot*100).toFixed(2));
+        fix2Arr.push(+(c.fix2 /tot*100).toFixed(2));
+        noneArr.push(+(c.none /tot*100).toFixed(2));
+      });
+
+      new Chart(document.getElementById('fixChart'), {
+        type: 'bar',
+        data: {
+          labels: fixLabels,
+          datasets: [
+            { label:'RTK / Dead Reck.', data:rtkArr,  backgroundColor:'#0078ff', borderRadius:4 },
+            { label:'3D Fix',           data:fix3Arr, backgroundColor:'#16a34a', borderRadius:4 },
+            { label:'2D Fix',           data:fix2Arr, backgroundColor:'#f59e0b', borderRadius:4 },
+            { label:'No Fix',           data:noneArr, backgroundColor:'#ef4444', borderRadius:4 },
+          ]
+        },
+        options: {
+          animation: false, responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { position:'bottom', labels:{ boxWidth:12, font:{size:11} } },
+            tooltip: {
+              callbacks: {
+                label: function(ctx){ return ctx.dataset.label+': '+ctx.raw.toFixed(1)+'%'; }
+              }
+            }
+          },
+          scales: {
+            x: { stacked: true },
+            y: { stacked: true, min:0, max:100,
+                 title:{ display:true, text:'Ratio (%)', font:{size:11} },
+                 ticks:{ callback: function(v){ return v+'%'; } } }
+          }
+        }
+      });
+
+      // ────────────────────────────────────────────────────────────────
+      // ④ CDF chart
+      // ────────────────────────────────────────────────────────────────
+      var cdfDatasets = [];
+      allData.forEach(function(d, i) {
+        if (!d) return;
+        var cdf = makeCDF(d.acc2d, 300);
+        cdfDatasets.push({
+          label: shortName(FILENAMES[i], i),
+          data: cdf.xs.map(function(x, j){ return { x:x, y:cdf.ys[j] }; }),
+          borderColor: COLORS[i], borderWidth: 2,
+          pointRadius: 0, tension: 0.1, fill: false
+        });
+      });
+
+      new Chart(document.getElementById('cdfChart'), {
+        type: 'line',
+        data: { datasets: cdfDatasets },
+        options: {
+          animation: false, responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { position:'top', labels:{ boxWidth:12, font:{size:11} } },
+            tooltip: {
+              callbacks: {
+                title: function(items){ return 'Error ≤ '+(+items[0].raw.x).toFixed(3)+' m'; },
+                label: function(ctx){ return ctx.dataset.label+': '+ctx.raw.y.toFixed(1)+'%'; }
+              }
+            }
+          },
+          scales: {
+            x: { type:'linear',
+                 title:{ display:true, text:'2D Error (m)', font:{size:11} },
+                 ticks:{ callback: function(v){ return v+'m'; } } },
+            y: { min:0, max:100,
+                 title:{ display:true, text:'Cumulative (%)', font:{size:11} },
+                 ticks:{ callback: function(v){ return v+'%'; } } }
+          }
+        }
+      });
+
+      // ────────────────────────────────────────────────────────────────
+      // ⑤ Speed / Altitude / SV
+      // ────────────────────────────────────────────────────────────────
+      function makeTimeChart(canvasId, fieldKey, yLabel, groupKey, yMin) {
+        var datasets = [];
+        allData.forEach(function(d, i) {
+          if (!d || !d[fieldKey] || !d[fieldKey].length) return;
+          var ds = downsampleXY(d.labels, d[fieldKey], MAX_PTS);
+          datasets.push({
+            label: shortName(FILENAMES[i], i),
+            data: ds.labels.map(function(l,j){ return { x:l, y:ds.vals[j] }; }),
+            borderColor: COLORS[i], borderWidth: 1.5,
+            pointRadius: 0, tension: 0.2, fill: false
+          });
+        });
+        var c = new Chart(document.getElementById(canvasId), {
+          type: 'line', data: { datasets: datasets },
+          options: {
+            animation: false, responsive: true, maintainAspectRatio: false,
+            interaction: { mode:'index', intersect:false },
+            plugins: {
+              legend: { position:'top', labels:{ boxWidth:12, font:{size:11} } },
+              zoom: zoomPlugin(groupKey)
+            },
+            scales: {
+              x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
+              y: { min: yMin != null ? yMin : undefined,
+                   title:{ display:true, text:yLabel, font:{size:11} } }
+            }
+          }
+        });
+        register(groupKey, c);
+        return c;
+      }
+
+      makeTimeChart('spdChart', 'speed',    'Speed (km/h)',  'spd', 0);
+      makeTimeChart('altChart', 'altitude', 'Altitude m (hMSL)','alt', null);
+      makeTimeChart('svChart',  'num_sv',   'Satellites',  'sv',  0);
+
+      // ────────────────────────────────────────────────────────────────
+      // ⑥ CNO chart
+      // ────────────────────────────────────────────────────────────────
+      var cnoDatasets = [];
+      allData.forEach(function(d, i) {
+        if (!d || !d.cno_top_avg || !d.cno_top_avg.length) return;
+        var ds = downsampleXY(d.cno_labels, d.cno_top_avg, MAX_PTS);
+        cnoDatasets.push({
+          label: shortName(FILENAMES[i], i),
+          data: ds.labels.map(function(l,j){ return { x:l, y:ds.vals[j] }; }),
+          borderColor: COLORS[i], borderWidth: 1.5,
+          pointRadius: 0, tension: 0.2, fill: false
+        });
+      });
+
+      var cnoChart = new Chart(document.getElementById('cnoChart'), {
+        type: 'line', data: { datasets: cnoDatasets },
+        options: {
+          animation: false, responsive: true, maintainAspectRatio: false,
+          interaction: { mode:'index', intersect:false },
+          plugins: {
+            legend: { position:'top', labels:{ boxWidth:12, font:{size:11} } },
+            zoom: zoomPlugin('cno')
+          },
+          scales: {
+            x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
+            y: { title:{ display:true, text:'CNO Top-5 Avg (dBHz)', font:{size:11} }, min:0 }
+          }
+        }
+      });
+      register('cno', cnoChart);
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────
+    function shortName(fn, i) {
+      fn = fn || ('Track '+(i+1));
+      return fn.length > 20 ? fn.slice(0,18)+'…' : fn;
+    }
+
+  })();
+  </script>
+</body>
+</html>

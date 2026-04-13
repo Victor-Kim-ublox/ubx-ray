@@ -99,6 +99,17 @@
     }
     .panel-status.hidden { opacity:0; pointer-events:none; }
 
+    /* Empty panel (no file uploaded) */
+    .panel-empty {
+      position:absolute; inset:0; z-index:5;
+      background: repeating-linear-gradient(
+        45deg, #e9eaec 0px, #e9eaec 10px, #f0f2f5 10px, #f0f2f5 20px
+      );
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:8px; color:#9ca3af; font-weight:600; font-size:14px;
+    }
+    .panel-empty .empty-icon { font-size:32px; opacity:.5; }
+
     .spinner-sm {
       display:inline-block; width:18px; height:18px; margin-right:6px;
       border:2px solid #d1d5db; border-top-color:#0078ff; border-radius:50%;
@@ -154,11 +165,14 @@
     </div>
 
     <div style="margin-left:auto;display:flex;gap:6px;">
+      <a id="reportLink"  href="#" class="btn" style="background:#0f172a;color:#fff;border:1px solid #0f172a;font-size:12px;">
+        📊 Report
+      </a>
       <a id="overlayLink" href="#" class="btn" style="background:#0078ff;color:#fff;border:1px solid #0078ff;font-size:12px;">
-        ⊙ Overlay View
+        ⊙ Overlay Map View
       </a>
       <a href="/compare4" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">
-        ← New Comparison
+        ← New
       </a>
     </div>
   </header>
@@ -217,8 +231,20 @@
     var COLORS = ['#0078ff', '#e03e3e', '#16a34a', '#9333ea'];
     var POLL_MS = 3000;
 
-    // ── Set labels / badges ───────────────────────────────────────────────
+    // ── Set labels / badges (hide empty slots) ───────────────────────────
     for (var i = 0; i < 4; i++) {
+      if (RIDS[i] === '_') {
+        document.getElementById('lbl'+(i+1)).style.display   = 'none';
+        document.getElementById('badge'+(i+1)).style.display = 'none';
+        // Insert empty-panel overlay
+        var emptyDiv = document.createElement('div');
+        emptyDiv.className = 'panel-empty';
+        emptyDiv.innerHTML = '<div class="empty-icon">🗺️</div><div>No file</div>';
+        document.getElementById('panel'+(i+1)).appendChild(emptyDiv);
+        // Hide the status spinner too
+        document.getElementById('status'+(i+1)).style.display = 'none';
+        continue;
+      }
       var short = FILENAMES[i].length > 28 ? FILENAMES[i].slice(0,26)+'…' : FILENAMES[i];
       document.getElementById('lbl'+(i+1)).textContent  = (i+1)+'. '+FILENAMES[i];
       document.getElementById('badge'+(i+1)).textContent = (i+1)+'. '+short;
@@ -399,6 +425,7 @@
     function fitAll() {
       var combined = ol.extent.createEmpty();
       for (var fi = 0; fi < 4; fi++) {
+        if (RIDS[fi] === '_') continue;
         var ext = vectorSources[fi].getExtent();
         if (!ol.extent.isEmpty(ext)) ol.extent.extend(combined, ext);
       }
@@ -419,6 +446,9 @@
 
     function pollPanel(idx) {
       var rid      = RIDS[idx];
+      // Skip empty slots entirely
+      if (rid === '_') return;
+
       var statusEl = document.getElementById('status'+(idx+1));
 
       function check() {
@@ -536,9 +566,11 @@
         });
     }
 
-    // ── Overlay 링크 설정 ─────────────────────────────────────────────────
+    // ── Overlay / Report 링크 설정 ───────────────────────────────────────
     document.getElementById('overlayLink').href =
       '/compare4/overlay/' + RIDS.join('/');
+    document.getElementById('reportLink').href =
+      '/compare4/report/' + RIDS.join('/');
 
     // ── Init ──────────────────────────────────────────────────────────────
     window.addEventListener('DOMContentLoaded', function() {
