@@ -31,7 +31,7 @@ from fastapi.concurrency import run_in_threadpool
 from concurrent.futures import ThreadPoolExecutor
 
 # 추가
-import threading, time
+import threading, time, collections
 from datetime import timedelta, timezone
 from pathlib import Path
 
@@ -96,6 +96,26 @@ CLN_RETAIN_DAYS = 7                  # 업로드 후 7일 TTL
 CLN_INTERVAL_SEC = 60 * 60           # 60분마다 한 번씩
 MAX_UPLOAD_BYTES = int(os.getenv("UBXRAY_MAX_UPLOAD_MB", "300")) * 1024**2  # 300MB default
 ALLOWED_UPLOAD_EXTS = {".ubx", ".bin"}
+UBX_MAGIC = b'\xb5\x62'  # u-blox UBX sync chars — first 2 bytes of every valid UBX file
+ALLOWED_HZ = {1, 2, 5, 10}    # valid downsample rates exposed in the UI
+
+# ===== Upload rate limiting (sliding window, in-memory) =====
+RATE_LIMIT_UPLOADS = 10        # max uploads per user per window
+RATE_LIMIT_WINDOW_SEC = 60     # window duration in seconds
+_upload_times: dict = {}       # user_id -> collections.deque of timestamps
+_upload_rate_lock = threading.Lock()
+
+def _check_rate_limit(user_id: str) -> bool:
+    """Returns True if the upload is allowed; False if the user is rate-limited."""
+    now = time.time()
+    with _upload_rate_lock:
+        dq = _upload_times.setdefault(user_id, collections.deque())
+        while dq and dq[0] < now - RATE_LIMIT_WINDOW_SEC:
+            dq.popleft()
+        if len(dq) >= RATE_LIMIT_UPLOADS:
+            return False
+        dq.append(now)
+        return True
 
 # =========================
 # DB utils (WAL + per-request conn)
@@ -425,6 +445,10 @@ async def upload(
 ):
     user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
 
+    if not _check_rate_limit(user_id):
+        return PlainTextResponse("Too many uploads. Please wait before uploading again.",
+                                 status_code=429)
+
     rid = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[-8:]
 
     # ===== Upload validation (size + extension + path safety) =====
@@ -462,6 +486,14 @@ async def upload(
                     os.remove(save_path)
                 return PlainTextResponse("File too large", status_code=413)
             f.write(chunk)
+    # Validate UBX file magic bytes (0xB5 0x62) before processing
+    with open(save_path, 'rb') as fh:
+        magic = fh.read(2)
+    if magic != UBX_MAGIC:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(save_path)
+        return PlainTextResponse("Invalid file format: not a UBX binary", status_code=400)
+
     logger.info(f"Uploaded by {user_id}: {save_path}")
 
     summary = quick_ubx_summary(save_path)
@@ -469,7 +501,9 @@ async def upload(
     hz_val: Optional[int] = None
     s = (hz or "").strip()
     if s.isdigit():
-        hz_val = int(s)
+        v = int(s)
+        if v in ALLOWED_HZ:
+            hz_val = v
 
     opts = {
         "hz": hz_val,
@@ -676,10 +710,16 @@ async def compare4_upload(
 ):
     user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
 
+    if not _check_rate_limit(user_id):
+        return PlainTextResponse("Too many uploads. Please wait before uploading again.",
+                                 status_code=429)
+
     hz_val: Optional[int] = None
     s = (hz or "").strip()
     if s.isdigit():
-        hz_val = int(s)
+        v = int(s)
+        if v in ALLOWED_HZ:
+            hz_val = v
 
     opts = {
         "hz": hz_val,
@@ -723,6 +763,16 @@ async def compare4_upload(
                         os.remove(save_path)
                     return PlainTextResponse(f"File {idx_f+1} too large", status_code=413)
                 f.write(chunk)
+
+        # Validate UBX file magic bytes (0xB5 0x62)
+        with open(save_path, 'rb') as fh:
+            magic = fh.read(2)
+        if magic != UBX_MAGIC:
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(save_path)
+            return PlainTextResponse(
+                f"File {idx_f+1} is not a valid UBX binary", status_code=400
+            )
 
         summary = quick_ubx_summary(save_path)
 
@@ -905,7 +955,13 @@ def download(request: Request, path: str, authorization: Optional[str] = Header(
     """
     user_id = getattr(request.state, "user_id", None)
     admin = is_admin(authorization)
-    abs_path = os.path.abspath(path)
+    abs_path = os.path.realpath(path)  # resolves symlinks in addition to .. traversal
+
+    # Ensure the resolved path stays within the allowed directories
+    real_output = os.path.realpath(OUTPUT_DIR)
+    real_upload = os.path.realpath(UPLOAD_DIR)
+    if not (abs_path.startswith(real_output + os.sep) or abs_path.startswith(real_upload + os.sep)):
+        return HTMLResponse("<h3>Invalid file</h3>", status_code=400)
 
     # Validate path and ownership
     if not os.path.exists(abs_path):
