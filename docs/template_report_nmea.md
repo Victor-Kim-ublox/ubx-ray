@@ -33,7 +33,7 @@ Rendered directly after `POST /analyze_nmea` (server returns HTML; no redirect)
 ## Screen Layout
 
 ### Header
-- UBX-ray brand (gradient text)
+- ubX-ray brand (gradient text)
 - `← Home` button
 
 ### Summary Statistics Card

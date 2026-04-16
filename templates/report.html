@@ -9,23 +9,26 @@
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
 
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f9fafc;
+      --bg: #F7F7F7;
       --card-bg: #ffffff;
-      --border: #e5e7eb;
-      --primary: #0078ff;
-      --primary-hover: #005fcc;
+      --border: #E6E6E6;
+      --primary: #FF6E59;
+      --primary-hover: #E04A35;
       --success-bg: #e8f7ee;
-      --success-text: #0a6b2e;
+      --success-text: #557555;
       --error-bg: #fdecea;
-      --error-text: #a1271d;
+      --error-text: #E3140D;
       --warn-bg: #fff8e1;
       --warn-text: #a68a00;
     }
     body {
       background: var(--bg);
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-family: 'Space Grotesk', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       margin: 40px auto;
       max-width: 1200px;
       color: #111827;
@@ -347,8 +350,8 @@
           {
             label: '2D Accuracy (m)',
             data: gData.acc2d,
-            borderColor: '#0078ff',
-            backgroundColor: 'rgba(0, 120, 255, 0.1)',
+            borderColor: '#4A90E2',
+            backgroundColor: 'rgba(74, 144, 226, 0.1)',
             borderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 4,
@@ -357,8 +360,8 @@
           {
             label: '3D Accuracy (m)',
             data: gData.acc3d,
-            borderColor: '#ff4d4d',
-            backgroundColor: 'rgba(255, 77, 77, 0.1)',
+            borderColor: '#FF6E59',
+            backgroundColor: 'rgba(255, 110, 89, 0.1)',
             borderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 4,
@@ -397,8 +400,8 @@
           datasets: [{
             label: 'Fix Type',
             data: gData.fix_type,
-            borderColor: '#9d7bff',
-            backgroundColor: 'rgba(157, 123, 255, 0.1)',
+            borderColor: '#4A90E2',
+            backgroundColor: 'rgba(74, 144, 226, 0.1)',
             borderWidth: 2,
             stepped: true, 
             pointRadius: 0,
