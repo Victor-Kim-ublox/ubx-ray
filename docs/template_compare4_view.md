@@ -22,7 +22,7 @@ A map viewer that displays GPS tracks from up to 4 UBX files in a **2×2 split-s
 ## Screen Layout
 
 ### Header (sticky, 54px)
-- UBX-ray brand
+- ubX-ray brand
 - Per-file color badges (File 1–4)
 - View toggle buttons (`Split Map View` active | `Overlay Map View` → `/compare4/overlay/{rids}`)
 - Back button (`← Report` → `/compare4/report/{rids}`)

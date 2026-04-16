@@ -1,7 +1,7 @@
 # templates/home.html
 
 ## Overview
-The **main home screen** of UBX-ray. Provides three analysis tabs (Single / Multi / NMEA) in a single-page SPA-style interface.
+The **main home screen** of ubX-ray. Provides three analysis tabs (Single / Multi / NMEA) in a single-page SPA-style interface.
 
 ---
 

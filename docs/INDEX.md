@@ -1,4 +1,4 @@
-# UBX-ray Project Documentation Index
+# ubX-ray Project Documentation Index
 
 A web service for analyzing u-blox UBX binary logs and comparing NMEA position data.
 

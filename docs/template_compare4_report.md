@@ -22,7 +22,7 @@ The **comparison analysis report screen** for Multi .ubx Analysis. Polls the con
 ## Screen Layout
 
 ### Header (sticky)
-- UBX-ray brand logo
+- ubX-ray brand logo
 - Per-file color badges (File 1–4: blue / red / green / purple)
 - Buttons: `Split Map View` → `/compare4/view/{rids}`, `Overlay Map View` → `/compare4/overlay/{rids}`, `← Home`
 

@@ -1,7 +1,7 @@
 # app.py
 
 ## Overview
-The **main backend** of the UBX-ray web service. An async HTTP server built on FastAPI that handles UBX file upload, conversion, retrieval, and NMEA comparison analysis.
+The **main backend** of the ubX-ray web service. An async HTTP server built on FastAPI that handles UBX file upload, conversion, retrieval, and NMEA comparison analysis.
 
 ---
 
@@ -166,3 +166,25 @@ app.py
 ├── outputs/{rid}/      (result.kmz)
 └── data/ubxray.sqlite3 (database)
 ```
+
+---
+
+## UI Theme
+
+All templates use a unified **u-blox branded light theme** based on the u-blox corporate design system.
+
+| Token | Value | Usage |
+|---|---|---|
+| Primary | `#FF6E59` | Buttons, active tabs, links, brand text |
+| Primary Dark | `#E04A35` | Hover states |
+| Background | `#F7F7F7` | Page background |
+| Card | `#FFFFFF` | Card/panel backgrounds |
+| Text | `#1A1A1A` | Headings, primary text |
+| Text Body | `#676767` | Body text |
+| Muted | `#999999` | Secondary/hint text |
+| Border | `#E6E6E6` | Card borders, dividers |
+| Error | `#E3140D` | Error states |
+| Success | `#557555` | Success states |
+| Font | Space Grotesk | Primary typeface (Google Fonts) |
+
+Track/chart data colors (`--c1` through `--c4`) are kept as functional visualization colors and are independent of the theme.

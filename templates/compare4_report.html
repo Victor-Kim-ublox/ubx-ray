@@ -10,14 +10,14 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap');
     :root {
-      --bg: #f8fafc;
+      --bg: #F7F7F7;
       --card: #ffffff;
-      --border: #e5e7eb;
-      --ink: #111827;
-      --muted: #6b7280;
-      --font: 'Inter', system-ui, sans-serif;
+      --border: #E6E6E6;
+      --ink: #1A1A1A;
+      --muted: #676767;
+      --font: 'Space Grotesk', system-ui, sans-serif;
       --c1: #0078ff; --c2: #e03e3e; --c3: #16a34a; --c4: #9333ea;
       --c1a: rgba(0,120,255,.13); --c2a: rgba(224,62,62,.13);
       --c3a: rgba(22,163,74,.13);  --c4a: rgba(147,51,234,.13);
@@ -48,8 +48,8 @@
       display: inline-flex; align-items: center; gap: 5px;
     }
     .hbtn:hover { background: #e5e7eb; }
-    .hbtn.primary { background: #0078ff; color: #fff; border-color: #0078ff; }
-    .hbtn.primary:hover { background: #005fcc; }
+    .hbtn.primary { background: #FF6E59; color: #fff; border-color: #FF6E59; }
+    .hbtn.primary:hover { background: #E04A35; }
 
     /* ── Layout ──────────────────────────────────────────────────────── */
     .page { max-width: 1280px; margin: 0 auto; padding: 28px 20px 60px; }
@@ -78,7 +78,7 @@
     #loadingOverlay.hidden { display: none; }
     .spin {
       width: 42px; height: 42px;
-      border: 4px solid #d1d5db; border-top-color: #0078ff;
+      border: 4px solid #d1d5db; border-top-color: #FF6E59;
       border-radius: 50%; animation: spin .8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -208,10 +208,11 @@
         <div class="card">
           <div class="chart-wrap" style="height:240px"><canvas id="fixChart"></canvas></div>
           <div class="fix-legend">
-            <span><span class="fix-swatch" style="background:#0078ff"></span>RTK / Dead Reck.</span>
-            <span><span class="fix-swatch" style="background:#16a34a"></span>3D Fix</span>
-            <span><span class="fix-swatch" style="background:#f59e0b"></span>2D Fix</span>
-            <span><span class="fix-swatch" style="background:#ef4444"></span>No Fix</span>
+            <span><span class="fix-swatch" style="background:#0078ff"></span>GNSS+DR (4)</span>
+            <span><span class="fix-swatch" style="background:#9333ea"></span>DR only (1)</span>
+            <span><span class="fix-swatch" style="background:#16a34a"></span>3D Fix (3)</span>
+            <span><span class="fix-swatch" style="background:#f59e0b"></span>2D Fix (2)</span>
+            <span><span class="fix-swatch" style="background:#ef4444"></span>No Fix (0/5)</span>
           </div>
         </div>
       </div>
@@ -262,7 +263,7 @@
     var COLORS    = ['#0078ff','#e03e3e','#16a34a','#9333ea'];
     var COLORSEMI = ['rgba(0,120,255,.18)','rgba(224,62,62,.18)',
                      'rgba(22,163,74,.18)','rgba(147,51,234,.18)'];
-    var FIX_COLORS = { rtk:'#0078ff', fix3:'#16a34a', fix2:'#f59e0b', none:'#ef4444' };
+    var FIX_COLORS = { gnssdr:'#0078ff', dr:'#9333ea', fix3:'#16a34a', fix2:'#f59e0b', none:'#ef4444' };
 
     // Set links
     document.getElementById('splitLink').href   = '/compare4/view/'   + RIDS.join('/');
@@ -479,27 +480,35 @@
         if (!d) { tbody.innerHTML += '<tr><td colspan="10" style="color:#9ca3af;padding:12px">—</td></tr>'; return; }
 
         // Fix type ratio
-        var fixCounts = { rtk:0, fix3:0, fix2:0, none:0, total:0 };
+        var fixCounts = { gnssdr:0, dr:0, fix3:0, fix2:0, none:0, total:0 };
         (d.fix_type||[]).forEach(function(ft) {
           fixCounts.total++;
-          if (ft===4||ft===1)      fixCounts.rtk++;
+          if (ft===4)              fixCounts.gnssdr++;
+          else if (ft===1)         fixCounts.dr++;
           else if (ft===3)         fixCounts.fix3++;
           else if (ft===2)         fixCounts.fix2++;
           else                     fixCounts.none++;
         });
         var tot = fixCounts.total || 1;
-        var rtkPct  = (fixCounts.rtk  / tot * 100).toFixed(1);
+        var gnssdrPct = (fixCounts.gnssdr / tot * 100).toFixed(1);
+        var drPct   = (fixCounts.dr   / tot * 100).toFixed(1);
         var fix3Pct = (fixCounts.fix3 / tot * 100).toFixed(1);
         var fix2Pct = (fixCounts.fix2 / tot * 100).toFixed(1);
         var nonePct = (fixCounts.none / tot * 100).toFixed(1);
 
+        var fixParts = [
+          { pct: parseFloat(gnssdrPct), label:'GNSS+DR', color:'#0078ff' },
+          { pct: parseFloat(drPct),     label:'DR',      color:'#9333ea' },
+          { pct: parseFloat(fix3Pct),   label:'3D',      color:'#16a34a' },
+          { pct: parseFloat(fix2Pct),   label:'2D',      color:'#f59e0b' },
+          { pct: parseFloat(nonePct),   label:'None',    color:'#ef4444' }
+        ];
         var fixBar = '<div class="fix-bar">'
-          + '<div class="fix-seg" style="width:'+rtkPct+'%;background:#0078ff" title="RTK/DR: '+rtkPct+'%"></div>'
-          + '<div class="fix-seg" style="width:'+fix3Pct+'%;background:#16a34a" title="3D: '+fix3Pct+'%"></div>'
-          + '<div class="fix-seg" style="width:'+fix2Pct+'%;background:#f59e0b" title="2D: '+fix2Pct+'%"></div>'
-          + '<div class="fix-seg" style="width:'+nonePct+'%;background:#ef4444" title="None: '+nonePct+'%"></div>'
+          + fixParts.map(function(p){ return '<div class="fix-seg" style="width:'+p.pct.toFixed(1)+'%;background:'+p.color+'" title="'+p.label+': '+p.pct.toFixed(1)+'%"></div>'; }).join('')
           + '</div>'
-          + '<div style="font-size:11px;color:#6b7280;margin-top:2px">RTK '+rtkPct+'% / 3D '+fix3Pct+'%</div>';
+          + '<div style="font-size:11px;color:#6b7280;margin-top:2px">'
+          + fixParts.filter(function(p){return p.pct>0;}).sort(function(a,b){return b.pct-a.pct;}).map(function(p){return p.label+' '+p.pct.toFixed(1)+'%';}).join(' / ')
+          + '</div>';
 
         var fn = FILENAMES[i] || 'Track '+(i+1);
         var fnShort = fn.length > 30 ? fn.slice(0,28)+'…' : fn;
@@ -561,21 +570,23 @@
       // ────────────────────────────────────────────────────────────────
       // ③ Fix Type grouped bar chart
       // ────────────────────────────────────────────────────────────────
-      var fixLabels = [], rtkArr = [], fix3Arr = [], fix2Arr = [], noneArr = [];
+      var fixLabels = [], gnssdrArr = [], drArr = [], fix3Arr = [], fix2Arr = [], noneArr = [];
       allData.forEach(function(d, i) {
         if (!d) return;
         var lbl = shortName(FILENAMES[i], i);
         fixLabels.push(lbl);
         var tot = (d.fix_type||[]).length || 1;
-        var c = { rtk:0, fix3:0, fix2:0, none:0 };
+        var c = { gnssdr:0, dr:0, fix3:0, fix2:0, none:0 };
         (d.fix_type||[]).forEach(function(ft){
-          if(ft===4||ft===1) c.rtk++; else if(ft===3) c.fix3++;
-          else if(ft===2) c.fix2++; else c.none++;
+          if(ft===4) c.gnssdr++; else if(ft===1) c.dr++;
+          else if(ft===3) c.fix3++; else if(ft===2) c.fix2++;
+          else c.none++;
         });
-        rtkArr.push( +(c.rtk  /tot*100).toFixed(2));
-        fix3Arr.push(+(c.fix3 /tot*100).toFixed(2));
-        fix2Arr.push(+(c.fix2 /tot*100).toFixed(2));
-        noneArr.push(+(c.none /tot*100).toFixed(2));
+        gnssdrArr.push(+(c.gnssdr/tot*100).toFixed(2));
+        drArr.push(   +(c.dr    /tot*100).toFixed(2));
+        fix3Arr.push( +(c.fix3  /tot*100).toFixed(2));
+        fix2Arr.push( +(c.fix2  /tot*100).toFixed(2));
+        noneArr.push( +(c.none  /tot*100).toFixed(2));
       });
 
       new Chart(document.getElementById('fixChart'), {
@@ -583,10 +594,11 @@
         data: {
           labels: fixLabels,
           datasets: [
-            { label:'RTK / Dead Reck.', data:rtkArr,  backgroundColor:'#0078ff', borderRadius:4 },
-            { label:'3D Fix',           data:fix3Arr, backgroundColor:'#16a34a', borderRadius:4 },
-            { label:'2D Fix',           data:fix2Arr, backgroundColor:'#f59e0b', borderRadius:4 },
-            { label:'No Fix',           data:noneArr, backgroundColor:'#ef4444', borderRadius:4 },
+            { label:'GNSS+DR (4)',  data:gnssdrArr, backgroundColor:'#0078ff', borderRadius:4 },
+            { label:'DR only (1)',  data:drArr,     backgroundColor:'#9333ea', borderRadius:4 },
+            { label:'3D Fix (3)',   data:fix3Arr,   backgroundColor:'#16a34a', borderRadius:4 },
+            { label:'2D Fix (2)',   data:fix2Arr,   backgroundColor:'#f59e0b', borderRadius:4 },
+            { label:'No Fix (0/5)', data:noneArr,   backgroundColor:'#ef4444', borderRadius:4 },
           ]
         },
         options: {

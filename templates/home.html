@@ -5,27 +5,32 @@
   <meta charset="utf-8">
   <title>ubX-ray</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root{
-    --bg1:#0f1226;
-    --bg2:#11163a;
-    --card:#151a44;
-    --muted:#9bb2ff;
-    --text:#e8eeff;
-    --accent:#6ea8ff;
-    --accent2:#9d7bff;
-    --border:#26306b;
-    --shadow: 0 10px 40px rgba(0,0,0,.35), 0 0 80px rgba(110,168,255,.15);
+    --bg:#FFFFFF;
+    --bg2:#F7F7F7;
+    --card:#FFFFFF;
+    --text:#1A1A1A;
+    --text-body:#676767;
+    --muted:#999999;
+    --primary:#FF6E59;
+    --primary-dark:#E04A35;
+    --accent:#4A90E2;
+    --border:#E6E6E6;
+    --border-dark:#CECECE;
+    --success:#557555;
+    --error:#E3140D;
+    --shadow: 0 2px 16px rgba(0,0,0,.06);
     }
     *{ box-sizing:border-box; }
     body{
     margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     color:var(--text);
-    background:
-    radial-gradient(1200px 800px at 20% -10%, #2b377d55, transparent 60%),
-    radial-gradient(1200px 800px at 120% 120%, #7b4cff33, transparent 60%),
-    linear-gradient(160deg, var(--bg1), var(--bg2));
+    background: var(--bg2);
     }
     .wrap { width:min(960px, 92vw); }
     header{
@@ -33,20 +38,17 @@
     }
     .brand{
     display:flex; align-items:center; gap:12px;
-    background: linear-gradient(90deg, var(--accent), var(--accent2));
-    -webkit-background-clip:text; background-clip:text; color:transparent;
+    color:var(--primary);
     font-weight:800; font-size:28px; letter-spacing:.3px;
-    text-shadow: 0 0 24px #6ea8ff44;
     }
     .badge{
-    font-size:12px; color:#d7e3ff; opacity:.85;
-    border:1px solid #3b4bab; padding:4px 8px; border-radius:999px;
-    background: linear-gradient(180deg, #1a2257cc, #121848cc);
-    box-shadow: inset 0 0 10px #0006;
+    font-size:12px; color:var(--text-body);
+    border:1px solid var(--border-dark); padding:4px 8px; border-radius:999px;
+    background: var(--bg);
     }
 
     .card{
-    background: linear-gradient(180deg, rgba(21,26,68,.9), rgba(16,20,50,.9));
+    background: var(--card);
     border:1px solid var(--border); border-radius:18px; padding:22px;
     box-shadow: var(--shadow);
     }
@@ -59,74 +61,75 @@
       font-size:15px; font-weight:600; padding:8px 12px; border-radius:8px;
       transition:.2s;
     }
-    .tab-btn:hover { color:#cfe0ff; background:#ffffff0a; }
-    .tab-btn.active { color:#fff; background:var(--accent); box-shadow:0 4px 12px #3f5bf055; }
+    .tab-btn:hover { color:var(--text); background:var(--bg2); }
+    .tab-btn.active { color:#fff; background:var(--primary); box-shadow:0 4px 12px rgba(255,110,89,.25); }
     .tab-pane { display:none; animation: fadeIn .3s; }
     .tab-pane.active { display:block; }
     @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
 
     /* Dropzone (as label for file input) */
     .drop{
-    border:2px dashed #3b4bab; border-radius:14px; padding:26px; text-align:center;
+    border:2px dashed var(--border-dark); border-radius:14px; padding:26px; text-align:center;
     transition:.2s border-color, .2s transform, .2s background;
-    background: linear-gradient(180deg, #10163b, #0f1433);
+    background: var(--bg2);
     display:block; cursor:pointer; user-select:none;
+    overflow:hidden;
     }
     .drop.dragover{
-    border-color:#80b3ff;
-    background: linear-gradient(180deg, #111b49, #151e58);
+    border-color:var(--primary);
+    background: #FFF5F3;
     transform: scale(1.01);
-    box-shadow: 0 0 0 3px #80b3ff33 inset;
+    box-shadow: 0 0 0 3px rgba(255,110,89,.15) inset;
     }
-    .drop h2{ margin:0 0 6px; font-size:20px; }
-    .drop h3{ margin:0 0 4px; font-size:16px; color:#cfe0ff; }
+    .drop h2{ margin:0 0 6px; font-size:20px; color:var(--text); }
+    .drop h3{ margin:0 0 4px; font-size:16px; color:var(--text-body); }
     .hint{ color:var(--muted); font-size:13px; }
-    .file-name{ margin-top:10px; font-size:14px; color:#dfe7ff; }
+    .file-name{ margin-top:10px; font-size:14px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
 
     /* Options */
     fieldset{
     border:1px solid var(--border); border-radius:12px; padding:14px 14px 10px;
-    background: #0f1434aa;
+    background: var(--bg2);
     }
-    legend{ padding:0 8px; color:#c7d6ff; font-weight:600; }
-    label{ font-size:14px; }
+    legend{ padding:0 8px; color:var(--text); font-weight:600; }
+    label{ font-size:14px; color:var(--text-body); }
     select, button{ font: inherit; }
     select{
-    border:1px solid #33408f; background:#0f1434; color:#e8eeff; border-radius:8px;
+    border:1px solid var(--border-dark); background:var(--bg); color:var(--text); border-radius:8px;
     padding:7px 10px; min-width:120px; outline:none;
-    box-shadow: inset 0 0 12px #0006;
     }
     .chk{
     display:inline-flex; align-items:center; gap:8px; margin-right:14px;
-    background:#101747; border:1px solid #2a387c; padding:7px 10px; border-radius:10px;
+    background:var(--bg); border:1px solid var(--border); padding:7px 10px; border-radius:10px;
     }
 
     /* Actions */
     .actions{ display:flex; align-items:center; gap:12px; }
     .btn{
-    padding:10px 16px; border-radius:10px; border:1px solid #3a4db1; color:#fff;
-    background: linear-gradient(180deg, #3f5bf0, #3b48b8);
-    box-shadow: 0 10px 24px #3f5bf055, 0 0 0 3px #6ea8ff22 inset;
-    cursor:pointer; transition:.15s transform, .2s box-shadow, .2s filter;
+    padding:10px 16px; border-radius:10px; border:2px solid var(--primary); color:#fff;
+    background: var(--primary);
+    box-shadow: 0 4px 12px rgba(255,110,89,.25);
+    cursor:pointer; transition:.15s transform, .2s box-shadow, .2s background;
+    font-weight:600;
     }
-    .btn:hover{ transform: translateY(-1px); filter:brightness(1.03); }
+    .btn:hover{ transform: translateY(-1px); background:var(--primary-dark); border-color:var(--primary-dark); }
     .btn:disabled{ opacity:.65; cursor:not-allowed; filter:grayscale(.2); }
 
-    /* Spinner (Windows-like ring) */
+    /* Spinner */
     .spinner{
     display:none; width:28px; height:28px;
-    border:3px solid #d7e3ff44; border-top-color:#6ea8ff; border-radius:50%;
+    border:3px solid var(--border); border-top-color:var(--primary); border-radius:50%;
     animation: spin .8s linear infinite;
     }
     @keyframes spin { to{ transform: rotate(360deg); } }
-    #loadingText{ display:none; color:#9bb2ff; font-weight:600; }
+    #loadingText{ display:none; color:var(--text-body); font-weight:600; }
 
     .footer{
     margin-top:16px; display:flex; justify-content:space-between; align-items:center; gap:12px;
-    color:#b7c6ff; font-size:13px;
+    color:var(--text-body); font-size:13px;
     }
-    .links a{ color:#9bb2ff; text-decoration:none; border-bottom:1px dashed #9bb2ff55; }
-    .links a:hover{ color:#cfe0ff; border-bottom-color:#cfe0ff; }
+    .links a{ color:var(--primary); text-decoration:none; border-bottom:1px dashed rgba(255,110,89,.4); }
+    .links a:hover{ color:var(--primary-dark); border-bottom-color:var(--primary-dark); }
 
     /* Hide the real input off-screen but keep it accessible */
     .hidden-input{
@@ -137,59 +140,59 @@
     .grid4 {
       display:grid; grid-template-columns:1fr 1fr; gap:14px;
     }
-    .slot { display:flex; flex-direction:column; gap:6px; }
+    .slot { display:flex; flex-direction:column; gap:6px; min-width:0; }
     .slot-label {
-      font-size:12px; font-weight:700; color:var(--accent); letter-spacing:.5px;
+      font-size:12px; font-weight:700; color:var(--primary); letter-spacing:.5px;
       text-transform:uppercase;
     }
     .slot-tag {
       font-weight:400; text-transform:none; font-size:11px; letter-spacing:0;
     }
-    .required-tag { color:#6ea8ff; }
-    .optional-tag { color:#9bb2ff; }
+    .required-tag { color:var(--primary); }
+    .optional-tag { color:var(--muted); }
 
     /* Notice box */
     .notice {
-      background:#0d1540; border:1px solid #2a387c; border-radius:10px;
-      padding:12px 16px; font-size:13px; color:#a0b4ff;
+      background:#FFF5F3; border:1px solid #FFD6CF; border-radius:10px;
+      padding:12px 16px; font-size:13px; color:var(--text-body);
     }
-    .notice strong { color:#cfe0ff; }
+    .notice strong { color:var(--text); }
 
     /* Progress UI */
     .prog-box {
-      background:#0a1030; border:1px solid #2a387c; border-radius:12px;
+      background:var(--bg2); border:1px solid var(--border); border-radius:12px;
       padding:16px 18px; margin:14px 0;
     }
-    .prog-phase { font-size:14px; font-weight:600; color:#cfe0ff; margin-bottom:10px; }
+    .prog-phase { font-size:14px; font-weight:600; color:var(--text); margin-bottom:10px; }
     .prog-track {
-      background:#1a2257; border-radius:999px; height:6px;
+      background:var(--border); border-radius:999px; height:6px;
       overflow:hidden; margin-bottom:12px;
     }
     .prog-bar {
-      height:100%; background:linear-gradient(90deg,#3f5bf0,#9d7bff);
+      height:100%; background:linear-gradient(90deg,var(--primary),#FF9D8E);
       border-radius:999px; width:0%; transition:width .4s ease;
     }
     .prog-steps { display:flex; gap:6px; flex-wrap:wrap; }
     .prog-step {
       display:flex; align-items:center; gap:6px; font-size:12px;
-      color:#3a4a7a; background:#0f143a; border:1px solid #1a2050;
+      color:var(--muted); background:var(--bg); border:1px solid var(--border);
       border-radius:20px; padding:4px 10px; transition:.2s;
     }
     .prog-step .ps-icon { font-size:13px; }
-    .prog-step.active { color:#dfe9ff; border-color:#6ea8ff; background:#111e55; box-shadow:0 0 8px #6ea8ff33; }
-    .prog-step.done   { color:#7eb8ff; border-color:#3f5bf0; }
+    .prog-step.active { color:var(--text); border-color:var(--primary); background:#FFF5F3; box-shadow:0 0 8px rgba(255,110,89,.15); }
+    .prog-step.done   { color:var(--success); border-color:var(--success); }
     /* Multi file rows */
     .prog-files { display:flex; flex-direction:column; gap:5px; }
     .prog-file-row {
       display:flex; align-items:center; gap:10px; font-size:13px;
-      padding:6px 8px; border-radius:8px; background:#0f143a;
+      padding:6px 8px; border-radius:8px; background:var(--bg);
     }
-    .pf-num   { color:#6ea8ff; font-weight:700; min-width:48px; font-size:11px; text-transform:uppercase; }
-    .pf-name  { flex:1; color:#c7d6ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .pf-status{ color:#9bb2ff; font-size:12px; min-width:110px; text-align:right; }
+    .pf-num   { color:var(--primary); font-weight:700; min-width:48px; font-size:11px; text-transform:uppercase; }
+    .pf-name  { flex:1; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pf-status{ color:var(--text-body); font-size:12px; min-width:110px; text-align:right; }
     .spin-sm  {
       display:inline-block; width:11px; height:11px;
-      border:2px solid #d7e3ff44; border-top-color:#6ea8ff;
+      border:2px solid var(--border); border-top-color:var(--primary);
       border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle;
     }
   </style>
@@ -210,6 +213,11 @@
 
       <!-- Tab 1: Single UBX Analysis -->
       <div id="tab-single" class="tab-pane active">
+        <div class="notice row">
+          <strong>How it works:</strong> Upload a single UBX/BIN file. A quick summary is shown first,
+          while KMZ conversion runs in the background. You'll be redirected to the report once ready.
+        </div>
+
         <form id="uploadForm" enctype="multipart/form-data">
           <!-- Pretty dropzone = label for input -->
           <label id="dropzone" class="drop row" for="fileInput">
@@ -220,37 +228,6 @@
 
           <!-- Real file input (off-screen) -->
           <input id="fileInput" class="hidden-input" type="file" name="file" accept=".ubx,.bin" required>
-
-          <fieldset id="opts" class="row">
-            <legend>Conversion Options</legend>
-            <div class="row" style="display:flex; gap:18px; flex-wrap:wrap; align-items:center;">
-              <div>
-                <label>Downsample (Hz):</label>
-                <select name="hz">
-                  <option value="">(None)</option>
-                  <option value="1">1 Hz</option>
-                  <option value="2">2 Hz</option>
-                  <option value="5">5 Hz</option>
-                  <option value="10">10 Hz</option>
-                </select>
-              </div>
-
-              <label class="chk">
-                <input type="checkbox" name="nav2">
-                <span>Use NAV2-PVT</span>
-              </label>
-
-              <label class="chk">
-                <input type="checkbox" name="alt_abs">
-                <span>altitudeMode = absolute</span>
-              </label>
-
-              <label class="chk">
-                <input type="checkbox" name="mapm">
-                <span>AID-MAPM only (KMZ)</span>
-              </label>
-            </div>
-          </fieldset>
 
           <div class="actions row" id="singleBtnRow">
             <button id="submitBtn" class="btn" type="submit">Upload &amp; Analyze</button>
@@ -325,34 +302,6 @@
               <input id="mFile4" class="hidden-input" type="file" name="file4" accept=".ubx,.bin">
             </div>
           </div>
-
-          <fieldset class="row">
-            <legend>Conversion Options (applied to all files)</legend>
-            <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:center; margin-top:6px;">
-              <div>
-                <label>Downsample (Hz):</label>
-                <select name="hz">
-                  <option value="">(None)</option>
-                  <option value="1">1 Hz</option>
-                  <option value="2">2 Hz</option>
-                  <option value="5">5 Hz</option>
-                  <option value="10">10 Hz</option>
-                </select>
-              </div>
-              <label class="chk">
-                <input type="checkbox" name="nav2">
-                <span>Use NAV2-PVT</span>
-              </label>
-              <label class="chk">
-                <input type="checkbox" name="alt_abs">
-                <span>altitudeMode = absolute</span>
-              </label>
-              <label class="chk">
-                <input type="checkbox" name="mapm">
-                <span>AID-MAPM only (KMZ)</span>
-              </label>
-            </div>
-          </fieldset>
 
           <div class="actions row" id="multiBtnRow">
             <button id="multiSubmitBtn" class="btn" type="submit">Upload &amp; Compare</button>
@@ -490,7 +439,6 @@
 
       uploading = true;
       document.getElementById("singleBtnRow").style.display = "none";
-      document.getElementById("opts").querySelectorAll("input,select").forEach(el => el.disabled = true);
 
       const prog = document.getElementById("singleProgress");
       prog.style.display = "block";
@@ -545,7 +493,6 @@
         await new Promise(r => setTimeout(r, 2500));
         prog.style.display = "none";
         document.getElementById("singleBtnRow").style.display = "flex";
-        document.getElementById("opts").querySelectorAll("input,select").forEach(el => el.disabled = false);
         uploading = false;
       }
     }
@@ -707,11 +654,11 @@
         if (!files?.length) return;
         const dt = new DataTransfer(); dt.items.add(files[0]); fi.files = dt.files;
         fn.textContent = files[0].name;
-        dz.style.borderColor = '#6ea8ff'; dz.style.opacity = '1';
+        dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1';
       });
       fi.addEventListener("change", () => {
         fn.textContent = fi.files.length ? fi.files[0].name : "";
-        if (fi.files.length) { dz.style.borderColor = '#6ea8ff'; dz.style.opacity = '1'; }
+        if (fi.files.length) { dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1'; }
       });
     }
 

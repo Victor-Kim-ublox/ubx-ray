@@ -63,7 +63,7 @@ os.makedirs(TEMPL_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s %(message)s")
 logger = logging.getLogger("ubxray")
 
-app = FastAPI(title="UBX-ray")
+app = FastAPI(title="ubX-ray")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # FastAPI startup 훅에 워커 등록

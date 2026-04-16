@@ -3,24 +3,26 @@
 <head>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <meta charset="utf-8">
-  <title>UBX-ray — Multi .ubx Analysis</title>
+  <title>ubX-ray — Multi .ubx Analysis</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root{
-      --bg1:#0f1226; --bg2:#11163a; --card:#151a44; --muted:#9bb2ff;
-      --text:#e8eeff; --accent:#6ea8ff; --accent2:#9d7bff;
-      --border:#26306b;
-      --shadow: 0 10px 40px rgba(0,0,0,.35), 0 0 80px rgba(110,168,255,.15);
+      --bg:#FFFFFF; --bg2:#F7F7F7; --card:#FFFFFF;
+      --text:#1A1A1A; --text-body:#676767; --muted:#999999;
+      --primary:#FF6E59; --primary-dark:#E04A35;
+      --accent:#4A90E2; --border:#E6E6E6; --border-dark:#CECECE;
+      --success:#557555; --error:#E3140D;
+      --shadow: 0 2px 16px rgba(0,0,0,.06);
     }
     *{ box-sizing:border-box; }
     body{
       margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-family: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       color:var(--text);
-      background:
-        radial-gradient(1200px 800px at 20% -10%, #2b377d55, transparent 60%),
-        radial-gradient(1200px 800px at 120% 120%, #7b4cff33, transparent 60%),
-        linear-gradient(160deg, var(--bg1), var(--bg2));
+      background: var(--bg2);
       padding: 24px 0;
     }
     .wrap { width:min(1100px, 95vw); }
@@ -29,16 +31,15 @@
     }
     .brand{
       display:flex; align-items:center; gap:12px;
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      -webkit-background-clip:text; background-clip:text; color:transparent;
+      color:var(--primary);
       font-weight:800; font-size:28px; letter-spacing:.3px;
     }
     .badge{
-      font-size:12px; color:#d7e3ff; opacity:.85;
-      border:1px solid #3b4bab; padding:4px 8px; border-radius:999px;
-      background: linear-gradient(180deg, #1a2257cc, #121848cc);
+      font-size:12px; color:var(--text-body);
+      border:1px solid var(--border-dark); padding:4px 8px; border-radius:999px;
+      background: var(--bg);
     }
-    /* Shared tab nav (matches home.html style) */
+    /* Shared tab nav */
     .tabs { display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:10px; }
     .tab-btn {
       background: transparent; border:none; color:var(--muted); cursor:pointer;
@@ -46,19 +47,19 @@
       transition:.2s; text-decoration:none; display:inline-flex; align-items:center; gap:6px;
       font-family: inherit;
     }
-    .tab-btn:hover { color:#cfe0ff; background:#ffffff0a; }
-    .tab-btn.active { color:#fff; background:var(--accent); box-shadow:0 4px 12px #3f5bf055; }
+    .tab-btn:hover { color:var(--text); background:var(--bg2); }
+    .tab-btn.active { color:#fff; background:var(--primary); box-shadow:0 4px 12px rgba(255,110,89,.25); }
 
     .card{
-      background: linear-gradient(180deg, rgba(21,26,68,.9), rgba(16,20,50,.9));
+      background: var(--card);
       border:1px solid var(--border); border-radius:18px; padding:24px;
       box-shadow: var(--shadow);
     }
     .card-title {
-      font-size:18px; font-weight:700; color:#e0eaff; margin:0 0 6px;
+      font-size:18px; font-weight:700; color:var(--text); margin:0 0 6px;
     }
     .card-sub {
-      font-size:13px; color:var(--muted); margin:0 0 20px;
+      font-size:13px; color:var(--text-body); margin:0 0 20px;
     }
 
     /* 2x2 grid of dropzones */
@@ -67,69 +68,69 @@
     }
     .slot { display:flex; flex-direction:column; gap:6px; }
     .slot-label {
-      font-size:12px; font-weight:700; color:var(--accent); letter-spacing:.5px;
+      font-size:12px; font-weight:700; color:var(--primary); letter-spacing:.5px;
       text-transform:uppercase;
     }
     .drop{
-      border:2px dashed #3b4bab; border-radius:14px; padding:18px; text-align:center;
-      transition:.2s; background: linear-gradient(180deg, #10163b, #0f1433);
+      border:2px dashed var(--border-dark); border-radius:14px; padding:18px; text-align:center;
+      transition:.2s; background: var(--bg2);
       display:block; cursor:pointer; user-select:none;
     }
     .drop:hover, .drop.dragover{
-      border-color:#80b3ff;
-      background: linear-gradient(180deg, #111b49, #151e58);
+      border-color:var(--primary);
+      background: #FFF5F3;
       transform: scale(1.01);
     }
-    .drop h3{ margin:0 0 4px; font-size:15px; color:#cfe0ff; }
+    .drop h3{ margin:0 0 4px; font-size:15px; color:var(--text-body); }
     .hint{ color:var(--muted); font-size:12px; }
-    .file-name{ margin-top:8px; font-size:13px; color:#dfe7ff; word-break:break-all; }
+    .file-name{ margin-top:8px; font-size:13px; color:var(--text); word-break:break-all; }
     .hidden-input{
       position:absolute; left:-9999px; width:1px; height:1px; opacity:0;
     }
 
     fieldset{
       border:1px solid var(--border); border-radius:12px; padding:14px 14px 10px;
-      background:#0f1434aa; margin-bottom:16px;
+      background:var(--bg2); margin-bottom:16px;
     }
-    legend{ padding:0 8px; color:#c7d6ff; font-weight:600; font-size:14px; }
-    select{ font: inherit; border:1px solid #33408f; background:#0f1434; color:#e8eeff;
+    legend{ padding:0 8px; color:var(--text); font-weight:600; font-size:14px; }
+    select{ font: inherit; border:1px solid var(--border-dark); background:var(--bg); color:var(--text);
       border-radius:8px; padding:7px 10px; min-width:120px; outline:none; }
     .chk{
       display:inline-flex; align-items:center; gap:8px; margin-right:14px;
-      background:#101747; border:1px solid #2a387c; padding:7px 10px; border-radius:10px;
+      background:var(--bg); border:1px solid var(--border); padding:7px 10px; border-radius:10px;
       font-size:14px;
     }
 
     .actions{ display:flex; align-items:center; gap:12px; }
     .btn{
-      padding:10px 20px; border-radius:10px; border:1px solid #3a4db1; color:#fff;
-      background: linear-gradient(180deg, #3f5bf0, #3b48b8);
-      box-shadow: 0 10px 24px #3f5bf055, 0 0 0 3px #6ea8ff22 inset;
+      padding:10px 20px; border-radius:10px; border:2px solid var(--primary); color:#fff;
+      background: var(--primary);
+      box-shadow: 0 4px 12px rgba(255,110,89,.25);
       cursor:pointer; font:inherit; font-size:15px; font-weight:600;
-      transition:.15s transform, .2s box-shadow;
+      transition:.15s transform, .2s box-shadow, .2s background;
     }
-    .btn:hover{ transform:translateY(-1px); }
-    .btn:disabled{ opacity:.65; cursor:not-allowed; }
+    .btn:hover{ transform:translateY(-1px); background:var(--primary-dark); border-color:var(--primary-dark); }
+    .btn:disabled{ opacity:.65; cursor:not-allowed; filter:grayscale(.2); }
 
     .spinner{
       display:none; width:28px; height:28px;
-      border:3px solid #d7e3ff44; border-top-color:#6ea8ff; border-radius:50%;
+      border:3px solid var(--border); border-top-color:var(--primary); border-radius:50%;
       animation: spin .8s linear infinite;
     }
     @keyframes spin { to{ transform: rotate(360deg); } }
-    #loadingText{ display:none; color:#9bb2ff; font-weight:600; }
+    #loadingText{ display:none; color:var(--text-body); font-weight:600; }
 
     .notice {
-      background:#0d1540; border:1px solid #2a387c; border-radius:10px;
-      padding:12px 16px; font-size:13px; color:#a0b4ff; margin-bottom:16px;
+      background:#FFF5F3; border:1px solid #FFD6CF; border-radius:10px;
+      padding:12px 16px; font-size:13px; color:var(--text-body); margin-bottom:16px;
     }
-    .notice strong { color:#cfe0ff; }
+    .notice strong { color:var(--text); }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <div class="brand">UBX-ray</div>
+      <div class="brand">ubX-ray</div>
       <div class="badge">GNSS UBX log analyzer</div>
     </header>
 
@@ -154,7 +155,7 @@
         <div class="grid4">
           <!-- File 1 (required) -->
           <div class="slot">
-            <div class="slot-label">File 1 <span style="color:#6ea8ff;font-weight:400;text-transform:none;font-size:11px;">required</span></div>
+            <div class="slot-label">File 1 <span style="color:var(--primary);font-weight:400;text-transform:none;font-size:11px;">required</span></div>
             <label id="drop1" class="drop" for="file1Input">
               <h3>Drop UBX/BIN file here</h3>
               <div class="hint">or click to browse</div>
@@ -165,7 +166,7 @@
 
           <!-- File 2 (optional) -->
           <div class="slot">
-            <div class="slot-label">File 2 <span style="color:#9bb2ff;font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
+            <div class="slot-label">File 2 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop2" class="drop" for="file2Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
               <div class="hint">or click to browse · leave empty to skip</div>
@@ -176,7 +177,7 @@
 
           <!-- File 3 (optional) -->
           <div class="slot">
-            <div class="slot-label">File 3 <span style="color:#9bb2ff;font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
+            <div class="slot-label">File 3 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop3" class="drop" for="file3Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
               <div class="hint">or click to browse · leave empty to skip</div>
@@ -187,7 +188,7 @@
 
           <!-- File 4 (optional) -->
           <div class="slot">
-            <div class="slot-label">File 4 <span style="color:#9bb2ff;font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
+            <div class="slot-label">File 4 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop4" class="drop" for="file4Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
               <div class="hint">or click to browse · leave empty to skip</div>
@@ -256,11 +257,11 @@
         dt.items.add(files[0]);
         fi.files = dt.files;
         fn.textContent = '📁 ' + files[0].name;
-        dz.style.borderColor = '#6ea8ff';
+        dz.style.borderColor = '#FF6E59';
       });
       fi.addEventListener('change', () => {
         fn.textContent = fi.files.length ? '📁 ' + fi.files[0].name : '';
-        if (fi.files.length) dz.style.borderColor = '#6ea8ff';
+        if (fi.files.length) dz.style.borderColor = '#FF6E59';
       });
     }
 
