@@ -1,0 +1,31 @@
+# Runtime data (per-user uploads, conversion outputs, SQLite DB)
+data/
+outputs/
+uploads/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
