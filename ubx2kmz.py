@@ -25,6 +25,18 @@ NAV_CLASS  = 0x01
 NAV2_CLASS = 0x29
 PVT_ID     = 0x07
 SAT_ID     = 0x35
+SEC_CLASS  = 0x27
+SECSIG_ID  = 0x09
+
+# SEC-SIG jamming / spoofing state codes
+JAM_STATE_UNKNOWN   = 0
+JAM_STATE_OK        = 1
+JAM_STATE_WARNING   = 2
+
+SPF_STATE_UNKNOWN   = 0
+SPF_STATE_OK        = 1
+SPF_STATE_INDICATED = 2
+SPF_STATE_AFFIRMED  = 3
 
 VALID_LEN_SET = {92, 96}
 PROGRESS_EVERY = 1000
@@ -266,22 +278,77 @@ def parse_nav_sat(payload: memoryview):
         return None
     iTOW = int.from_bytes(payload[0:4], 'little', signed=False)
     numSvs = payload[5]
-    
-    # Check length validity
+
+    # u-blox receivers track at most ~60 SVs; larger numSvs combined with a
+    # matching length almost certainly means the sync pattern matched garbage.
+    if numSvs > 128:
+        return None
     if len(payload) < 8 + 12 * numSvs:
         return None
+
+    # Valid CN0 range per u-blox spec. Anything outside this is treated as a
+    # mis-parsed block (e.g. from a false sync match with --ck disabled).
+    CNO_MAX = 63
 
     cnos = []
     offset = 8
     for _ in range(numSvs):
         # Block structure: gnssId(1), svId(1), cno(1), elev(1), azim(2), prRes(2), flags(4)
-        cno = payload[offset + 2] # dBHz
-        
-        if cno > 0: # 유효한 신호만 수집
+        cno = payload[offset + 2]  # dBHz
+        if 0 < cno <= CNO_MAX:
             cnos.append(cno)
         offset += 12
-        
+
     return {"iTOW": iTOW, "cnos": cnos}
+
+def parse_sec_sig(payload: memoryview):
+    """
+    Parse UBX-SEC-SIG (0x27 0x09) version 0x02.
+    Layout:
+      0: version (U1) — expected 0x02
+      1: sigSecFlags (X1)
+           bit 0    : jamDetEnabled
+           bits 2..1: jamState   (0=Unknown, 1=OK, 2=Warning)
+           bit 3    : spfDetEnabled
+           bits 5..4: spfState   (0=Unknown, 1=OK, 2=Indicated, 3=Affirmed)
+      2: reserved0 (U1)
+      3: jamNumCentFreqs (U1)
+      4..: jamStateCentFreq (X4) repeated jamNumCentFreqs times
+             bits 23..0: centFreq (kHz)
+             bit 24    : jammed
+    """
+    L = len(payload)
+    if L < 4:
+        return None
+    version = payload[0]
+    if version != 0x02:
+        return None
+    flags = payload[1]
+    jam_det_enabled = (flags & 0x01) != 0
+    jam_state       = (flags >> 1) & 0x03
+    spf_det_enabled = (flags & 0x08) != 0
+    spf_state       = (flags >> 4) & 0x03
+    num_cf = payload[3]
+    if L < 4 + 4 * num_cf:
+        return None
+    freqs = []
+    for n in range(num_cf):
+        word = int.from_bytes(payload[4 + 4*n : 8 + 4*n], 'little', signed=False)
+        cent_khz = word & 0x00FFFFFF
+        jammed   = (word >> 24) & 0x01
+        freqs.append({
+            "freq_mhz": round(cent_khz / 1000.0, 3),
+            "jammed": bool(jammed),
+        })
+    return {
+        "version": version,
+        "jamDetEnabled": jam_det_enabled,
+        "jamState": jam_state,
+        "spfDetEnabled": spf_det_enabled,
+        "spfState": spf_state,
+        "centFreqs": freqs,
+    }
+
 
 def normalize_heading(deg: float) -> float:
     h = math.fmod(deg if deg is not None else 0.0, 360.0)
@@ -311,9 +378,18 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         "speed": [],        # km/h
         "altitude": [],     # m (hMSL)
         "num_sv": [],       # satellite count
+        "lat": [],          # deg, per kept epoch (for map overlays)
+        "lon": [],          # deg, per kept epoch (for map overlays)
         "cno_labels": [],
         "cno_top_avg": [],
         "cno_scatter": [],
+        # UBX-SEC-SIG (jamming/spoofing). Populated only if SEC-SIG frames are found.
+        "sec_labels": [],     # iTOW per sample, aligned with the last NAV-PVT iTOW
+        "jam_state": [],      # 0=Unknown, 1=OK, 2=Warning
+        "spf_state": [],      # 0=Unknown, 1=OK, 2=Indicated, 3=Affirmed
+        "jam_det_enabled": [],
+        "spf_det_enabled": [],
+        "sec_freqs": [],      # list per sample: [{freq_mhz, jammed}, ...]
         # [추가] 통계 정보 저장용
         "stats": {
             "epoch_total": 0,
@@ -321,8 +397,10 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         }
     }
     
-    kept_itows = set() 
+    kept_itows = set()
     itow_to_cno = {}
+    itow_to_secsig = {}
+    last_pvt_itow = None  # most recent PVT iTOW seen, used to timestamp SEC-SIG frames
 
     target_class = NAV2_CLASS if use_nav2 else NAV_CLASS
     period = 1000 // hz if hz else None
@@ -358,7 +436,7 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 total_msgs += 1
                 rec = parse_nav_pvt(payload)
                 if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 3, 4):
-                    
+                    last_pvt_itow = rec["iTOW"]
                     # === [추가됨] Missing Epoch 계산 로직 ===
                     curr_itow = rec["iTOW"]
                     if last_itow is not None:
@@ -404,6 +482,8 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     graph_data["speed"].append(round(rec["speed_kmh"], 2))
                     graph_data["altitude"].append(round(rec["hMSL"], 2))
                     graph_data["num_sv"].append(int(rec.get("numSV", 0)))
+                    graph_data["lat"].append(round(rec["lat"], 7))
+                    graph_data["lon"].append(round(rec["lon"], 7))
 
                     # KML Placemark 생성 (기존 유지)
                     gnssFixOK = (rec.get("flags", 0) & 0x01) != 0
@@ -459,6 +539,13 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 if sat_rec:
                     itow_to_cno[sat_rec["iTOW"]] = sat_rec["cnos"]
 
+            # 3. SEC-SIG (jamming / spoofing) 처리
+            # SEC-SIG has no iTOW field; associate with the most recent NAV-PVT iTOW.
+            elif cls_ == SEC_CLASS and id_ == SECSIG_ID:
+                sec_rec = parse_sec_sig(payload)
+                if sec_rec and last_pvt_itow is not None:
+                    itow_to_secsig[last_pvt_itow] = sec_rec
+
             i = frame_end
 
     # [최적화된 로직] Merge PVT Time and SAT CN0 (Scatter Downsampling 포함)
@@ -495,6 +582,19 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     all_scatter_points.append({"x": itow, "y": c})
 
     graph_data["cno_scatter"] = all_scatter_points
+
+    # Merge SEC-SIG samples, aligned to kept PVT epochs.
+    if itow_to_secsig:
+        for itow in sorted_itows:
+            rec = itow_to_secsig.get(itow)
+            if rec is None:
+                continue
+            graph_data["sec_labels"].append(itow)
+            graph_data["jam_state"].append(rec["jamState"])
+            graph_data["spf_state"].append(rec["spfState"])
+            graph_data["jam_det_enabled"].append(1 if rec["jamDetEnabled"] else 0)
+            graph_data["spf_det_enabled"].append(1 if rec["spfDetEnabled"] else 0)
+            graph_data["sec_freqs"].append(rec["centFreqs"])
 
     # [수정] 통계 정보 최종 저장
     graph_data["stats"]["epoch_total"] = valid_msgs

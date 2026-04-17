@@ -100,6 +100,20 @@
     .ol-popup-closer:hover { color: #000; }
     #popup-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; }
     #popup-desc  { font-size: 13px; color: #333; line-height: 1.4; }
+
+    .sec-legend {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: #374151;
+      margin-left: 6px;
+      padding: 3px 6px;
+      background: #fff;
+      border-radius: 6px;
+      box-shadow: inset 0 0 0 1px var(--border);
+    }
+    .sec-legend svg { display: block; }
   </style>
 </head>
 <body>
@@ -109,10 +123,11 @@
     <h1 class="title">📍 Map View — {{ filename }}</h1>
 
     <div class="toolbar">
-      <!-- Base map toggle -->
+      <!-- View controls: base map + fit -->
       <div class="seg">
         <button id="btnBaseMap" class="btn active" title="OSM Streets">Map</button>
         <button id="btnBaseSat" class="btn" title="Satellite">Satellite</button>
+        <button id="fitBtn" class="btn" title="Fit map to the full track">Fit</button>
       </div>
 
       <!-- Playback -->
@@ -130,13 +145,35 @@
         <input id="timeRange" type="range" min="0" max="0" value="0" step="1">
         <div id="timeLabel" class="timebox">--</div>
         <button id="followBtn" class="btn" title="Keep marker centered">Follow</button>
-        <div id="hzBadge" class="badge">Hz: --</div>
       </div>
 
-      <!-- Distance tools -->
+      <!-- Distance measurement tools -->
       <div class="seg">
-        <button id="measureBtn" class="btn" title="Measure distance between two points">Measure</button>
+        <button id="measureBtn" class="btn" title="Measure distance between two points">Distance measure</button>
         <button id="clearBtn" class="btn" title="Clear current measurement">Clear</button>
+      </div>
+
+      <!-- Security overlay toggle (shown only when SEC-SIG data exists) -->
+      <div class="seg" id="secSeg" style="display:none; align-items:center;">
+        <button id="secToggleBtn" class="btn active" title="Toggle jamming/spoofing markers">Jam/Spoof</button>
+        <span class="sec-legend" title="Jamming Warning (translucent red zone sheen over the track)">
+          <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">
+            <line x1="1" y1="5" x2="21" y2="5" stroke="rgba(230,0,0,0.28)" stroke-width="8" stroke-linecap="round"/>
+          </svg>
+          <span>Jam</span>
+        </span>
+        <span class="sec-legend" title="Spoofing Indicated (dashed chartreuse line)">
+          <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">
+            <line x1="1" y1="5" x2="21" y2="5" stroke="#CCFF00" stroke-width="3" stroke-dasharray="5,3" stroke-linecap="round"/>
+          </svg>
+          <span>Spf ind.</span>
+        </span>
+        <span class="sec-legend" title="Spoofing Affirmed (dashed cyan line)">
+          <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">
+            <line x1="1" y1="5" x2="21" y2="5" stroke="#00E5FF" stroke-width="3.5" stroke-dasharray="6,2" stroke-linecap="round"/>
+          </svg>
+          <span>Spf aff.</span>
+        </span>
       </div>
     </div>
   </header>
@@ -192,7 +229,11 @@
       url: kmlUrl,
       format: new ol.format.KML({ extractStyles: true, showPointNames: false })
     });
-    const vectorLayer = new ol.layer.Vector({ source: vectorSource });
+    // zIndex 410 sits the track arrows above the thick jam halo (400) but below the
+    // thin spoofing lines (420/440). That way the translucent red halo does not dim the
+    // green/yellow/red fix-type arrows, while the narrow dashed/solid spoof lines still
+    // render on top so they remain visible along the track.
+    const vectorLayer = new ol.layer.Vector({ source: vectorSource, zIndex: 410 });
     map.addLayer(vectorLayer);
 
     // Base toggles
@@ -206,15 +247,21 @@
     btnMap.addEventListener('click', () => setBase(false));
     btnSat.addEventListener('click', () => setBase(true));
 
-    // Fit to data when ready
-    vectorSource.on('change', () => {
-      if (vectorSource.getState() === 'ready') {
-        const ext = vectorSource.getExtent();
-        if (ext && !ol.extent.isEmpty(ext)) {
-          map.getView().fit(ext, { padding: [20,20,20,20], maxZoom: 17 });
-        }
+    // Fit the viewport to the full track extent. Used on initial load and by the Fit button.
+    function fitToTrack() {
+      const ext = vectorSource.getExtent();
+      if (ext && !ol.extent.isEmpty(ext)) {
+        map.getView().fit(ext, { padding: [20, 20, 20, 20], maxZoom: 17, duration: 250 });
       }
+    }
+
+    // Auto-fit once the KML finishes loading.
+    vectorSource.on('change', () => {
+      if (vectorSource.getState() === 'ready') fitToTrack();
     });
+
+    // Manual Fit button.
+    document.getElementById('fitBtn').addEventListener('click', fitToTrack);
 
     // ===== Popup for Placemark =====
     const container = document.getElementById('popup');
@@ -264,6 +311,7 @@
     const measureSrc = new ol.source.Vector();
     const measureLayer = new ol.layer.Vector({
       source: measureSrc,
+      zIndex: 600,
       style: new ol.style.Style({
         stroke: new ol.style.Stroke({ color: '#0078ff', width: 3 }),
         image: new ol.style.Circle({
@@ -328,6 +376,7 @@
     const marker = new ol.Feature(new ol.geom.Point(ol.proj.fromLonLat([0,0])));
     const markerLayer = new ol.layer.Vector({
       source: new ol.source.Vector({ features: [marker] }),
+      zIndex: 700,
       style: new ol.style.Style({
         image: new ol.style.Circle({
           radius: 7, fill: new ol.style.Fill({ color: '#10b981' }),
@@ -476,6 +525,209 @@
       console.log('[map] points:', playback.length, 'rawHz≈', hzRaw.toFixed(2), 'ds=', downsample, 'dataHz≈', dataHz.toFixed(2));
     }
     loadData().catch(console.error);
+
+    // ===== Jamming / Spoofing overlay (UBX-SEC-SIG) =====
+    // Instead of per-epoch markers (which clutter the track and can't show
+    // jamming + spoofing happening at the same epoch), we highlight the track
+    // itself with three independently-drawn line overlays:
+    //
+    //   - Jamming Warning     → thick translucent red "halo" beneath the track
+    //   - Spoofing Indicated  → dashed chartreuse line on top of the track
+    //   - Spoofing Affirmed   → dashed cyan line on top of the track
+    //
+    // Each overlay is a set of LineStrings built from contiguous runs of that
+    // state. Because the three overlays are separate layers/features, concurrent
+    // jamming + spoofing on the same segment shows up as a red halo with an
+    // orange or magenta line running along its center — both readable at once.
+    const JAM_WARNING   = 2;
+    const SPF_INDICATED = 2;
+    const SPF_AFFIRMED  = 3;
+
+    // "Red-zone sheen" jam overlay: a wide translucent red band drawn ON TOP of
+    // the track, so the arrow icons show through as a dimmer red-tinted region.
+    // Reads as a hazard zone rather than a thin line — stays unmistakable from
+    // far-out zoom levels because its pixel width is constant regardless of scale.
+    const styleJamHalo = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: 'rgba(230, 0, 0, 0.28)',
+        width: 26,
+        lineCap: 'round',
+        lineJoin: 'round'
+      })
+    });
+    const styleSpfIndicated = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: '#CCFF00',
+        width: 3.5,
+        lineDash: [8, 5],
+        lineCap: 'round'
+      })
+    });
+    const styleSpfAffirmed = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: '#00E5FF',
+        width: 4,
+        lineDash: [14, 5],
+        lineCap: 'round'
+      })
+    });
+    // Dot style for isolated single-epoch events (a line of one point won't render).
+    const styleIsolatedJam = new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 12,
+        fill: new ol.style.Fill({ color: 'rgba(230, 0, 0, 0.28)' }),
+        stroke: new ol.style.Stroke({ color: 'rgba(230, 0, 0, 0.55)', width: 1.5 })
+      })
+    });
+    const styleIsolatedSpfInd = new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 5,
+        fill: new ol.style.Fill({ color: '#CCFF00' }),
+        stroke: new ol.style.Stroke({ color: '#556B00', width: 1.5 })
+      })
+    });
+    const styleIsolatedSpfAff = new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 5,
+        fill: new ol.style.Fill({ color: '#00E5FF' }),
+        stroke: new ol.style.Stroke({ color: '#003b47', width: 1.5 })
+      })
+    });
+
+    const jamSource    = new ol.source.Vector();
+    const spfIndSource = new ol.source.Vector();
+    const spfAffSource = new ol.source.Vector();
+
+    // zIndex ordering: jam zone-sheen sits ABOVE the track (410) so the wide
+    // translucent red band tints the arrows as a hazard zone, but BELOW the
+    // spoofing dashed lines (420/440) so they stay readable over the zone.
+    const jamLayer = new ol.layer.Vector({
+      source: jamSource,
+      style: feat => feat.getGeometry().getType() === 'Point' ? styleIsolatedJam : styleJamHalo,
+      zIndex: 415
+    });
+    const spfIndLayer = new ol.layer.Vector({
+      source: spfIndSource,
+      style: feat => feat.getGeometry().getType() === 'Point' ? styleIsolatedSpfInd : styleSpfIndicated,
+      zIndex: 420
+    });
+    const spfAffLayer = new ol.layer.Vector({
+      source: spfAffSource,
+      style: feat => feat.getGeometry().getType() === 'Point' ? styleIsolatedSpfAff : styleSpfAffirmed,
+      zIndex: 440
+    });
+    map.addLayer(jamLayer);
+    map.addLayer(spfIndLayer);
+    map.addLayer(spfAffLayer);
+
+    const secLayers = [jamLayer, spfIndLayer, spfAffLayer];
+
+    const secToggleBtn = document.getElementById('secToggleBtn');
+    const secSeg = document.getElementById('secSeg');
+    secToggleBtn.onclick = () => {
+      const on = !jamLayer.getVisible();
+      secLayers.forEach(l => l.setVisible(on));
+      secToggleBtn.classList.toggle('active', on);
+    };
+
+    // Click popup — describe which state(s) cover this segment.
+    map.on('singleclick', evt => {
+      if (measureActive) return;
+      map.forEachFeatureAtPixel(evt.pixel, (f, layer) => {
+        if (!secLayers.includes(layer)) return;
+        titleEl.textContent = f.get('secTitle') || 'UBX-SEC-SIG';
+        descEl.innerHTML   = f.get('secDesc')  || '';
+        overlay.setPosition(evt.coordinate);
+        container.style.display = 'block';
+        return true;
+      }, { hitTolerance: 6 });
+    });
+
+    async function loadSecSig() {
+      try {
+        const res = await fetch('/api/graph/{{ rid }}');
+        if (!res.ok) return;
+        const g = await res.json();
+        if (!g || !Array.isArray(g.sec_labels) || g.sec_labels.length === 0) return;
+        if (!Array.isArray(g.lat) || !Array.isArray(g.lon) || !Array.isArray(g.labels)) return;
+
+        // iTOW -> (lat,lon) from PVT epochs.
+        const itowToPos = new Map();
+        const n = Math.min(g.labels.length, g.lat.length, g.lon.length);
+        for (let i = 0; i < n; i++) {
+          itowToPos.set(g.labels[i], { lat: g.lat[i], lon: g.lon[i] });
+        }
+
+        // Build per-condition coordinate sequences, broken into runs whenever
+        // the condition stops being true OR the iTOW gap exceeds GAP_MS (so we
+        // don't draw a straight line across missing data).
+        const GAP_MS = 3000;
+        const runs = { jam: [], spfInd: [], spfAff: [] };
+        const openRun = { jam: null, spfInd: null, spfAff: null };
+
+        function closeRun(kind) {
+          if (openRun[kind]) {
+            runs[kind].push(openRun[kind]);
+            openRun[kind] = null;
+          }
+        }
+        function addToRun(kind, it, coord) {
+          const r = openRun[kind];
+          if (r && (it - r.lastItow) <= GAP_MS) {
+            r.coords.push(coord);
+            r.itows.push(it);
+            r.lastItow = it;
+          } else {
+            closeRun(kind);
+            openRun[kind] = { coords: [coord], itows: [it], lastItow: it };
+          }
+        }
+
+        for (let i = 0; i < g.sec_labels.length; i++) {
+          const it = g.sec_labels[i];
+          const pos = itowToPos.get(it);
+          if (!pos) continue;
+          const coord = ol.proj.fromLonLat([pos.lon, pos.lat]);
+          const jam = g.jam_state[i];
+          const spf = g.spf_state[i];
+
+          if (jam === JAM_WARNING) addToRun('jam', it, coord); else closeRun('jam');
+          if (spf === SPF_INDICATED) addToRun('spfInd', it, coord); else closeRun('spfInd');
+          if (spf === SPF_AFFIRMED) addToRun('spfAff', it, coord); else closeRun('spfAff');
+        }
+        closeRun('jam'); closeRun('spfInd'); closeRun('spfAff');
+
+        function emit(source, kind, title) {
+          let count = 0;
+          for (const r of runs[kind]) {
+            const geom = r.coords.length === 1
+              ? new ol.geom.Point(r.coords[0])
+              : new ol.geom.LineString(r.coords);
+            const feat = new ol.Feature({ geometry: geom });
+            const fromItow = r.itows[0];
+            const toItow   = r.itows[r.itows.length - 1];
+            feat.set('secTitle', title);
+            feat.set('secDesc',
+              `<div><b>iTOW range</b>: ${fromItow} → ${toItow}</div>` +
+              `<div><b>Epochs</b>: ${r.itows.length}</div>`
+            );
+            source.addFeature(feat);
+            count++;
+          }
+          return count;
+        }
+
+        const nJam    = emit(jamSource,    'jam',    'Jamming Warning');
+        const nSpfInd = emit(spfIndSource, 'spfInd', 'Spoofing Indicated');
+        const nSpfAff = emit(spfAffSource, 'spfAff', 'Spoofing Affirmed');
+
+        if (nJam + nSpfInd + nSpfAff > 0) secSeg.style.display = '';
+        console.log('[map] SEC-SIG runs — jam:', nJam, 'spfInd:', nSpfInd, 'spfAff:', nSpfAff);
+      } catch (e) {
+        console.warn('SEC-SIG overlay failed:', e);
+      }
+    }
+    loadSecSig();
   </script>
 </body>
 </html>

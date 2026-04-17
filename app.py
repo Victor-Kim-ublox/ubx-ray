@@ -96,8 +96,25 @@ CLN_RETAIN_DAYS = 7                  # 업로드 후 7일 TTL
 CLN_INTERVAL_SEC = 60 * 60           # 60분마다 한 번씩
 MAX_UPLOAD_BYTES = int(os.getenv("UBXRAY_MAX_UPLOAD_MB", "300")) * 1024**2  # 300MB default
 ALLOWED_UPLOAD_EXTS = {".ubx", ".bin"}
-UBX_MAGIC = b'\xb5\x62'  # u-blox UBX sync chars — first 2 bytes of every valid UBX file
+UBX_MAGIC = b'\xb5\x62'  # u-blox UBX sync chars
+UBX_SNIFF_WINDOW = 65536  # bytes scanned from file head to validate UBX content
 ALLOWED_HZ = {1, 2, 5, 10}    # valid downsample rates exposed in the UI
+
+
+def looks_like_ubx(path: str, window: int = UBX_SNIFF_WINDOW) -> bool:
+    """True if the UBX sync pattern (0xB5 0x62) appears within the first `window` bytes.
+
+    u-blox loggers often prepend NMEA sentences, text headers, or vendor metadata
+    before the first UBX frame, so requiring the sync bytes at offset 0 rejects
+    many otherwise-valid logs. A bounded head scan keeps validation cheap while
+    still rejecting files with no UBX content at all.
+    """
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(window)
+    except OSError:
+        return False
+    return UBX_MAGIC in head
 
 # ===== Upload rate limiting (sliding window, in-memory) =====
 RATE_LIMIT_UPLOADS = 10        # max uploads per user per window
@@ -486,10 +503,8 @@ async def upload(
                     os.remove(save_path)
                 return PlainTextResponse("File too large", status_code=413)
             f.write(chunk)
-    # Validate UBX file magic bytes (0xB5 0x62) before processing
-    with open(save_path, 'rb') as fh:
-        magic = fh.read(2)
-    if magic != UBX_MAGIC:
+    # Validate UBX content (scan the first 64 KB for sync bytes) before processing
+    if not looks_like_ubx(save_path):
         with contextlib.suppress(FileNotFoundError):
             os.remove(save_path)
         return PlainTextResponse("Invalid file format: not a UBX binary", status_code=400)
@@ -764,10 +779,8 @@ async def compare4_upload(
                     return PlainTextResponse(f"File {idx_f+1} too large", status_code=413)
                 f.write(chunk)
 
-        # Validate UBX file magic bytes (0xB5 0x62)
-        with open(save_path, 'rb') as fh:
-            magic = fh.read(2)
-        if magic != UBX_MAGIC:
+        # Validate UBX content (scan the first 64 KB for sync bytes)
+        if not looks_like_ubx(save_path):
             with contextlib.suppress(FileNotFoundError):
                 os.remove(save_path)
             return PlainTextResponse(

@@ -54,12 +54,13 @@ const opts = JSON.parse(r.opts_json);
 - `⬇ Download KMZ` → `/download?path={kmz_path}`
 
 ### Graph Section (when graph_data is available)
-Three Chart.js charts:
-1. **hAcc time series** (horizontal position accuracy, m)
-2. **Speed time series** (km/h)
-3. **Fix Type time series** (0–5)
+Chart.js charts (all share an X axis via `syncCharts`):
+1. **Position Accuracy** — 2D vs 3D (m)
+2. **Fix Type** — 0–5 step line
+3. **CN0 Density** — top-5 average line + per-SV scatter
+4. **Jamming & Spoofing Status** — rendered only when `graph_data.sec_labels` is non-empty. Two stepped lines: `jam_state` (0=Unknown, 1=OK, 2=Warning) and `spf_state` (0=Unknown, 1=OK, 2=Indicated, 3=Affirmed).
 
-Chart interaction: zoom/pan (chartjs-plugin-zoom + hammerjs), "Reset Zoom" button.
+Chart interaction: zoom/pan (chartjs-plugin-zoom + hammerjs), "Hide Chart" per section, and "Reset All" to unzoom every chart at once.
 
 ---
 

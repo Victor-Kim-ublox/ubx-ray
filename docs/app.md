@@ -107,6 +107,9 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 
 ## Key Functions
 
+### `looks_like_ubx(path, window=65536)`
+Upload-time validator. Returns `True` when the UBX sync pattern `0xB5 0x62` appears anywhere in the first `window` bytes of the saved file (default 64 KB). The sync bytes are not required at offset 0, because many u-blox loggers prepend NMEA sentences or vendor headers before the first UBX frame. Called from both `/upload` and `/compare4/upload`; on `False` the file is deleted and a 400 "Invalid file format" response is returned.
+
 ### `quick_ubx_summary(filepath)`
 High-speed scan of the UBX binary via mmap, counting **NAV-PVT frame occurrences**. No CRC verification — only checks the header (sync bytes + class/id + length), making it very fast. Used for the epoch count displayed immediately after upload.
 

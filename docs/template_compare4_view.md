@@ -23,9 +23,9 @@ A map viewer that displays GPS tracks from up to 4 UBX files in a **2×2 split-s
 
 ### Header (sticky, 54px)
 - ubX-ray brand
+- **View controls** segment (grouped like the single map view): `Map` / `Satellite` base toggle + `Fit All` (fits every panel to its track extent).
 - Per-file color badges (File 1–4)
-- View toggle buttons (`Split Map View` active | `Overlay Map View` → `/compare4/overlay/{rids}`)
-- Back button (`← Report` → `/compare4/report/{rids}`)
+- Right-side links: `📊 Report`, `⊙ Overlay Map View` → `/compare4/overlay/{rids}`, `← New`.
 
 ### Map Grid (`#grid`)
 `grid-template-columns: 1fr 1fr` — 2 columns × 2 rows = up to 4 panels.

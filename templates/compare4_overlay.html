@@ -174,10 +174,11 @@
 
     <div class="toolbar">
 
-      <!-- Base map toggle -->
+      <!-- View controls: base map + fit (grouped like single map view) -->
       <div class="seg">
-        <button id="btnBaseMap" class="btn active">Map</button>
-        <button id="btnBaseSat" class="btn">Satellite</button>
+        <button id="btnBaseMap" class="btn active" title="OSM Streets">Map</button>
+        <button id="btnBaseSat" class="btn" title="Satellite">Satellite</button>
+        <button id="btnFit" class="btn" title="Fit all tracks to view">Fit All</button>
       </div>
 
       <!-- Track toggles -->
@@ -196,9 +197,6 @@
         </button>
       </div>
 
-      <!-- Fit button -->
-      <button id="btnFit" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;">⊡ Fit All</button>
-
       <!-- Playback -->
       <div class="seg">
         <button id="playBtn" class="btn"><span class="ico">▶</span><span>Play</span></button>
@@ -211,14 +209,13 @@
         </select>
         <input id="timeRange" type="range" min="0" max="0" value="0" step="1">
         <div id="timeLabel" class="timebox">--</div>
-        <button id="followBtn" class="btn">Follow</button>
-        <div id="hzBadge" class="badge">Hz: --</div>
+        <button id="followBtn" class="btn" title="Keep marker centered">Follow</button>
       </div>
 
-      <!-- Measure -->
+      <!-- Distance measurement tools -->
       <div class="seg">
-        <button id="measureBtn" class="btn">Measure</button>
-        <button id="clearBtn" class="btn">Clear</button>
+        <button id="measureBtn" class="btn" title="Measure distance between two points">Distance measure</button>
+        <button id="clearBtn" class="btn" title="Clear current measurement">Clear</button>
       </div>
 
     </div>
@@ -516,7 +513,6 @@
     var timeRange = document.getElementById('timeRange');
     var timeLabel = document.getElementById('timeLabel');
     var followBtn = document.getElementById('followBtn');
-    var hzBadge   = document.getElementById('hzBadge');
 
     var playing = false, raf = null, floatIdx = 0, lastTs = 0, dataHz = 1;
     var playIdx = 0, followEnabled = false;
@@ -767,8 +763,6 @@
             if (hz0) { dataHz = hz0; break; }
           }
         }
-        hzBadge.textContent = 'Hz: ' + dataHz.toFixed(1);
-
         // Fit map
         fitAll();
 

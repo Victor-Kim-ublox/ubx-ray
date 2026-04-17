@@ -28,9 +28,20 @@ python ubx2kmz.py <ubx_file> [options]
 |---|---|---|---|
 | NAV-PVT | 0x01 | 0x07 | Position, velocity, and time (default) |
 | NAV2-PVT | 0x29 | 0x07 | NAV2 protocol, same payload format |
+| NAV-SAT | 0x01 | 0x35 | Per-SV CN0 used for the CN0 chart |
 | AID-MAPM | 0x0B | 0x05 | Map-matching points (white arrows, `--mapm`) |
+| SEC-SIG | 0x27 | 0x09 | Jamming / spoofing status (version 0x02) |
 
 NAV-PVT payload valid lengths: 92 or 96 bytes (`VALID_LEN_SET`)
+
+### NAV-SAT sanity filters
+
+With checksum verification disabled (the default), a false sync-byte match can occasionally be interpreted as a NAV-SAT frame. `parse_nav_sat` applies two guards to drop these:
+
+- `numSvs > 128` → frame rejected. Real receivers track ≤ ~60 SVs; higher counts indicate a garbage header.
+- per-SV `cno` outside `(0, 63]` dBHz → that block's CN0 is discarded. Valid u-blox CN0 values are at most 63 dBHz; larger bytes are from mis-aligned payloads.
+
+Without these, the CN0 "Top 5 Avg" chart occasionally spiked far above physical limits (e.g. > 200 dBHz) on long logs.
 
 ---
 
@@ -121,15 +132,49 @@ After conversion, a `_graph.json` file is saved alongside the KMZ. Used for char
 
 ```json
 {
-  "stats": {
-    "epoch_total": 1234,
-    "epoch_missing": 5
-  },
-  "fix_series": [...],     // fixType time series
-  "acc_series": [...],     // hAcc time series
-  "speed_series": [...]    // speed time series
+  "stats": { "epoch_total": 1234, "epoch_missing": 5 },
+  "labels":    [iTOW, ...],
+  "acc2d":     [float, ...],
+  "acc3d":     [float, ...],
+  "fix_type":  [int, ...],
+  "speed":     [float, ...],
+  "altitude":  [float, ...],
+  "num_sv":    [int, ...],
+  "lat":       [float, ...],
+  "lon":       [float, ...],
+  "cno_labels":  [iTOW, ...],
+  "cno_top_avg": [float, ...],
+  "cno_scatter": [{"x": iTOW, "y": dBHz}, ...],
+
+  "sec_labels":       [iTOW, ...],
+  "jam_state":        [int, ...],
+  "spf_state":        [int, ...],
+  "jam_det_enabled":  [0|1, ...],
+  "spf_det_enabled":  [0|1, ...],
+  "sec_freqs":        [[{"freq_mhz": float, "jammed": bool}, ...], ...]
 }
 ```
+
+### UBX-SEC-SIG (jamming / spoofing)
+
+Parsed by `parse_sec_sig()` from class `0x27` id `0x09`, message version `0x02`.
+
+Payload layout:
+
+| Offset | Field | Type | Notes |
+|---|---|---|---|
+| 0 | `version` | U1 | Must be `0x02` |
+| 1 | `sigSecFlags` | X1 | bit 0 `jamDetEnabled`, bits 2..1 `jamState`, bit 3 `spfDetEnabled`, bits 5..4 `spfState` |
+| 2 | reserved | U1 | |
+| 3 | `jamNumCentFreqs` | U1 | `N` |
+| 4 + 4·n | `jamStateCentFreq` | X4 | bits 23..0 `centFreq` (kHz), bit 24 `jammed` |
+
+State enumerations:
+
+- `jamState`: `0`=Unknown, `1`=OK (no jamming), `2`=Warning (jamming indicated)
+- `spfState`: `0`=Unknown, `1`=OK, `2`=Indicated, `3`=Affirmed
+
+SEC-SIG frames carry no iTOW. Each frame is associated with the most recent valid NAV-PVT iTOW, and only samples whose iTOW is retained in the graph (after Hz filtering) appear in the output arrays.
 
 ---
 

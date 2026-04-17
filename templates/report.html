@@ -218,9 +218,28 @@
         </div>
       </div>
       <p style="font-size:12px; color:#666; margin-top:0;">* Green Line: Top 5 Avg | Blue Dots: Individual Satellites</p>
-      
+
       <div class="chart-box" id="cnoChartBox" style="height: 350px;">
         <canvas id="cnoChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data and graph_data.sec_labels and graph_data.sec_labels|length > 0 %}
+    <div class="chart-section">
+      <div class="chart-header">
+        <h3 style="margin:0;">Jamming &amp; Spoofing Status (UBX-SEC-SIG)</h3>
+        <div class="chart-controls">
+            <button class="reset-btn" onclick="toggleChart('secChartBox', this)">Hide Chart</button>
+            <button class="reset-btn" onclick="resetAllZooms()">Reset All</button>
+        </div>
+      </div>
+      <p style="font-size:12px; color:#666; margin-top:0;">
+        * Jamming: Unknown / OK / Warning &nbsp;&nbsp;|&nbsp;&nbsp;
+        Spoofing: Unknown / OK / Indicated / Affirmed
+      </p>
+      <div class="chart-box" id="secChartBox" style="height: 260px;">
+        <canvas id="secChart"></canvas>
       </div>
     </div>
     {% endif %}
@@ -235,6 +254,7 @@
     let accChartInstance = null;
     let fixChartInstance = null;
     let cnoChartInstance = null;
+    let secChartInstance = null;
 
     const FIXED_Y_WIDTH = 85; 
 
@@ -274,7 +294,7 @@
         const min = Math.round(x.min / 100) * 100;
         const max = Math.round(x.max / 100) * 100;
         
-        const charts = [accChartInstance, fixChartInstance, cnoChartInstance];
+        const charts = [accChartInstance, fixChartInstance, cnoChartInstance, secChartInstance];
         charts.forEach(chart => {
             // [수정] sourceChart를 포함한 '모든' 차트에 스냅된 min/max를 강제 적용
             // 기존 조건 (chart !== sourceChart)를 제거함
@@ -288,7 +308,7 @@
 
     // 줌 리셋 함수
     function resetAllZooms() {
-        const charts = [accChartInstance, fixChartInstance, cnoChartInstance];
+        const charts = [accChartInstance, fixChartInstance, cnoChartInstance, secChartInstance];
         charts.forEach(c => {
             if(c) {
                 c.resetZoom(); 
@@ -500,6 +520,90 @@
                 beginAtZero: true,
                 suggestedMax: 60,
                 title: { display: true, text: 'CN0 (dBHz)' },
+                afterFit: (ctx) => { ctx.width = FIXED_Y_WIDTH; }
+              }
+            }
+          }
+        });
+    }
+
+    // 4. SEC-SIG (Jamming / Spoofing) Chart
+    const secCanvas = document.getElementById('secChart');
+    if (secCanvas && gData.sec_labels && gData.sec_labels.length > 0) {
+        const ctxSec = secCanvas.getContext('2d');
+        const jamLabelMap = {0:'Unknown', 1:'OK', 2:'Warning'};
+        const spfLabelMap = {0:'Unknown', 1:'OK', 2:'Indicated', 3:'Affirmed'};
+        const secPoints = gData.sec_labels.map((it, idx) => ({
+            jam: gData.jam_state[idx],
+            spf: gData.spf_state[idx],
+            x: it
+        }));
+        const jamData = secPoints.map(p => ({x: p.x, y: p.jam}));
+        const spfData = secPoints.map(p => ({x: p.x, y: p.spf}));
+
+        secChartInstance = new Chart(ctxSec, {
+          type: 'line',
+          data: {
+            datasets: [
+              {
+                label: 'Jamming State',
+                data: jamData,
+                borderColor: '#E3140D',
+                backgroundColor: 'rgba(227, 20, 13, 0.1)',
+                borderWidth: 2,
+                stepped: true,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0
+              },
+              {
+                label: 'Spoofing State',
+                data: spfData,
+                borderColor: '#a68a00',
+                backgroundColor: 'rgba(166, 138, 0, 0.1)',
+                borderWidth: 2,
+                stepped: true,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { position: 'top' },
+              tooltip: {
+                ...commonTooltip,
+                callbacks: {
+                  ...commonTooltip.callbacks,
+                  label: function(context) {
+                    const ds = context.dataset.label || '';
+                    const v = context.parsed.y;
+                    if (ds.startsWith('Jamming')) return `Jamming: ${jamLabelMap[v] ?? v}`;
+                    if (ds.startsWith('Spoofing')) return `Spoofing: ${spfLabelMap[v] ?? v}`;
+                    return `${ds}: ${v}`;
+                  }
+                }
+              },
+              zoom: zoomOptions
+            },
+            scales: {
+              x: commonScalesX,
+              y: {
+                min: 0,
+                max: 3,
+                ticks: {
+                  stepSize: 1,
+                  callback: function(val) {
+                    // Show the widest label set so both datasets read clearly.
+                    return spfLabelMap[val] !== undefined ? spfLabelMap[val] : '';
+                  }
+                },
+                title: { display: true, text: 'State' },
                 afterFit: (ctx) => { ctx.width = FIXED_Y_WIDTH; }
               }
             }

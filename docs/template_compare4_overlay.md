@@ -23,10 +23,12 @@ A map viewer that renders GPS tracks from up to 4 UBX files **overlaid on a sing
 
 ### Header (sticky, 60px)
 - "4-Track Overlay" title
-- Toolbar (flex, wrappable):
-  - View toggle segment: `Split Map View` → `/compare4/view/{rids}` | `Overlay Map View` (active)
-  - Track visibility toggle buttons (per file: color badge + filename)
-  - Back button: `← Report` → `/compare4/report/{rids}`
+- Toolbar (flex, wrappable), grouped left-to-right like the single map view:
+  1. **View controls** — `Map` / `Satellite` base toggle plus **Fit All** (combined in one segment; same grouping as the single map view).
+  2. **Track toggles** — one colored badge button per file; click to hide/show that track's layer.
+  3. **Playback** — `▶ Play` / `⏸ Pause`, speed selector (1× / 2× / 5× / 10×), timeline slider, UTC readout, `Follow`.
+  4. **Distance measurement** — `Distance measure` (click two points for a Haversine read-out), `Clear` (remove the current line).
+  5. **Right-side links** — `📊 Report` → `/compare4/report/{rids}`, `⊞ Split Map View` → `/compare4/view/{rids}`, `← New`.
 
 ### Map (`#map`)
 Full-screen OpenLayers single map instance (viewport height minus header).
