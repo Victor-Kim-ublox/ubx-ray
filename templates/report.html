@@ -1,22 +1,23 @@
 <!doctype html>
 <html>
 <head>
-<link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
   <meta charset="utf-8">
-  <title>Analysis Result</title>
-  
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+  <title>Analysis Report — ubX-ray</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap');
     :root {
       --bg: #F7F7F7;
-      --card-bg: #ffffff;
+      --card: #ffffff;
       --border: #E6E6E6;
+      --ink: #1A1A1A;
+      --muted: #676767;
+      --font: 'Space Grotesk', system-ui, sans-serif;
       --primary: #FF6E59;
       --primary-hover: #E04A35;
       --success-bg: #e8f7ee;
@@ -26,103 +27,108 @@
       --warn-bg: #fff8e1;
       --warn-text: #a68a00;
     }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
-      background: var(--bg);
-      font-family: 'Space Grotesk', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      margin: 40px auto;
-      max-width: 1200px;
-      color: #111827;
+      background: var(--bg); color: var(--ink);
+      font-family: var(--font); margin: 0; padding: 0;
+      -webkit-font-smoothing: antialiased;
     }
-    h1 {
-      text-align: center;
-      color: #111;
-      font-size: 28px;
-      margin-bottom: 24px;
+
+    /* Header */
+    header {
+      position: sticky; top: 0; z-index: 20;
+      background: #fff; border-bottom: 1px solid var(--border);
+      padding: 10px 20px;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
     }
+    .brand { font-weight: 800; font-size: 15px; color: #0f172a; }
+    .sep   { width: 1px; height: 20px; background: var(--border); }
+    .hbtn {
+      border: 1px solid var(--border); background: #f3f4f6;
+      color: #374151; font-weight: 600; font-size: 12px;
+      padding: 5px 10px; border-radius: 7px; cursor: pointer;
+      text-decoration: none; font-family: var(--font);
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .hbtn:hover { background: #e5e7eb; }
+    .hbtn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .hbtn.primary:hover { background: var(--primary-hover); }
+
+    /* Layout */
+    .page { max-width: 1280px; margin: 0 auto; padding: 28px 20px 60px; }
+
+    .section-title {
+      font-size: 17px; font-weight: 700; color: var(--ink);
+      margin: 32px 0 14px; display: flex; align-items: center; gap: 8px;
+    }
+    .section-title::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
     .card {
-      background: var(--card-bg);
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-      padding: 24px 28px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px 24px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.05);
       margin-bottom: 20px;
     }
-    ul {
-      list-style: none;
-      padding-left: 0;
-      margin: 10px 0 20px;
-    }
-    li { padding: 4px 0; }
 
+    /* Status badge */
     .status {
-      padding: 6px 10px;
+      padding: 4px 10px;
       border-radius: 6px;
       display: inline-block;
-      font-size: 14px;
-      font-weight: 500;
-      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 600;
     }
-    .done { background: var(--success-bg); color: var(--success-text); }
-    .error { background: var(--error-bg); color: var(--error-text); }
+    .done    { background: var(--success-bg); color: var(--success-text); }
+    .error   { background: var(--error-bg);   color: var(--error-text); }
     .queued, .running { background: var(--warn-bg); color: var(--warn-text); }
 
-    a.btn {
-      display: inline-block;
-      background: var(--primary);
-      color: #fff;
-      text-decoration: none;
-      padding: 8px 14px;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 500;
-      transition: background 0.2s ease;
-      margin-right: 8px;
+    /* Metadata table */
+    .meta-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 14px;
     }
-    a.btn:hover { background: var(--primary-hover); }
+    .meta-table th {
+      text-align: left;
+      padding: 8px 12px;
+      background: #f8fafc;
+      border-bottom: 2px solid var(--border);
+      font-weight: 700; color: var(--muted);
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: .04em;
+      width: 180px;
+    }
+    .meta-table td {
+      padding: 9px 12px;
+      border-bottom: 1px solid #f0f2f5;
+    }
+    .meta-table tr:last-child th,
+    .meta-table tr:last-child td { border-bottom: none; }
 
-    footer {
-      text-align: center;
-      margin-top: 28px;
+    .action-row {
+      margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;
     }
-    footer a {
-      color: var(--primary);
-      text-decoration: none;
-      font-weight: 500;
-    }
-    footer a:hover { text-decoration: underline; }
-    
-    .chart-section {
-        margin-top: 24px; 
-        border-top: 1px solid #eee; 
-        padding-top: 16px;
-    }
-    .chart-header {
-        display:flex; 
-        justify-content:space-between; 
-        align-items:center; 
-        margin-bottom:10px;
-    }
+
+    /* Charts */
+    .chart-wrap { position: relative; width: 100%; }
+    .chart-wrap canvas { width: 100% !important; }
+
     .chart-controls {
-        display: flex;
-        gap: 6px;
+      display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;
     }
-    .chart-box {
-        position: relative; 
-        height: 300px; 
-        width: 100%;
+    .chart-controls .ctl-btn {
+      border: 1px solid var(--border); background: #f9fafb;
+      color: #374151; font-size: 12px; font-weight: 600;
+      padding: 4px 9px; border-radius: 6px; cursor: pointer;
+      font-family: var(--font);
     }
-    .reset-btn {
-        cursor: pointer;
-        padding: 4px 10px;
-        font-size: 12px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        background-color: #fff;
-        color: #555;
-    }
-    .reset-btn:hover {
-        background-color: #f3f3f3;
-        border-color: #ccc;
-    }
+    .chart-controls .ctl-btn:hover { background: #e5e7eb; }
+    .chart-note { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
   </style>
 
   {% if r.status != 'done' %}
@@ -130,124 +136,128 @@
     setTimeout(() => location.reload(), 3000);
   </script>
   {% endif %}
-  
+
   <script>
-      // 차트 숨기기/보이기 토글 함수
-      function toggleChart(boxId, btn) {
-          const box = document.getElementById(boxId);
-          if (box.style.display === 'none') {
-              box.style.display = 'block';
-              btn.innerText = 'Hide Chart';
-          } else {
-              box.style.display = 'none';
-              btn.innerText = 'Show Chart';
-          }
+    // Show/hide chart box
+    function toggleChart(boxId, btn) {
+      const box = document.getElementById(boxId);
+      if (box.style.display === 'none') {
+        box.style.display = 'block';
+        btn.innerText = '👁 Hide Chart';
+      } else {
+        box.style.display = 'none';
+        btn.innerText = '👁 Show Chart';
       }
+    }
   </script>
 </head>
 <body>
-  <h1>Analysis Result</h1>
 
-  <div class="card">
-    <p>
+  <!-- Header -->
+  <header>
+    <div class="brand">ubX-ray</div>
+    <div class="sep"></div>
+    <span style="font-size:14px;font-weight:700;color:#374151;">📊 Analysis Report</span>
+    <div style="margin-left:auto;display:flex;gap:8px;">
+      {% if r.kmz_path %}
+        <a class="hbtn" href="/download?path={{ r.kmz_path|urlencode }}">⬇ KMZ</a>
+        <a class="hbtn" href="/map/{{ r.id }}" target="_blank" rel="noopener">🗺 Map</a>
+      {% endif %}
+      <a href="/recent" class="hbtn">🕘 Recent</a>
+    </div>
+  </header>
+
+  <div class="page">
+
+    <!-- ① Metadata -->
+    <div class="section-title">① Metadata</div>
+    <div class="card">
       <span class="status {{ r.status|e }}">
-        Status: {{ r.status|capitalize }}
-        {% if r.status == 'error' and r.error %} — {{ r.error }}{% endif %}
+        {{ r.status|capitalize }}{% if r.status == 'error' and r.error %} — {{ r.error }}{% endif %}
       </span>
-    </p>
 
-    <ul>
-      <li><b>Filename:</b> {{ r.filename }}</li>
-      <li><b>Upload Time (UTC):</b> {{ r.uploaded_at }}</li>
-      <li><b>Total Epochs:</b> {{ r.epoch_total }}</li>
-      <li><b>Missing Epochs:</b> {{ r.epoch_missing }}</li>
-      </ul>
+      <table class="meta-table">
+        <tr><th>Filename</th><td>{{ r.filename }}</td></tr>
+        <tr><th>Upload Time (UTC)</th><td>{{ r.uploaded_at }}</td></tr>
+        <tr><th>Total Epochs</th><td>{{ r.epoch_total if r.epoch_total is not none else '—' }}</td></tr>
+        <tr><th>Missing Epochs</th><td>{{ r.epoch_missing if r.epoch_missing is not none else '—' }}</td></tr>
+      </table>
 
-    <h3>KMZ / Map</h3>
-    <ul>
-      <li>
+      <div class="action-row">
         {% if r.kmz_path %}
-          <a class="btn" href="/download?path={{ r.kmz_path|urlencode }}">Download KMZ</a>
-          <a class="btn" href="/map/{{ r.id }}" target="_blank">View on Map</a>
+          <a class="hbtn primary" href="/download?path={{ r.kmz_path|urlencode }}">⬇ Download KMZ</a>
+          <a class="hbtn" href="/map/{{ r.id }}" target="_blank" rel="noopener">🗺 View on Map</a>
         {% elif r.status in ['queued','running'] %}
           <span class="status running">Processing… (auto-refreshing)</span>
         {% else %}
           <span class="status error">Not generated{% if r.error %}: {{ r.error }}{% endif %}</span>
         {% endif %}
-      </li>
-    </ul>
+      </div>
+    </div>
 
     {% if graph_data %}
-    <div class="chart-section">
-      <div class="chart-header">
-        <h3 style="margin:0;">Position Accuracy (2D vs 3D)</h3>
-        <div class="chart-controls">
-            <button class="reset-btn" onclick="toggleChart('accChartBox', this)">Hide Chart</button>
-            <button class="reset-btn" onclick="resetAllZooms()">Reset All</button>
-        </div>
+    <!-- ② 2D vs 3D Accuracy -->
+    <div class="section-title">② Position Accuracy (2D vs 3D)</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('accChartBox', this)">👁 Hide Chart</button>
       </div>
-      <p style="font-size:12px; color:#666; margin-top:0;">* Scroll to zoom, Drag to pan (Synced)</p>
-      <div class="chart-box" id="accChartBox">
+      <p class="chart-note">Scroll to zoom, drag to pan · all chart X-axes synchronized</p>
+      <div class="chart-wrap" id="accChartBox" style="height:280px">
         <canvas id="accChart"></canvas>
       </div>
     </div>
     {% endif %}
 
     {% if graph_data and graph_data.fix_type %}
-    <div class="chart-section">
-      <div class="chart-header">
-        <h3 style="margin:0;">Fix Type Status</h3>
-        <div class="chart-controls">
-            <button class="reset-btn" onclick="toggleChart('fixChartBox', this)">Hide Chart</button>
-            <button class="reset-btn" onclick="resetAllZooms()">Reset All</button>
-        </div>
+    <!-- ③ Fix Type -->
+    <div class="section-title">③ Fix Type Status</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('fixChartBox', this)">👁 Hide Chart</button>
       </div>
-      <div class="chart-box" id="fixChartBox" style="height: 200px;">
+      <div class="chart-wrap" id="fixChartBox" style="height:200px">
         <canvas id="fixChart"></canvas>
       </div>
     </div>
     {% endif %}
 
-    {% if graph_data and (graph_data.cno_scatter|length > 0 or graph_data.cno_top_avg|length > 0) %}
-    <div class="chart-section">
-      <div class="chart-header">
-        <h3 style="margin:0;">Satellite Signal Density (CN0)</h3>
-        <div class="chart-controls">
-            <button class="reset-btn" onclick="toggleChart('cnoChartBox', this)">Hide Chart</button>
-            <button class="reset-btn" onclick="resetAllZooms()">Reset All</button>
-        </div>
+    {% if graph_data and graph_data.cno_top_avg and graph_data.cno_top_avg|length > 0 %}
+    <!-- ④ CN0 -->
+    <div class="section-title">④ Satellite Signal Density (CN0)</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('cnoChartBox', this)">👁 Hide Chart</button>
       </div>
-      <p style="font-size:12px; color:#666; margin-top:0;">* Green Line: Top 5 Avg | Blue Dots: Individual Satellites</p>
-
-      <div class="chart-box" id="cnoChartBox" style="height: 350px;">
+      <p class="chart-note">Green line: Top-5 Avg CN0 across tracked satellites (qualityInd ≥ 4)</p>
+      <div class="chart-wrap" id="cnoChartBox" style="height:300px">
         <canvas id="cnoChart"></canvas>
       </div>
     </div>
     {% endif %}
 
     {% if graph_data and graph_data.sec_labels and graph_data.sec_labels|length > 0 %}
-    <div class="chart-section">
-      <div class="chart-header">
-        <h3 style="margin:0;">Jamming &amp; Spoofing Status (UBX-SEC-SIG)</h3>
-        <div class="chart-controls">
-            <button class="reset-btn" onclick="toggleChart('secChartBox', this)">Hide Chart</button>
-            <button class="reset-btn" onclick="resetAllZooms()">Reset All</button>
-        </div>
+    <!-- ⑤ Jamming & Spoofing -->
+    <div class="section-title">⑤ Jamming &amp; Spoofing Status (UBX-SEC-SIG)</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('secChartBox', this)">👁 Hide Chart</button>
       </div>
-      <p style="font-size:12px; color:#666; margin-top:0;">
-        * Jamming: Unknown / OK / Warning &nbsp;&nbsp;|&nbsp;&nbsp;
+      <p class="chart-note">
+        Jamming: Unknown / OK / Warning &nbsp;·&nbsp;
         Spoofing: Unknown / OK / Indicated / Affirmed
       </p>
-      <div class="chart-box" id="secChartBox" style="height: 260px;">
+      <div class="chart-wrap" id="secChartBox" style="height:240px">
         <canvas id="secChart"></canvas>
       </div>
     </div>
     {% endif %}
-  </div>
 
-  <footer>
-    <p><a href="/recent">← Back to Recent Results</a> | <a href="/">Upload Another File</a></p>
-  </footer>
+  </div><!-- /page -->
 
 {% if graph_data %}
   <script>
@@ -256,73 +266,64 @@
     let cnoChartInstance = null;
     let secChartInstance = null;
 
-    const FIXED_Y_WIDTH = 85; 
+    const FIXED_Y_WIDTH = 85;
 
-    // 데이터 로드
     const gData = {{ graph_data | tojson }};
-    
-    // 데이터의 시작과 끝 계산
+
     const xLabels = gData.labels;
     const minX = xLabels.length > 0 ? xLabels[0] : null;
     const maxX = xLabels.length > 0 ? xLabels[xLabels.length - 1] : null;
 
-    // [수정됨] iTOW -> UTC 시간 변환 함수 (요일 제거, 시간만 표시)
+    // iTOW -> UTC HH:MM:SS
     function formatITOW(itow) {
         if (itow == null) return '';
-        // GPS Time -> UTC (approx -18s)
-        let ms = itow - 18000; 
-        if (ms < 0) ms += 604800000; // 주 넘김 보정
+        let ms = itow - 18000;
+        if (ms < 0) ms += 604800000;
 
-        // 하루(86400초) 내에서의 초 계산
         const totalSec = Math.floor(ms / 1000);
         const rem = totalSec % 86400;
-        
+
         const hh = Math.floor(rem / 3600).toString().padStart(2, '0');
         const mm = Math.floor((rem % 3600) / 60).toString().padStart(2, '0');
         const ss = (rem % 60).toString().padStart(2, '0');
-        
+
         return `${hh}:${mm}:${ss}`;
     }
 
-    // 동기화 함수
+    // Sync zoom/pan across all charts (snap to 100ms grid)
     function syncCharts(sourceChart) {
         const x = sourceChart.scales.x;
         if (!x) return;
-        
-        // [수정] min/max 값을 100ms 단위로 반올림 (Snap to 100ms Grid)
-        // 예: 12345678 -> 12345700
+
         const min = Math.round(x.min / 100) * 100;
         const max = Math.round(x.max / 100) * 100;
-        
+
         const charts = [accChartInstance, fixChartInstance, cnoChartInstance, secChartInstance];
         charts.forEach(chart => {
-            // [수정] sourceChart를 포함한 '모든' 차트에 스냅된 min/max를 강제 적용
-            // 기존 조건 (chart !== sourceChart)를 제거함
             if (chart && chart.scales.x) {
                 chart.options.scales.x.min = min;
                 chart.options.scales.x.max = max;
-                chart.update('none'); // 애니메이션 없이 즉시 업데이트
+                chart.update('none');
             }
         });
     }
 
-    // 줌 리셋 함수
     function resetAllZooms() {
         const charts = [accChartInstance, fixChartInstance, cnoChartInstance, secChartInstance];
         charts.forEach(c => {
             if(c) {
-                c.resetZoom(); 
+                c.resetZoom();
                 c.options.scales.x.min = minX;
                 c.options.scales.x.max = maxX;
-                c.update(); 
+                c.update();
             }
         });
     }
 
     const zoomOptions = {
-        pan: { 
+        pan: {
             enabled: true, mode: 'x',
-            onPan: ({chart}) => syncCharts(chart) 
+            onPan: ({chart}) => syncCharts(chart)
         },
         zoom: {
           wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x',
@@ -331,26 +332,22 @@
         limits: { x: { min: minX, max: maxX, minRange: 1000 } }
     };
 
-    // 공통 X축 설정 (UTC 시간 라벨 추가)
     const commonScalesX = {
         type: 'linear',
         min: minX,
         max: maxX,
-        ticks: { 
+        ticks: {
             maxTicksLimit: 8,
             callback: function(value) {
-                const intValue = Math.round(value);
-                // iTOW값 아래에 (HH:MM:SS) 시간 표시
                 return [value, `(${formatITOW(value)})`];
             }
-        }, 
+        },
         grid: { display: false },
         title: { display: true, text: 'iTOW (ms) / UTC Time' }
     };
 
-    // 공통 툴팁 설정
     const commonTooltip = {
-        mode: 'index', 
+        mode: 'index',
         intersect: false,
         callbacks: {
             title: function(context) {
@@ -401,8 +398,8 @@
         },
         scales: {
           x: commonScalesX,
-          y: { 
-            beginAtZero: true, 
+          y: {
+            beginAtZero: true,
             title: { display: true, text: 'Accuracy (meters)' },
             afterFit: (ctx) => { ctx.width = FIXED_Y_WIDTH; }
           }
@@ -423,7 +420,7 @@
             borderColor: '#4A90E2',
             backgroundColor: 'rgba(74, 144, 226, 0.1)',
             borderWidth: 2,
-            stepped: true, 
+            stepped: true,
             pointRadius: 0,
             pointHoverRadius: 4,
             tension: 0
@@ -435,7 +432,7 @@
           animation: false,
           interaction: { mode: 'index', intersect: false },
           plugins: {
-            legend: { display: false }, 
+            legend: { display: false },
             tooltip: {
               ...commonTooltip,
               callbacks: {
@@ -469,11 +466,11 @@
 
     // 3. CN0 Chart
     const cnoCanvas = document.getElementById('cnoChart');
-    if (cnoCanvas && ( (gData.cno_scatter && gData.cno_scatter.length > 0) || (gData.cno_top_avg && gData.cno_top_avg.length > 0) )) {
+    if (cnoCanvas && gData.cno_top_avg && gData.cno_top_avg.length > 0) {
         const ctxCno = cnoCanvas.getContext('2d');
         cnoChartInstance = new Chart(ctxCno, {
           data: {
-            labels: gData.cno_labels || gData.labels, 
+            labels: gData.cno_labels || gData.labels,
             datasets: [
               {
                 type: 'line',
@@ -483,18 +480,7 @@
                 borderWidth: 2,
                 pointRadius: 0,
                 tension: 0,
-                order: 1,
                 spanGaps: true
-              },
-              {
-                type: 'scatter',
-                label: 'Satellite Signal',
-                data: gData.cno_scatter,
-                backgroundColor: 'rgba(33, 150, 243, 0.15)', 
-                pointRadius: 1.5,
-                pointHoverRadius: 2,
-                borderWidth: 0,
-                order: 2
               }
             ]
           },
@@ -506,11 +492,10 @@
             interaction: { mode: 'nearest', intersect: false, axis: 'x' },
             plugins: {
               legend: { position: 'top' },
-              // [수정] 툴팁 모드를 'index'에서 'nearest'로 변경하여 X축 시간이 다른 데이터가 매칭되는 문제 해결
               tooltip: {
-                mode: 'nearest', 
+                mode: 'nearest',
                 intersect: false,
-                callbacks: commonTooltip.callbacks // 시간 포맷(Title) 등 기존 설정은 유지
+                callbacks: commonTooltip.callbacks
               },
               zoom: zoomOptions
             },
@@ -527,7 +512,7 @@
         });
     }
 
-    // 4. SEC-SIG (Jamming / Spoofing) Chart
+    // 4. SEC-SIG Chart
     const secCanvas = document.getElementById('secChart');
     if (secCanvas && gData.sec_labels && gData.sec_labels.length > 0) {
         const ctxSec = secCanvas.getContext('2d');
@@ -599,7 +584,6 @@
                 ticks: {
                   stepSize: 1,
                   callback: function(val) {
-                    // Show the widest label set so both datasets read clearly.
                     return spfLabelMap[val] !== undefined ? spfLabelMap[val] : '';
                   }
                 },

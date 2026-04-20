@@ -24,8 +24,8 @@ A map viewer that displays GPS tracks from up to 4 UBX files in a **2×2 split-s
 ### Header (sticky, 54px)
 - ubX-ray brand
 - **View controls** segment (grouped like the single map view): `Map` / `Satellite` base toggle + `Fit All` (fits every panel to its track extent).
-- Per-file color badges (File 1–4)
-- Right-side links: `📊 Report`, `⊙ Overlay Map View` → `/compare4/overlay/{rids}`, `← New`.
+- **Jam/Spoof segment** (`#secSeg`, hidden until at least one panel produces a SEC-SIG run). Contains a single toggle button that hides/shows jam + spoofing overlays across **all four panels at once**, plus the same SVG legend used by the single map view (Jam / Spf ind. / Spf aff.).
+- Right-side links: `📊 Report`, `⊙ Overlay Map View` → `/compare4/overlay/{rids}`.
 
 ### Map Grid (`#grid`)
 `grid-template-columns: 1fr 1fr` — 2 columns × 2 rows = up to 4 panels.
@@ -59,6 +59,22 @@ maps.forEach((m, i) => {
 });
 ```
 A `syncing` flag prevents recursive re-triggering.
+
+---
+
+## SEC-SIG (Jamming / Spoofing) Overlays
+
+Each panel owns its own trio of vector layers (`jamLayer`, `spfIndLayer`, `spfAffLayer`) with the same styling and z-index ordering as `templates/map.html`:
+
+| zIndex | Layer | Style |
+|---|---|---|
+| 415 | jamLayer (per panel) | Red zone sheen (rgba(230,0,0,0.28), 26 px) — on top of the track arrows |
+| 420 | spfIndLayer (per panel) | Dashed chartreuse `#CCFF00` (3.5 px, `[8, 5]`) |
+| 440 | spfAffLayer (per panel) | Dashed cyan `#00E5FF` (4 px, `[14, 5]`) |
+
+After a panel's KML finishes loading, `loadSecSigPanel(idx, rid)` fetches `/api/graph/{rid}`, maps each SEC-SIG sample back to a PVT `(lat, lon)` via `iTOW`, then builds contiguous runs for each condition. An iTOW gap larger than 3000 ms breaks the current run; isolated single-epoch runs fall back to a dot feature so they stay visible.
+
+Clicking a SEC-SIG feature opens that panel's existing popup with the run's iTOW range, epoch count, and a panel-labelled title (e.g. "Jamming Warning — Panel 2"). The header's Jam/Spoof toggle fires `setVisible()` on all 12 layers (3 × 4 panels) simultaneously.
 
 ---
 

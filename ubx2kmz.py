@@ -290,12 +290,24 @@ def parse_nav_sat(payload: memoryview):
     # mis-parsed block (e.g. from a false sync match with --ck disabled).
     CNO_MAX = 63
 
+    # Minimum qualityInd to count a block as a real tracked signal.
+    # Per u-blox NAV-SAT spec, flags bits 2..0 (qualityInd):
+    #   0 = no signal, 1 = searching, 2 = acquired, 3 = detected but unusable,
+    #   4 = code locked, 5 = code+carrier locked,
+    #   6..7 = code+carrier locked + nav data.
+    # Blocks with qualityInd < 4 are not real tracked signals — their `cno`
+    # field can carry stale/placeholder values (we've seen bogus rows with
+    # cno=60 but qualityInd=0, which were inflating the top-5 average).
+    QI_MIN = 4
+
     cnos = []
     offset = 8
     for _ in range(numSvs):
         # Block structure: gnssId(1), svId(1), cno(1), elev(1), azim(2), prRes(2), flags(4)
         cno = payload[offset + 2]  # dBHz
-        if 0 < cno <= CNO_MAX:
+        flags = int.from_bytes(payload[offset + 8:offset + 12], 'little', signed=False)
+        quality_ind = flags & 0x07
+        if quality_ind >= QI_MIN and 0 < cno <= CNO_MAX:
             cnos.append(cno)
         offset += 12
 
@@ -382,7 +394,6 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         "lon": [],          # deg, per kept epoch (for map overlays)
         "cno_labels": [],
         "cno_top_avg": [],
-        "cno_scatter": [],
         # UBX-SEC-SIG (jamming/spoofing). Populated only if SEC-SIG frames are found.
         "sec_labels": [],     # iTOW per sample, aligned with the last NAV-PVT iTOW
         "jam_state": [],      # 0=Unknown, 1=OK, 2=Warning
@@ -548,40 +559,26 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
 
             i = frame_end
 
-    # [최적화된 로직] Merge PVT Time and SAT CN0 (Scatter Downsampling 포함)
+    # Merge PVT time and NAV-SAT CN0. Only the Top-5 line is rendered on the
+    # report, so we no longer emit a per-satellite scatter dataset (saves a
+    # large amount of JSON and cuts Chart.js render cost).
     sorted_itows = sorted(list(kept_itows))
-    
-    estimated_points = len(sorted_itows) * 25
-    MAX_POINTS = 300000 
-    
-    scatter_stride = 1
-    if estimated_points > MAX_POINTS:
-        scatter_stride = math.ceil(estimated_points / MAX_POINTS)
-        print(f"{now_str()} | High density data detected. Downsampling CN0 scatter by factor of {scatter_stride}...")
 
-    all_scatter_points = []
-    
-    for idx, itow in enumerate(sorted_itows):
+    for itow in sorted_itows:
         if itow in itow_to_cno:
             cnos = itow_to_cno[itow]
-            
-            # [수정] 신호가 없으면(empty list) 0으로 처리하여 그래프 끊김 방지
+
+            # Empty cnos → 0.0 so the line stays continuous instead of gapping.
             avg_cno = 0.0
             if cnos:
                 sorted_cnos = sorted(cnos, reverse=True)
                 top_k = sorted_cnos[:5]
-                avg_cno = sum(top_k) / 5
+                # Divide by the actual top-k count so epochs with fewer than
+                # 5 tracked signals are not artificially pulled down.
+                avg_cno = sum(top_k) / len(top_k)
 
-            # 데이터가 0이어도 항상 추가
             graph_data["cno_labels"].append(itow)
             graph_data["cno_top_avg"].append(round(avg_cno, 1))
-            
-            # Scatter는 데이터가 있을 때만 추가
-            if cnos and (idx % scatter_stride == 0):
-                for c in cnos:
-                    all_scatter_points.append({"x": itow, "y": c})
-
-    graph_data["cno_scatter"] = all_scatter_points
 
     # Merge SEC-SIG samples, aligned to kept PVT epochs.
     if itow_to_secsig:

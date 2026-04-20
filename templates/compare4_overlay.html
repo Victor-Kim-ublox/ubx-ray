@@ -50,6 +50,7 @@
       background: #f3f4f6; padding: 4px; border-radius: 10px;
       box-shadow: inset 0 0 0 1px var(--border);
     }
+    .sep { width:1px; height:20px; background:var(--border); flex-shrink:0; }
 
     .btn {
       border: 0; background: transparent; color: #374151;
@@ -174,12 +175,7 @@
 
     <div class="toolbar">
 
-      <!-- View controls: base map + fit (grouped like single map view) -->
-      <div class="seg">
-        <button id="btnBaseMap" class="btn active" title="OSM Streets">Map</button>
-        <button id="btnBaseSat" class="btn" title="Satellite">Satellite</button>
-        <button id="btnFit" class="btn" title="Fit all tracks to view">Fit All</button>
-      </div>
+      <div class="sep"></div>
 
       <!-- Track toggles -->
       <div class="seg" id="trackToggles">
@@ -197,6 +193,20 @@
         </button>
       </div>
 
+      <!-- Force second row -->
+      <div style="flex-basis:100%;height:0;"></div>
+
+      <div class="sep"></div>
+
+      <!-- View controls: base map + fit (grouped like single map view) -->
+      <div class="seg">
+        <button id="btnBaseMap" class="btn active" title="OSM Streets">Map</button>
+        <button id="btnBaseSat" class="btn" title="Satellite">Satellite</button>
+        <button id="btnFit" class="btn" title="Fit all tracks to view">Fit All</button>
+      </div>
+
+      <div class="sep"></div>
+
       <!-- Playback -->
       <div class="seg">
         <button id="playBtn" class="btn"><span class="ico">▶</span><span>Play</span></button>
@@ -212,6 +222,8 @@
         <button id="followBtn" class="btn" title="Keep marker centered">Follow</button>
       </div>
 
+      <div class="sep"></div>
+
       <!-- Distance measurement tools -->
       <div class="seg">
         <button id="measureBtn" class="btn" title="Measure distance between two points">Distance measure</button>
@@ -220,11 +232,12 @@
 
     </div>
 
+    <div class="sep"></div>
+
     <!-- Right side: view switcher -->
     <div style="display:flex;gap:6px;flex-shrink:0;">
       <a id="reportLink"    href="#" class="btn" style="background:#0f172a;color:#fff;border:1px solid #0f172a;font-size:12px;">📊 Report</a>
       <a id="splitViewLink" href="#" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">⊞ Split Map View</a>
-      <a href="/compare4" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">← New</a>
     </div>
   </header>
 
@@ -284,7 +297,7 @@
         continue;
       }
       var fn = FILENAMES[li] || ('Track ' + (li+1));
-      var short = fn.length > 16 ? fn.slice(0, 14) + '…' : fn;
+      var short = fn.length > 32 ? fn.slice(0, 30) + '…' : fn;
       document.getElementById('tlbl' + li).textContent = short;
       // Loading progress rows (only for active tracks)
       var row = document.createElement('div');

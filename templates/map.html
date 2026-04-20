@@ -40,6 +40,7 @@
       display:inline-flex; align-items:center; gap:4px; background:#f3f4f6; padding:4px; border-radius:10px;
       box-shadow: inset 0 0 0 1px var(--border);
     }
+    .sep { width:1px; height:20px; background:var(--border); flex-shrink:0; }
 
     .btn{
       border:0; background:transparent; color:#374151; font-weight:600; font-size:14px;
@@ -123,12 +124,16 @@
     <h1 class="title">📍 Map View — {{ filename }}</h1>
 
     <div class="toolbar">
+      <div class="sep"></div>
+
       <!-- View controls: base map + fit -->
       <div class="seg">
         <button id="btnBaseMap" class="btn active" title="OSM Streets">Map</button>
         <button id="btnBaseSat" class="btn" title="Satellite">Satellite</button>
         <button id="fitBtn" class="btn" title="Fit map to the full track">Fit</button>
       </div>
+
+      <div class="sep"></div>
 
       <!-- Playback -->
       <div class="seg">
@@ -147,11 +152,15 @@
         <button id="followBtn" class="btn" title="Keep marker centered">Follow</button>
       </div>
 
+      <div class="sep"></div>
+
       <!-- Distance measurement tools -->
       <div class="seg">
         <button id="measureBtn" class="btn" title="Measure distance between two points">Distance measure</button>
         <button id="clearBtn" class="btn" title="Clear current measurement">Clear</button>
       </div>
+
+      <div class="sep" id="secSegSep" style="display:none;"></div>
 
       <!-- Security overlay toggle (shown only when SEC-SIG data exists) -->
       <div class="seg" id="secSeg" style="display:none; align-items:center;">
@@ -721,7 +730,11 @@
         const nSpfInd = emit(spfIndSource, 'spfInd', 'Spoofing Indicated');
         const nSpfAff = emit(spfAffSource, 'spfAff', 'Spoofing Affirmed');
 
-        if (nJam + nSpfInd + nSpfAff > 0) secSeg.style.display = '';
+        if (nJam + nSpfInd + nSpfAff > 0) {
+          secSeg.style.display = '';
+          var secSepEl = document.getElementById('secSegSep');
+          if (secSepEl) secSepEl.style.display = '';
+        }
         console.log('[map] SEC-SIG runs — jam:', nJam, 'spfInd:', nSpfInd, 'spfAff:', nSpfAff);
       } catch (e) {
         console.warn('SEC-SIG overlay failed:', e);

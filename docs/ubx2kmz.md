@@ -40,8 +40,9 @@ With checksum verification disabled (the default), a false sync-byte match can o
 
 - `numSvs > 128` → frame rejected. Real receivers track ≤ ~60 SVs; higher counts indicate a garbage header.
 - per-SV `cno` outside `(0, 63]` dBHz → that block's CN0 is discarded. Valid u-blox CN0 values are at most 63 dBHz; larger bytes are from mis-aligned payloads.
+- per-SV `qualityInd < 4` (from flags bits 2..0) → that block's CN0 is discarded. Per u-blox spec: 0=no signal, 1=searching, 2=acquired, 3=detected but unusable, 4+=code/carrier locked. NAV-SAT frames contain stale / placeholder rows (e.g. duplicated `gnssId=0, svId=3, cno=60, qualityInd=0`) whose `cno` field is not from a real tracked signal; counting them inflates the Top-5 average with spurious spikes up to ~52 dBHz.
 
-Without these, the CN0 "Top 5 Avg" chart occasionally spiked far above physical limits (e.g. > 200 dBHz) on long logs.
+The "Top 5 Avg" is now divided by `len(top_k)` instead of a fixed 5, so epochs with fewer than 5 tracked signals are not artificially pulled down.
 
 ---
 
@@ -144,7 +145,8 @@ After conversion, a `_graph.json` file is saved alongside the KMZ. Used for char
   "lon":       [float, ...],
   "cno_labels":  [iTOW, ...],
   "cno_top_avg": [float, ...],
-  "cno_scatter": [{"x": iTOW, "y": dBHz}, ...],
+  // cno_scatter has been removed — only the Top-5 line is rendered now, and
+  // emitting every tracked satellite per epoch ballooned the graph JSON.
 
   "sec_labels":       [iTOW, ...],
   "jam_state":        [int, ...],

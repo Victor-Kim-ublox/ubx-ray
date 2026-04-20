@@ -158,10 +158,9 @@
     <div class="sep"></div>
     <span style="font-size:14px;font-weight:700;color:#374151;">📊 Comparison Report</span>
     <div style="margin-left:auto;display:flex;gap:8px;">
-      <a id="splitLink"   href="#" class="hbtn">⊞ Split Map View</a>
-      <a id="overlayLink" href="#" class="hbtn">⊙ Overlay Map View</a>
+      <a id="splitLink"   href="#" target="_blank" rel="noopener" class="hbtn">⊞ Split Map View</a>
+      <a id="overlayLink" href="#" target="_blank" rel="noopener" class="hbtn">⊙ Overlay Map View</a>
       <a href="/recent"           class="hbtn">🕘 Recent</a>
-      <a href="/compare4"         class="hbtn">← New</a>
     </div>
   </header>
 
@@ -231,11 +230,9 @@
     <div class="section-title">⑤ Speed / Altitude / Satellite Count</div>
     <div class="card">
       <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('spd')">Reset Zoom</button>
-        <button class="ctl-btn" onclick="resetZoom('alt')">Reset Zoom</button>
-        <button class="ctl-btn" onclick="resetZoom('sv')">Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('spdaltsv')">🔍 Reset Zoom</button>
       </div>
-      <p class="chart-note">Scroll to zoom, drag to pan</p>
+      <p class="chart-note">Scroll to zoom, drag to pan · Speed / Altitude / Satellites X-axes synchronized</p>
       <div style="display:grid;grid-template-columns:1fr;gap:16px;">
         <div class="chart-wrap" style="height:200px"><canvas id="spdChart"></canvas></div>
         <div class="chart-wrap" style="height:200px"><canvas id="altChart"></canvas></div>
@@ -247,7 +244,7 @@
     <div class="section-title">⑥ Satellite Signal Strength (CNO Top-5 Avg)</div>
     <div class="card">
       <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('cno')">Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('cno')">🔍 Reset Zoom</button>
       </div>
       <div class="chart-wrap" style="height:220px"><canvas id="cnoChart"></canvas></div>
     </div>
@@ -409,7 +406,36 @@
     function resetZoom(key) {
       var group = chartRegistry[key];
       if (!group) return;
-      group.forEach(function(c){ c.resetZoom(); });
+      // Clear any synced min/max and reset each chart's own zoom stack.
+      group.forEach(function(c){
+        if (c.options.scales && c.options.scales.x) {
+          c.options.scales.x.min = undefined;
+          c.options.scales.x.max = undefined;
+        }
+        if (typeof c.resetZoom === 'function') c.resetZoom('none');
+      });
+      // Charts in the same group may own different x-ranges. Compute the
+      // union extent and force every chart to it so the group stays synced
+      // after the reset.
+      var gmin = Infinity, gmax = -Infinity;
+      group.forEach(function(c){
+        (c.data.datasets || []).forEach(function(ds){
+          (ds.data || []).forEach(function(p){
+            if (p && typeof p.x === 'number') {
+              if (p.x < gmin) gmin = p.x;
+              if (p.x > gmax) gmax = p.x;
+            }
+          });
+        });
+      });
+      if (isFinite(gmin) && isFinite(gmax) && gmax > gmin) {
+        group.forEach(function(c){
+          if (!c.options.scales || !c.options.scales.x) return;
+          c.options.scales.x.min = gmin;
+          c.options.scales.x.max = gmax;
+          c.update('none');
+        });
+      }
     }
     window.resetZoom = resetZoom;
 
@@ -695,9 +721,9 @@
         return c;
       }
 
-      makeTimeChart('spdChart', 'speed',    'Speed (km/h)',  'spd', 0);
-      makeTimeChart('altChart', 'altitude', 'Altitude m (hMSL)','alt', null);
-      makeTimeChart('svChart',  'num_sv',   'Satellites',  'sv',  0);
+      makeTimeChart('spdChart', 'speed',    'Speed (km/h)',       'spdaltsv', 0);
+      makeTimeChart('altChart', 'altitude', 'Altitude m (hMSL)',  'spdaltsv', null);
+      makeTimeChart('svChart',  'num_sv',   'Satellites',         'spdaltsv', 0);
 
       // ────────────────────────────────────────────────────────────────
       // ⑥ CNO chart

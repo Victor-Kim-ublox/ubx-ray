@@ -24,7 +24,7 @@ The **comparison analysis report screen** for Multi .ubx Analysis. Polls the con
 ### Header (sticky)
 - ubX-ray brand logo
 - Per-file color badges (File 1–4: blue / red / green / purple)
-- Buttons: `Split Map View` → `/compare4/view/{rids}`, `Overlay Map View` → `/compare4/overlay/{rids}`, `← Home`
+- Buttons: `⊞ Split Map View` → `/compare4/view/{rids}` (opens in a new tab via `target="_blank"`), `⊙ Overlay Map View` → `/compare4/overlay/{rids}` (also new tab), `🕘 Recent`. The `← New` button was removed; to start a fresh comparison use the brand link or navigate to `/compare4` directly.
 
 ### Status Section
 Conversion status card for each file:
@@ -84,7 +84,13 @@ Polling stops automatically once all active rids are complete.
 ## Chart Interaction
 - **Chart.js** `@4.4.0`
 - **chartjs-plugin-zoom** `@2.0.1` + **hammerjs** `@2.0.8` (pinch-zoom / drag-pan)
-- "Reset Zoom" button in the top-right corner of each chart
+- Each section has a single `🔍 Reset Zoom` `.ctl-btn`
+- Charts are grouped by key in `chartRegistry`; zoom/pan on any chart
+  propagates to its group via `syncGroup`:
+  - `acc` — Accuracy Overlay
+  - `spdaltsv` — Speed, Altitude, and Satellite Count charts share one group
+    so panning/zooming any of the three moves the other two in lockstep
+  - `cno` — CNO Top-5 Avg
 
 ---
 

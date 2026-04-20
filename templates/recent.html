@@ -186,7 +186,7 @@
         <td>
           {% if is_multi %}
             {% if status == 'done' or status == 'running' or status == 'queued' %}
-              <a class="btn" href="/compare4/report/{{ cgroup }}">Comparison Report</a>
+              <a class="btn secondary" href="/compare4/report/{{ cgroup }}">Comparison Report</a>
             {% endif %}
             {% if kmz %}
               <a class="btn secondary" href="/compare4/view/{{ cgroup }}">Split Map</a>
