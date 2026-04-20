@@ -45,14 +45,6 @@
     .btn.active { background:#FF6E59; color:#fff; }
     a.btn { text-decoration:none; }
 
-    .badge {
-      font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px;
-      white-space:nowrap; max-width:150px; overflow:hidden; text-overflow:ellipsis;
-    }
-    .badge-1 { background:#eff6ff; color:var(--c1); border:1px solid #bfdbfe; }
-    .badge-2 { background:#fff1f2; color:var(--c2); border:1px solid #fecdd3; }
-    .badge-3 { background:#f0fdf4; color:var(--c3); border:1px solid #bbf7d0; }
-    .badge-4 { background:#faf5ff; color:var(--c4); border:1px solid #e9d5ff; }
 
     /* 2x2 Grid */
     #grid {
@@ -79,7 +71,7 @@
       position:absolute; top:8px; left:8px; z-index:10;
       background:#ffffffee; border:2px solid;
       border-radius:8px; padding:4px 10px;
-      font-size:12px; font-weight:700; max-width:220px;
+      font-size:12px; font-weight:700; max-width:440px;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
       box-shadow:0 2px 8px rgba(0,0,0,.15); pointer-events:none;
     }
@@ -131,6 +123,16 @@
     .ol-popup-closer:hover { color:#000; }
     .popup-title { font-weight:700; font-size:13px; margin-bottom:4px; color:#111827; }
     .popup-desc { font-size:12px; color:#374151; line-height:1.45; }
+
+    /* SEC-SIG legend (same styling as single map view) */
+    .sec-legend {
+      display:inline-flex; align-items:center; gap:4px;
+      font-size:12px; color:#374151;
+      margin-left:6px; padding:3px 6px;
+      background:#fff; border-radius:6px;
+      box-shadow: inset 0 0 0 1px var(--border);
+    }
+    .sec-legend svg { display:block; }
   </style>
 </head>
 <body>
@@ -153,24 +155,39 @@
       <button id="btnFit" class="btn" title="Fit all tracks to view">Fit All</button>
     </div>
 
-    <div class="sep"></div>
+    <div class="sep" id="secSegSep" style="display:none;"></div>
 
-    <div style="display:flex;gap:6px;align-items:center;">
-      <div class="badge badge-1" id="badge1"></div>
-      <div class="badge badge-2" id="badge2"></div>
-      <div class="badge badge-3" id="badge3"></div>
-      <div class="badge badge-4" id="badge4"></div>
+    <!-- Security overlay toggle (shown only when any panel has SEC-SIG data) -->
+    <div class="seg" id="secSeg" style="display:none; align-items:center;">
+      <button id="secToggleBtn" class="btn active" title="Toggle jamming/spoofing overlays in every panel">Jam/Spoof</button>
+      <span class="sec-legend" title="Jamming Warning (translucent red zone sheen over the track)">
+        <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">
+          <line x1="1" y1="5" x2="21" y2="5" stroke="rgba(230,0,0,0.28)" stroke-width="8" stroke-linecap="round"/>
+        </svg>
+        <span>Jam</span>
+      </span>
+      <span class="sec-legend" title="Spoofing Indicated (dashed chartreuse line)">
+        <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">
+          <line x1="1" y1="5" x2="21" y2="5" stroke="#CCFF00" stroke-width="3" stroke-dasharray="5,3" stroke-linecap="round"/>
+        </svg>
+        <span>Spf ind.</span>
+      </span>
+      <span class="sec-legend" title="Spoofing Affirmed (dashed cyan line)">
+        <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">
+          <line x1="1" y1="5" x2="21" y2="5" stroke="#00E5FF" stroke-width="3.5" stroke-dasharray="6,2" stroke-linecap="round"/>
+        </svg>
+        <span>Spf aff.</span>
+      </span>
     </div>
 
-    <div style="margin-left:auto;display:flex;gap:6px;">
+    <div class="sep" style="margin-left:auto;"></div>
+
+    <div style="display:flex;gap:6px;">
       <a id="reportLink"  href="#" class="btn" style="background:#0f172a;color:#fff;border:1px solid #0f172a;font-size:12px;">
         📊 Report
       </a>
       <a id="overlayLink" href="#" class="btn" style="background:#FF6E59;color:#fff;border:1px solid #FF6E59;font-size:12px;">
         ⊙ Overlay Map View
-      </a>
-      <a href="/compare4" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">
-        ← New
       </a>
     </div>
   </header>
@@ -233,7 +250,6 @@
     for (var i = 0; i < 4; i++) {
       if (RIDS[i] === '_') {
         document.getElementById('lbl'+(i+1)).style.display   = 'none';
-        document.getElementById('badge'+(i+1)).style.display = 'none';
         // Insert empty-panel overlay
         var emptyDiv = document.createElement('div');
         emptyDiv.className = 'panel-empty';
@@ -243,10 +259,7 @@
         document.getElementById('status'+(i+1)).style.display = 'none';
         continue;
       }
-      var short = FILENAMES[i].length > 28 ? FILENAMES[i].slice(0,26)+'…' : FILENAMES[i];
       document.getElementById('lbl'+(i+1)).textContent  = (i+1)+'. '+FILENAMES[i];
-      document.getElementById('badge'+(i+1)).textContent = (i+1)+'. '+short;
-      document.getElementById('badge'+(i+1)).title       = FILENAMES[i];
     }
 
     // ── Create 4 independent Views (safer than shared view) ──────────────
@@ -310,6 +323,78 @@
       })(vi, COLORS[vi]);
     }
 
+    // ── SEC-SIG overlay layers (jam / spoofing indicated / affirmed) ──────
+    // Same visual palette as the single map view (templates/map.html) so the
+    // legend semantics stay consistent.
+    var JAM_WARNING   = 2;
+    var SPF_INDICATED = 2;
+    var SPF_AFFIRMED  = 3;
+
+    var styleJamHalo = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: 'rgba(230, 0, 0, 0.28)', width: 26,
+        lineCap: 'round', lineJoin: 'round'
+      })
+    });
+    var styleSpfIndicated = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: '#CCFF00', width: 3.5, lineDash: [8, 5], lineCap: 'round'
+      })
+    });
+    var styleSpfAffirmed = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: '#00E5FF', width: 4, lineDash: [14, 5], lineCap: 'round'
+      })
+    });
+    var styleIsolatedJam = new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 12,
+        fill: new ol.style.Fill({ color: 'rgba(230, 0, 0, 0.28)' }),
+        stroke: new ol.style.Stroke({ color: 'rgba(230, 0, 0, 0.55)', width: 1.5 })
+      })
+    });
+    var styleIsolatedSpfInd = new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 5,
+        fill: new ol.style.Fill({ color: '#CCFF00' }),
+        stroke: new ol.style.Stroke({ color: '#556B00', width: 1.5 })
+      })
+    });
+    var styleIsolatedSpfAff = new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 5,
+        fill: new ol.style.Fill({ color: '#00E5FF' }),
+        stroke: new ol.style.Stroke({ color: '#003b47', width: 1.5 })
+      })
+    });
+
+    // Per-panel SEC-SIG sources + layers. Same z-index ordering as the single
+    // map view so concurrent jam + spoofing segments stay readable.
+    var secSources = [];  // array of {jam, spfInd, spfAff} per panel
+    var secLayersPerPanel = [];  // array of [jamLayer, spfIndLayer, spfAffLayer] per panel
+    for (var si = 0; si < 4; si++) {
+      var jamSrc    = new ol.source.Vector();
+      var spfIndSrc = new ol.source.Vector();
+      var spfAffSrc = new ol.source.Vector();
+      secSources.push({ jam: jamSrc, spfInd: spfIndSrc, spfAff: spfAffSrc });
+      var jamLyr = new ol.layer.Vector({
+        source: jamSrc,
+        style: function(f) { return f.getGeometry().getType() === 'Point' ? styleIsolatedJam : styleJamHalo; },
+        zIndex: 415
+      });
+      var spfIndLyr = new ol.layer.Vector({
+        source: spfIndSrc,
+        style: function(f) { return f.getGeometry().getType() === 'Point' ? styleIsolatedSpfInd : styleSpfIndicated; },
+        zIndex: 420
+      });
+      var spfAffLyr = new ol.layer.Vector({
+        source: spfAffSrc,
+        style: function(f) { return f.getGeometry().getType() === 'Point' ? styleIsolatedSpfAff : styleSpfAffirmed; },
+        zIndex: 440
+      });
+      secLayersPerPanel.push([jamLyr, spfIndLyr, spfAffLyr]);
+    }
+
     function makeStyle(feature, color) {
       var type = feature.getGeometry() ? feature.getGeometry().getType() : '';
       var role = feature.get('_role');
@@ -355,9 +440,10 @@
     // ── Build 4 Maps ──────────────────────────────────────────────────────
     var maps = [];
     for (var ci = 0; ci < 4; ci++) {
+      var secL = secLayersPerPanel[ci];
       var m = new ol.Map({
         target: 'map'+(ci+1),
-        layers: [osmLayers[ci], satLayers[ci], vectorLayers[ci]],
+        layers: [osmLayers[ci], satLayers[ci], vectorLayers[ci], secL[0], secL[1], secL[2]],
         overlays: [popupOverlays[ci]],
         view: views[ci],
         controls: []   // minimal controls to avoid version issues
@@ -371,7 +457,17 @@
         (function(idx) {
           maps[idx].on('singleclick', function(evt) {
             var hit = false;
+            var secL = secLayersPerPanel[idx];
             maps[idx].forEachFeatureAtPixel(evt.pixel, function(f, layer) {
+              // SEC-SIG feature — show jam/spoof run metadata
+              if (secL.indexOf(layer) !== -1) {
+                document.getElementById('ptitle'+(idx+1)).textContent = f.get('secTitle') || 'UBX-SEC-SIG';
+                document.getElementById('pdesc'+(idx+1)).innerHTML    = f.get('secDesc') || '';
+                popupOverlays[idx].setPosition(evt.coordinate);
+                document.getElementById('popup'+(idx+1)).style.display = 'block';
+                hit = true;
+                return true;
+              }
               if (layer !== vectorLayers[idx]) return;
               if (f.getGeometry() && f.getGeometry().getType() === 'Point') {
                 document.getElementById('ptitle'+(idx+1)).textContent = f.get('name') || 'Point';
@@ -437,6 +533,105 @@
           });
         }
       }
+    }
+
+    // ── Jam/Spoof overlay toggle (affects all 4 panels) ───────────────────
+    var secSegEl       = document.getElementById('secSeg');
+    var secToggleBtnEl = document.getElementById('secToggleBtn');
+    var secAnyShown    = false;
+    secToggleBtnEl.onclick = function() {
+      var on = !secLayersPerPanel[0][0].getVisible();
+      for (var ti = 0; ti < 4; ti++) {
+        secLayersPerPanel[ti].forEach(function(l) { l.setVisible(on); });
+      }
+      secToggleBtnEl.classList.toggle('active', on);
+    };
+
+    // ── Per-panel SEC-SIG loader ──────────────────────────────────────────
+    // Pulls graph JSON from /api/graph/{rid}, maps each SEC-SIG sample back
+    // to a PVT (lat, lon) via iTOW, and builds contiguous runs for each
+    // condition (jam_state==2, spf_state==2, spf_state==3). An iTOW gap
+    // greater than GAP_MS (3 s) closes the current run so missing data isn't
+    // bridged by a straight line. Isolated single-epoch runs fall back to a
+    // dot feature so they remain visible.
+    function loadSecSigPanel(idx, rid) {
+      fetch('/api/graph/' + rid).then(function(res) {
+        if (!res.ok) return;
+        return res.json();
+      }).then(function(g) {
+        if (!g || !Array.isArray(g.sec_labels) || g.sec_labels.length === 0) return;
+        if (!Array.isArray(g.lat) || !Array.isArray(g.lon) || !Array.isArray(g.labels)) return;
+
+        var itowToPos = new Map();
+        var n = Math.min(g.labels.length, g.lat.length, g.lon.length);
+        for (var i = 0; i < n; i++) {
+          itowToPos.set(g.labels[i], { lat: g.lat[i], lon: g.lon[i] });
+        }
+
+        var GAP_MS = 3000;
+        var runs    = { jam: [], spfInd: [], spfAff: [] };
+        var openRun = { jam: null, spfInd: null, spfAff: null };
+
+        function closeRun(kind) {
+          if (openRun[kind]) { runs[kind].push(openRun[kind]); openRun[kind] = null; }
+        }
+        function addToRun(kind, it, coord) {
+          var r = openRun[kind];
+          if (r && (it - r.lastItow) <= GAP_MS) {
+            r.coords.push(coord); r.itows.push(it); r.lastItow = it;
+          } else {
+            closeRun(kind);
+            openRun[kind] = { coords: [coord], itows: [it], lastItow: it };
+          }
+        }
+
+        for (var k = 0; k < g.sec_labels.length; k++) {
+          var it  = g.sec_labels[k];
+          var pos = itowToPos.get(it);
+          if (!pos) continue;
+          var coord = ol.proj.fromLonLat([pos.lon, pos.lat]);
+          var jam = g.jam_state[k];
+          var spf = g.spf_state[k];
+          if (jam === JAM_WARNING) addToRun('jam', it, coord); else closeRun('jam');
+          if (spf === SPF_INDICATED) addToRun('spfInd', it, coord); else closeRun('spfInd');
+          if (spf === SPF_AFFIRMED)  addToRun('spfAff', it, coord); else closeRun('spfAff');
+        }
+        closeRun('jam'); closeRun('spfInd'); closeRun('spfAff');
+
+        function emit(source, kind, title) {
+          var count = 0;
+          var arr = runs[kind];
+          for (var ri = 0; ri < arr.length; ri++) {
+            var r = arr[ri];
+            var geom = r.coords.length === 1
+              ? new ol.geom.Point(r.coords[0])
+              : new ol.geom.LineString(r.coords);
+            var feat = new ol.Feature({ geometry: geom });
+            feat.set('secTitle', title);
+            feat.set('secDesc',
+              '<div><b>iTOW range</b>: ' + r.itows[0] + ' → ' + r.itows[r.itows.length - 1] + '</div>' +
+              '<div><b>Epochs</b>: ' + r.itows.length + '</div>'
+            );
+            source.addFeature(feat);
+            count++;
+          }
+          return count;
+        }
+
+        var srcs   = secSources[idx];
+        var nJam   = emit(srcs.jam,    'jam',    'Jamming Warning — Panel ' + (idx + 1));
+        var nInd   = emit(srcs.spfInd, 'spfInd', 'Spoofing Indicated — Panel ' + (idx + 1));
+        var nAff   = emit(srcs.spfAff, 'spfAff', 'Spoofing Affirmed — Panel ' + (idx + 1));
+        if (nJam + nInd + nAff > 0 && !secAnyShown) {
+          secSegEl.style.display = '';
+          var secSepEl = document.getElementById('secSegSep');
+          if (secSepEl) secSepEl.style.display = '';
+          secAnyShown = true;
+        }
+        console.log('Panel ' + (idx + 1) + ' SEC-SIG runs — jam:', nJam, 'spfInd:', nInd, 'spfAff:', nAff);
+      }).catch(function(err) {
+        console.warn('Panel ' + (idx + 1) + ' SEC-SIG load failed:', err);
+      });
     }
 
     // ── Status polling & KML load ─────────────────────────────────────────
@@ -556,6 +751,9 @@
           fitAll();
           maps[idx].updateSize();
           maps[idx].render();
+
+          // Overlay UBX-SEC-SIG jamming/spoofing runs for this panel.
+          loadSecSigPanel(idx, rid);
           console.log('Panel ' + (idx+1) + ' loaded: ' + coords.length + ' pts → ' + sampled.length + ' sampled');
         })
         .catch(function(err) {

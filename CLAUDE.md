@@ -42,6 +42,12 @@ Multi-file (4-way compare) follows the same per-file pipeline, then `/compare4/r
 
 NMEA comparison (`/analyze_nmea`) runs synchronously in threadpool — results are not persisted to DB.
 
+## Admin CLI
+
+`admin_cli.py` (doc: `docs/admin_cli.md`) is a standalone tool for listing and
+deleting stored uploads directly from the server shell. Dry-run by default;
+`--yes` to commit. Example: `python admin_cli.py purge --older-than 7 --yes`.
+
 ## Key Configuration
 
 | Env Var | Default | Purpose |
