@@ -420,6 +420,10 @@
     var measureActive = false;
     map.on('singleclick', function(evt) {
       if (measureActive) return;
+      // Ignore clicks on the popup itself (e.g. the × closer) so we don't
+      // immediately re-open it.
+      var tgt = evt.originalEvent && evt.originalEvent.target;
+      if (tgt && tgt.closest && tgt.closest('.ol-popup')) return;
       var hit = false;
       var lineTrack = -1;   // track idx of a clicked LineString (resolved after scan)
       map.forEachFeatureAtPixel(evt.pixel, function(f, layer) {

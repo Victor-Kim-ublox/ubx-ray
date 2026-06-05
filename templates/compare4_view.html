@@ -463,6 +463,11 @@
       for (var qi = 0; qi < 4; qi++) {
         (function(idx) {
           maps[idx].on('singleclick', function(evt) {
+            // Ignore clicks that land on the popup itself (e.g. the × closer),
+            // otherwise this handler would immediately re-open the popup.
+            var tgt = evt.originalEvent && evt.originalEvent.target;
+            if (tgt && tgt.closest && tgt.closest('.ol-popup')) return;
+
             var hit = false;
             var lineTrack = -1;   // track idx of a clicked LineString
             var secL = secLayersPerPanel[idx];
