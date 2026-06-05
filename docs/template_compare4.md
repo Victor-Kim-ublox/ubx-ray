@@ -60,10 +60,25 @@ if (!file1Input.files.length) {
   alert('Please select at least File 1.');
   return;
 }
+// Enforce MAX_UPLOAD_MB (default 300 MB) per file on the client.
+// oversized -> alert() + preventDefault().
 // Count how many files are selected
 // Disable button + show spinner + loading text
 // "Uploading N file(s)... please wait"
 ```
+
+### Per-file size validation
+Each `wireDropzone` call also runs `validatePickedFile(dz, fi, fn, file)` on
+both the `drop` and `change` events. When `file.size` exceeds
+`MAX_UPLOAD_BYTES` (derived from `max_upload_mb`, injected by the
+`/compare4` route) the handler:
+
+- clears the input so the form cannot submit the oversized file,
+- adds the `.oversized` class to the dropzone (red dashed border + red
+  background) to make the failure state obvious,
+- writes `"⚠ N.N MB — exceeds 300 MB limit"` into the filename slot.
+
+Every dropzone hint also advertises the capacity (`"up to 300 MB"`).
 
 Standard HTML form submit (not fetch) → server issues 303 redirect to `/compare4/report/{r1}/{r2}/{r3}/{r4}`.
 

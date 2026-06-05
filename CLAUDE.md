@@ -48,6 +48,15 @@ NMEA comparison (`/analyze_nmea`) runs synchronously in threadpool — results a
 deleting stored uploads directly from the server shell. Dry-run by default;
 `--yes` to commit. Example: `python admin_cli.py purge --older-than 7 --yes`.
 
+## Windows Service Installer
+
+`install_service.ps1` (doc: `docs/install_service.md`) registers ubx-ray as a
+Windows service via NSSM. Run from an elevated PowerShell:
+`.\install_service.ps1 [-Port 8000] [-AdminToken "..."] [-MaxUploadMB 300]`.
+The service runs under `LocalSystem`, starts at boot without user logon, logs
+to `.\logs\`, and is auto-restarted by NSSM on crash. Use
+`.\install_service.ps1 -Uninstall` to remove.
+
 ## Key Configuration
 
 | Env Var | Default | Purpose |

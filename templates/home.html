@@ -81,6 +81,11 @@
     transform: scale(1.01);
     box-shadow: 0 0 0 3px rgba(255,110,89,.15) inset;
     }
+    .drop.oversized{
+    border-color:#E3140D;
+    background: #fdecea;
+    box-shadow: 0 0 0 3px rgba(227,20,13,.12) inset;
+    }
     .drop h2{ margin:0 0 6px; font-size:20px; color:var(--text); }
     .drop h3{ margin:0 0 4px; font-size:16px; color:var(--text-body); }
     .hint{ color:var(--muted); font-size:13px; }
@@ -222,7 +227,7 @@
           <!-- Pretty dropzone = label for input -->
           <label id="dropzone" class="drop row" for="fileInput">
             <h2>Drop your UBX/BIN file here or click to browse</h2>
-            <div class="hint">Max 1 file</div>
+            <div class="hint">Max 1 file · up to {{ max_upload_mb | default(300) }} MB</div>
             <div class="file-name" id="fileName"></div>
           </label>
 
@@ -266,7 +271,7 @@
               <div class="slot-label">File 1 <span class="slot-tag required-tag">required</span></div>
               <label id="mDrop1" class="drop" for="mFile1">
                 <h3>Drop UBX/BIN file here</h3>
-                <div class="hint">or click to browse</div>
+                <div class="hint">or click to browse · up to {{ max_upload_mb | default(300) }} MB</div>
                 <div class="file-name" id="mName1"></div>
               </label>
               <input id="mFile1" class="hidden-input" type="file" name="file1" accept=".ubx,.bin" required>
@@ -276,7 +281,7 @@
               <div class="slot-label">File 2 <span class="slot-tag optional-tag">optional</span></div>
               <label id="mDrop2" class="drop" for="mFile2" style="opacity:.75;">
                 <h3>Drop UBX/BIN file here</h3>
-                <div class="hint">or click to browse · leave empty to skip</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
                 <div class="file-name" id="mName2"></div>
               </label>
               <input id="mFile2" class="hidden-input" type="file" name="file2" accept=".ubx,.bin">
@@ -286,7 +291,7 @@
               <div class="slot-label">File 3 <span class="slot-tag optional-tag">optional</span></div>
               <label id="mDrop3" class="drop" for="mFile3" style="opacity:.75;">
                 <h3>Drop UBX/BIN file here</h3>
-                <div class="hint">or click to browse · leave empty to skip</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
                 <div class="file-name" id="mName3"></div>
               </label>
               <input id="mFile3" class="hidden-input" type="file" name="file3" accept=".ubx,.bin">
@@ -296,7 +301,7 @@
               <div class="slot-label">File 4 <span class="slot-tag optional-tag">optional</span></div>
               <label id="mDrop4" class="drop" for="mFile4" style="opacity:.75;">
                 <h3>Drop UBX/BIN file here</h3>
-                <div class="hint">or click to browse · leave empty to skip</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
                 <div class="file-name" id="mName4"></div>
               </label>
               <input id="mFile4" class="hidden-input" type="file" name="file4" accept=".ubx,.bin">
@@ -425,6 +430,26 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
+    // Upload size limit (mirrors backend MAX_UPLOAD_BYTES). Used for
+    // pre-flight validation so the user sees an immediate error instead of
+    // waiting for the 413 response after the transfer finishes.
+    const MAX_UPLOAD_MB = {{ max_upload_mb | default(300) }};
+    const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
+    // Returns an error message when any file exceeds the limit, else null.
+    function oversizedFileError(files, labelFn) {
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        if (!f) continue;
+        if (f.size > MAX_UPLOAD_BYTES) {
+          const mb = (f.size / (1024 * 1024)).toFixed(1);
+          const lbl = labelFn ? labelFn(i) : (f.name || `File ${i + 1}`);
+          return `${lbl} is ${mb} MB. Only files under ${MAX_UPLOAD_MB} MB are allowed.`;
+        }
+      }
+      return null;
+    }
+
     // ==============================
     // Single UBX Upload Logic
     // ==============================
@@ -436,6 +461,9 @@
 
       const fi = document.getElementById("fileInput");
       if (!fi.files.length) { alert("Please select a UBX/BIN file."); return; }
+
+      const sizeErr = oversizedFileError(fi.files, () => fi.files[0].name);
+      if (sizeErr) { alert(sizeErr); return; }
 
       uploading = true;
       document.getElementById("singleBtnRow").style.display = "none";
@@ -508,6 +536,19 @@
 
       const fi1 = document.getElementById("mFile1");
       if (!fi1.files.length) { alert("Please select at least File 1."); return; }
+
+      // Collect all selected files across the 4 slots for a combined check.
+      const multiFiles = [];
+      const multiLabels = [];
+      for (let i = 1; i <= 4; i++) {
+        const fi = document.getElementById(`mFile${i}`);
+        if (fi && fi.files.length) {
+          multiFiles.push(fi.files[0]);
+          multiLabels.push(`File ${i} (${fi.files[0].name})`);
+        }
+      }
+      const multiSizeErr = oversizedFileError(multiFiles, idx => multiLabels[idx]);
+      if (multiSizeErr) { alert(multiSizeErr); return; }
 
       multiUploading = true;
 
@@ -624,6 +665,23 @@
     // ==============================
     // Drag & Drop / File Input Wiring
     // ==============================
+    // Validate a freshly-picked file against MAX_UPLOAD_BYTES. If it fails,
+    // clear the input, mark the dropzone as invalid, and surface a red
+    // message in the filename slot. Returns true when the file is accepted.
+    function validatePickedFile(dz, fi, fn, file) {
+      if (!file) return true;
+      if (file.size > MAX_UPLOAD_BYTES) {
+        const mb = (file.size / (1024 * 1024)).toFixed(1);
+        fn.innerHTML = `<span style="color:#E3140D;font-weight:600;">⚠ ${mb} MB — exceeds ${MAX_UPLOAD_MB} MB limit</span>`;
+        dz.classList.add("oversized");
+        // Clear both DataTransfer and input so the form can't submit it.
+        try { fi.value = ""; } catch (e) {}
+        return false;
+      }
+      dz.classList.remove("oversized");
+      return true;
+    }
+
     function wireDropzone(dropId, inputId, nameId) {
       const dz = document.getElementById(dropId);
       const fi = document.getElementById(inputId);
@@ -635,10 +693,16 @@
         dz.classList.remove("dragover");
         const files = e.dataTransfer?.files;
         if (!files?.length) return;
-        const dt = new DataTransfer(); dt.items.add(files[0]); fi.files = dt.files;
-        fn.textContent = files[0].name;
+        const f = files[0];
+        if (!validatePickedFile(dz, fi, fn, f)) return;
+        const dt = new DataTransfer(); dt.items.add(f); fi.files = dt.files;
+        fn.textContent = f.name;
       });
-      fi.addEventListener("change", () => { fn.textContent = fi.files.length ? fi.files[0].name : ""; });
+      fi.addEventListener("change", () => {
+        if (!fi.files.length) { fn.textContent = ""; dz.classList.remove("oversized"); return; }
+        if (!validatePickedFile(dz, fi, fn, fi.files[0])) return;
+        fn.textContent = fi.files[0].name;
+      });
     }
 
     function wireMultiDropzone(dropId, inputId, nameId) {
@@ -652,13 +716,17 @@
         dz.classList.remove("dragover");
         const files = e.dataTransfer?.files;
         if (!files?.length) return;
-        const dt = new DataTransfer(); dt.items.add(files[0]); fi.files = dt.files;
-        fn.textContent = files[0].name;
+        const f = files[0];
+        if (!validatePickedFile(dz, fi, fn, f)) return;
+        const dt = new DataTransfer(); dt.items.add(f); fi.files = dt.files;
+        fn.textContent = f.name;
         dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1';
       });
       fi.addEventListener("change", () => {
-        fn.textContent = fi.files.length ? fi.files[0].name : "";
-        if (fi.files.length) { dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1'; }
+        if (!fi.files.length) { fn.textContent = ""; dz.classList.remove("oversized"); return; }
+        if (!validatePickedFile(dz, fi, fn, fi.files[0])) return;
+        fn.textContent = fi.files[0].name;
+        dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1';
       });
     }
 

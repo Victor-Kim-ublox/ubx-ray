@@ -82,6 +82,11 @@
       transform: scale(1.01);
     }
     .drop h3{ margin:0 0 4px; font-size:15px; color:var(--text-body); }
+    .drop.oversized{
+      border-color:#E3140D;
+      background: #fdecea;
+      box-shadow: 0 0 0 3px rgba(227,20,13,.12) inset;
+    }
     .hint{ color:var(--muted); font-size:12px; }
     .file-name{ margin-top:8px; font-size:13px; color:var(--text); word-break:break-all; }
     .hidden-input{
@@ -158,7 +163,7 @@
             <div class="slot-label">File 1 <span style="color:var(--primary);font-weight:400;text-transform:none;font-size:11px;">required</span></div>
             <label id="drop1" class="drop" for="file1Input">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse</div>
+              <div class="hint">or click to browse · up to {{ max_upload_mb | default(300) }} MB</div>
               <div class="file-name" id="name1"></div>
             </label>
             <input id="file1Input" class="hidden-input" type="file" name="file1" accept=".ubx,.bin" required>
@@ -169,7 +174,7 @@
             <div class="slot-label">File 2 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop2" class="drop" for="file2Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse · leave empty to skip</div>
+              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
               <div class="file-name" id="name2"></div>
             </label>
             <input id="file2Input" class="hidden-input" type="file" name="file2" accept=".ubx,.bin">
@@ -180,7 +185,7 @@
             <div class="slot-label">File 3 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop3" class="drop" for="file3Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse · leave empty to skip</div>
+              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
               <div class="file-name" id="name3"></div>
             </label>
             <input id="file3Input" class="hidden-input" type="file" name="file3" accept=".ubx,.bin">
@@ -191,7 +196,7 @@
             <div class="slot-label">File 4 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop4" class="drop" for="file4Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse · leave empty to skip</div>
+              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
               <div class="file-name" id="name4"></div>
             </label>
             <input id="file4Input" class="hidden-input" type="file" name="file4" accept=".ubx,.bin">
@@ -237,6 +242,28 @@
   </div>
 
   <script>
+    // Upload size limit (mirrors backend MAX_UPLOAD_BYTES). Used for
+    // pre-flight validation on file drop / selection so the user sees an
+    // immediate error instead of waiting for the 413 after the transfer.
+    const MAX_UPLOAD_MB = {{ max_upload_mb | default(300) }};
+    const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
+    // Validate a freshly-picked file. If it exceeds MAX_UPLOAD_BYTES, clear
+    // the input, mark the dropzone oversized, and surface a red message.
+    function validatePickedFile(dz, fi, fn, file) {
+      if (!file) return true;
+      if (file.size > MAX_UPLOAD_BYTES) {
+        const mb = (file.size / (1024 * 1024)).toFixed(1);
+        fn.innerHTML = `<span style="color:#E3140D;font-weight:600;">⚠ ${mb} MB — exceeds ${MAX_UPLOAD_MB} MB limit</span>`;
+        dz.classList.add('oversized');
+        dz.style.borderColor = '';
+        try { fi.value = ''; } catch (e) {}
+        return false;
+      }
+      dz.classList.remove('oversized');
+      return true;
+    }
+
     // Dropzone wiring
     function wireDropzone(dropId, inputId, nameId) {
       const dz = document.getElementById(dropId);
@@ -253,15 +280,19 @@
         dz.classList.remove('dragover');
         const files = e.dataTransfer?.files;
         if (!files?.length) return;
+        const f = files[0];
+        if (!validatePickedFile(dz, fi, fn, f)) return;
         const dt = new DataTransfer();
-        dt.items.add(files[0]);
+        dt.items.add(f);
         fi.files = dt.files;
-        fn.textContent = '📁 ' + files[0].name;
+        fn.textContent = '📁 ' + f.name;
         dz.style.borderColor = '#FF6E59';
       });
       fi.addEventListener('change', () => {
-        fn.textContent = fi.files.length ? '📁 ' + fi.files[0].name : '';
-        if (fi.files.length) dz.style.borderColor = '#FF6E59';
+        if (!fi.files.length) { fn.textContent = ''; dz.classList.remove('oversized'); return; }
+        if (!validatePickedFile(dz, fi, fn, fi.files[0])) return;
+        fn.textContent = '📁 ' + fi.files[0].name;
+        dz.style.borderColor = '#FF6E59';
       });
     }
 
@@ -278,10 +309,22 @@
           e.preventDefault();
           return;
         }
-        // Count how many files are selected for loading text
+        // Count how many files are selected for loading text, and enforce
+        // the 300 MB (MAX_UPLOAD_MB) per-file limit on the client side so
+        // the user gets an immediate error instead of waiting for the 413.
         let count = 0;
         for (let i = 1; i <= 4; i++) {
-          if (document.getElementById(`file${i}Input`).files.length) count++;
+          const fi = document.getElementById(`file${i}Input`);
+          if (fi.files.length) {
+            const f = fi.files[0];
+            if (f.size > MAX_UPLOAD_BYTES) {
+              const mb = (f.size / (1024 * 1024)).toFixed(1);
+              alert(`File ${i} (${f.name}) is ${mb} MB. Only files under ${MAX_UPLOAD_MB} MB are allowed.`);
+              e.preventDefault();
+              return;
+            }
+            count++;
+          }
         }
         document.getElementById('submitBtn').disabled = true;
         document.getElementById('spinner').style.display = 'inline-block';

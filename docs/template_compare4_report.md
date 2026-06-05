@@ -91,6 +91,20 @@ Polling stops automatically once all active rids are complete.
   - `spdaltsv` — Speed, Altitude, and Satellite Count charts share one group
     so panning/zooming any of the three moves the other two in lockstep
   - `cno` — CNO Top-5 Avg
+- **Tooltip alignment** — all time-series charts use a custom interaction
+  mode `interaction: { mode:'xOnePerDataset', intersect:false }`, **not**
+  `mode:'index'` or plain `mode:'x'`.
+  - Each track is plotted as an independent `{x, y}` array (different start
+    iTOW, length, and `downsampleXY` stride). `mode:'index'` matched points
+    by array position and showed values from mismatched timestamps (hovered
+    track read 405 m while another read 0.7 m from a different time).
+  - Plain `mode:'x'` fixed the time alignment but could list a single track
+    multiple times (several points fall in the nearest x-bucket after
+    downsampling).
+  - `xOnePerDataset` (registered once via
+    `Chart.Interaction.modes.xOnePerDataset`) walks the `'x'` candidates and
+    keeps only the single closest element per `datasetIndex`, so the tooltip
+    shows exactly one time-aligned row per track.
 
 ---
 

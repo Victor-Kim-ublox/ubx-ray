@@ -33,14 +33,15 @@ Chart.js time-series sections. Visual structure mirrors
 
 ### ① Metadata
 Single card containing:
-- Status badge (`done` / `queued` / `running` / `error` -- error message is
-  appended after an em dash)
+- Status badge `#statusBadge` (`done` / `queued` / `running` / `error` --
+  error message is appended after an em dash; while queued/running the
+  badge appends `" · auto-updating"`)
 - Two-column `meta-table`: Filename, Upload Time (UTC), Total Epochs,
   Missing Epochs
-- Action row:
-  - `⬇ Download KMZ` (primary) + `🗺 View on Map` (opens in new tab) when
-    conversion is done
-  - Otherwise a processing or error status badge
+
+KMZ download and map-viewer entry points live in the sticky header
+(`⬇ KMZ`, `🗺 Map`) so they are always visible and not duplicated inside
+the card. They appear only once `kmz_path` is set.
 
 ### ② Position Accuracy (2D vs 3D)
 Chart: `#accChart`. Overlaid 2D (blue) / 3D (orange) lines vs iTOW.
@@ -77,16 +78,22 @@ Chart interaction:
 
 ---
 
-## Auto-Reload Logic
+## Auto-Update Logic
 
-```html
-{% if r.status != 'done' %}
-<script>setTimeout(() => location.reload(), 3000);</script>
-{% endif %}
-```
+Rendered only when `r.status in ('queued', 'running')`. An inline IIFE
+polls `GET /api/status/{rid}` every 3 s and mutates only
+`#statusBadge` in place:
 
-Full-page reload every 3 s while status is `queued`, `running`, or `error`.
-Once `done`, the reload stops.
+- `queued` / `running` -> badge class/label swap, `" · auto-updating"`
+  suffix stays; the rest of the page (scroll position, any existing
+  charts) is untouched.
+- `done` or `error` -> badge updated, then a single `location.reload()`
+  fires `~400 ms` later so the freshly-written `graph_data` renders and
+  the header picks up the KMZ/Map buttons.
+
+This replaces the previous `setTimeout(() => location.reload(), 3000)`
+unconditional reload, which was jarring (chart zoom + scroll were lost
+every tick while a long conversion was in flight).
 
 ---
 

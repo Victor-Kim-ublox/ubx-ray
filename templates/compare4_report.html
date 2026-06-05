@@ -262,6 +262,26 @@
                      'rgba(22,163,74,.18)','rgba(147,51,234,.18)'];
     var FIX_COLORS = { gnssdr:'#0078ff', dr:'#9333ea', fix3:'#16a34a', fix2:'#f59e0b', none:'#ef4444' };
 
+    // ── Custom interaction mode ───────────────────────────────────────
+    // 'x' mode returns *every* element at the nearest x-bucket, so a single
+    // track could appear multiple times in the tooltip (dense / duplicate x
+    // values after downsampling). This mode keeps only the single closest
+    // point per dataset, matched by x-pixel distance — one row per track.
+    if (window.Chart && Chart.Interaction && !Chart.Interaction.modes.xOnePerDataset) {
+      Chart.Interaction.modes.xOnePerDataset = function(chart, e, options, useFinalPosition) {
+        var pos  = Chart.helpers.getRelativePosition(e, chart);
+        var best = {}; // datasetIndex -> { dist, item }
+        Chart.Interaction.evaluateInteractionItems(chart, 'x', pos, function(element, datasetIndex, index) {
+          var dist = Math.abs(element.getCenterPoint(useFinalPosition).x - pos.x);
+          var cur  = best[datasetIndex];
+          if (!cur || dist < cur.dist) {
+            best[datasetIndex] = { dist: dist, item: { element: element, datasetIndex: datasetIndex, index: index } };
+          }
+        }, false);
+        return Object.keys(best).map(function(k){ return best[k].item; });
+      };
+    }
+
     // Set links
     document.getElementById('splitLink').href   = '/compare4/view/'   + RIDS.join('/');
     document.getElementById('overlayLink').href = '/compare4/overlay/' + RIDS.join('/');
@@ -574,7 +594,13 @@
         data: { datasets: accDatasets },
         options: {
           animation: false, responsive: true, maintainAspectRatio: false,
-          interaction: { mode:'index', intersect:false },
+          // xOnePerDataset: one nearest point per track, matched by x-value
+          // (not array index). Tracks have independent {x,y} arrays (different
+          // start iTOW, length, downsample stride), so the old 'index' mode
+          // showed mismatched timestamps, and plain 'x' mode could list a
+          // track multiple times. This custom mode gives exactly one aligned
+          // row per track. (Registered above as Chart.Interaction.modes.*)
+          interaction: { mode:'xOnePerDataset', intersect:false },
           plugins: {
             legend: { position:'top', labels:{ boxWidth:12, font:{size:12} } },
             zoom: zoomPlugin('acc')
@@ -705,7 +731,13 @@
           type: 'line', data: { datasets: datasets },
           options: {
             animation: false, responsive: true, maintainAspectRatio: false,
-            interaction: { mode:'index', intersect:false },
+            // xOnePerDataset: one nearest point per track, matched by x-value
+          // (not array index). Tracks have independent {x,y} arrays (different
+          // start iTOW, length, downsample stride), so the old 'index' mode
+          // showed mismatched timestamps, and plain 'x' mode could list a
+          // track multiple times. This custom mode gives exactly one aligned
+          // row per track. (Registered above as Chart.Interaction.modes.*)
+          interaction: { mode:'xOnePerDataset', intersect:false },
             plugins: {
               legend: { position:'top', labels:{ boxWidth:12, font:{size:11} } },
               zoom: zoomPlugin(groupKey)
@@ -744,7 +776,13 @@
         type: 'line', data: { datasets: cnoDatasets },
         options: {
           animation: false, responsive: true, maintainAspectRatio: false,
-          interaction: { mode:'index', intersect:false },
+          // xOnePerDataset: one nearest point per track, matched by x-value
+          // (not array index). Tracks have independent {x,y} arrays (different
+          // start iTOW, length, downsample stride), so the old 'index' mode
+          // showed mismatched timestamps, and plain 'x' mode could list a
+          // track multiple times. This custom mode gives exactly one aligned
+          // row per track. (Registered above as Chart.Interaction.modes.*)
+          interaction: { mode:'xOnePerDataset', intersect:false },
           plugins: {
             legend: { position:'top', labels:{ boxWidth:12, font:{size:11} } },
             zoom: zoomPlugin('cno')
