@@ -49,6 +49,17 @@ btn.classList.toggle('dimmed');  // visual feedback for inactive state
 
 ---
 
+## Click → Point Info
+A single click resolves, in priority order: a start/end **Point** marker (name
++ description), else the clicked **track LineString**. For a line, the per-track
+`trackPts[idx]` / `trackLineCoords[idx]` arrays are scanned via
+`nearestTrackInfo(idx, coord)` to snap to the nearest displayed vertex, and the
+popup shows **Lat / Lon / Alt / Time** (time and altitude shown when the source
+KML carried them, e.g. gx:Track) plus the vertex index. The popup anchors at the
+snapped vertex. This makes the overlaid lines themselves clickable.
+
+---
+
 ## KML Loading and Layer Setup
 
 For each active rid:

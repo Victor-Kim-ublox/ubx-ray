@@ -314,6 +314,9 @@
 
     // ── KML track layers (one per map) ────────────────────────────────────
     var vectorSources = [], vectorLayers = [];
+    // Displayed vertices (EPSG:3857) per panel, so a clicked line resolves to
+    // its nearest point's coordinates.
+    var trackSampled = [[], [], [], []];
     for (var vi = 0; vi < 4; vi++) {
       var vsrc = new ol.source.Vector();
       vectorSources.push(vsrc);
@@ -459,6 +462,7 @@
         (function(idx) {
           maps[idx].on('singleclick', function(evt) {
             var hit = false;
+            var lineTrack = -1;   // track idx of a clicked LineString
             var secL = secLayersPerPanel[idx];
             maps[idx].forEachFeatureAtPixel(evt.pixel, function(f, layer) {
               // SEC-SIG feature — show jam/spoof run metadata
@@ -471,7 +475,10 @@
                 return true;
               }
               if (layer !== vectorLayers[idx]) return;
-              if (f.getGeometry() && f.getGeometry().getType() === 'Point') {
+              var g = f.getGeometry();
+              if (!g) return;
+              var gt = g.getType();
+              if (gt === 'Point') {
                 document.getElementById('ptitle'+(idx+1)).textContent = f.get('name') || 'Point';
                 document.getElementById('pdesc'+(idx+1)).innerHTML    = buildDesc(f);
                 popupOverlays[idx].setPosition(evt.coordinate);
@@ -479,7 +486,23 @@
                 hit = true;
                 return true;
               }
+              if (gt === 'LineString' && f.get('_track') != null && lineTrack < 0) {
+                lineTrack = f.get('_track');   // remember, keep scanning for a Point/marker
+              }
             }, { hitTolerance: 6 });
+
+            // No marker hit but a track line was clicked → snap to nearest vertex.
+            if (!hit && lineTrack >= 0) {
+              var info = nearestTrackInfo(lineTrack, evt.coordinate);
+              if (info) {
+                document.getElementById('ptitle'+(idx+1)).textContent = (FILENAMES[lineTrack] || ('Track ' + (lineTrack + 1))) + ' — nearest point';
+                document.getElementById('pdesc'+(idx+1)).innerHTML    = info.html;
+                popupOverlays[idx].setPosition(info.coord);
+                document.getElementById('popup'+(idx+1)).style.display = 'block';
+                hit = true;
+              }
+            }
+
             if (!hit) {
               popupOverlays[idx].setPosition(undefined);
               document.getElementById('popup'+(idx+1)).style.display = 'none';
@@ -494,10 +517,35 @@
       if (d && d.trim().charAt(0) === '<') return d;
       var props = feature.getProperties(), lines = [];
       for (var k in props) {
-        if (['geometry','name','description'].indexOf(k) >= 0) continue;
+        if (['geometry','name','description','_role','_track'].indexOf(k) >= 0) continue;
         if (props[k] != null && props[k] !== '') lines.push('<b>'+k+'</b>: '+props[k]);
       }
       return lines.length ? lines.join('<br>') : d;
+    }
+
+    // Find the displayed vertex of panel `idx` closest to a 3857 coordinate,
+    // returning the snapped coordinate and an HTML info block (lat/lon/alt).
+    function nearestTrackInfo(idx, coordinate) {
+      var coords = trackSampled[idx];
+      if (!coords || !coords.length) return null;
+      var best = -1, bestD = Infinity;
+      for (var i = 0; i < coords.length; i++) {
+        var dx = coords[i][0] - coordinate[0];
+        var dy = coords[i][1] - coordinate[1];
+        var d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best < 0) return null;
+      var c  = coords[best];
+      var ll = ol.proj.toLonLat([c[0], c[1]]);
+      var lines = [];
+      lines.push('<b>Lat</b>: ' + ll[1].toFixed(6));
+      lines.push('<b>Lon</b>: ' + ll[0].toFixed(6));
+      if (c.length > 2 && isFinite(c[2]) && c[2] !== 0) {
+        lines.push('<b>Alt</b>: ' + Number(c[2]).toFixed(1) + ' m');
+      }
+      lines.push('<b>Point</b>: ' + (best + 1) + ' / ' + coords.length);
+      return { coord: c, html: lines.join('<br>') };
     }
 
     // ── Base map toggle ───────────────────────────────────────────────────
@@ -728,10 +776,15 @@
             sampled.push(coords[coords.length - 1]);
           }
 
+          // Remember displayed vertices for nearest-point lookups on click.
+          trackSampled[idx] = sampled;
+
           // 경로 LineString
           var trackLine = new ol.Feature({
             geometry: new ol.geom.LineString(sampled),
-            name: FILENAMES[idx]
+            name: FILENAMES[idx],
+            _role: 'line',
+            _track: idx
           });
 
           // 시작점 / 끝점 마커

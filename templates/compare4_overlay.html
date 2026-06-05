@@ -295,6 +295,10 @@
 
     // ── Per-track vector layers ────────────────────────────────────────────
     var trackSources = [], trackLayers = [];
+    // Displayed point data per track, parallel arrays so a clicked line vertex
+    // can be mapped back to its coordinate/altitude/time.
+    var trackPts = [[], [], [], []];          // {lon,lat,alt,t} per displayed vertex
+    var trackLineCoords = [[], [], [], []];   // matching EPSG:3857 [x,y] vertices
 
     for (var ti = 0; ti < 4; ti++) {
       (function(idx) {
@@ -416,19 +420,69 @@
     map.on('singleclick', function(evt) {
       if (measureActive) return;
       var hit = false;
+      var lineTrack = -1;   // track idx of a clicked LineString (resolved after scan)
       map.forEachFeatureAtPixel(evt.pixel, function(f, layer) {
         if (!trackLayers.includes(layer)) return;
         var g = f.getGeometry();
-        if (g && g.getType() === 'Point') {
+        if (!g) return;
+        var gt = g.getType();
+        if (gt === 'Point') {
+          // A start/end marker on top wins over the line underneath.
           popupTitle.textContent = f.get('name') || 'Point';
           popupDesc.innerHTML    = buildDesc(f);
           popupOverlay.setPosition(evt.coordinate);
           popupEl.style.display  = 'block';
           hit = true; return true;
         }
+        if (gt === 'LineString' && f.get('_track') != null && lineTrack < 0) {
+          lineTrack = f.get('_track');   // remember, keep scanning for a Point
+        }
       }, { hitTolerance: 6 });
+
+      // No marker hit but a track line was clicked → snap to nearest vertex.
+      if (!hit && lineTrack >= 0) {
+        var info = nearestTrackInfo(lineTrack, evt.coordinate);
+        if (info) {
+          popupTitle.textContent = (FILENAMES[lineTrack] || ('Track ' + (lineTrack + 1))) + ' — nearest point';
+          popupDesc.innerHTML    = info.html;
+          popupOverlay.setPosition(info.coord);
+          popupEl.style.display  = 'block';
+          hit = true;
+        }
+      }
+
       if (!hit) { popupOverlay.setPosition(undefined); popupEl.style.display = 'none'; }
     });
+
+    // Find the displayed vertex of track `idx` closest to a 3857 coordinate,
+    // returning the snapped coordinate and an HTML info block.
+    function nearestTrackInfo(idx, coordinate) {
+      var coords = trackLineCoords[idx];
+      if (!coords || !coords.length) return null;
+      var best = -1, bestD = Infinity;
+      for (var i = 0; i < coords.length; i++) {
+        var dx = coords[i][0] - coordinate[0];
+        var dy = coords[i][1] - coordinate[1];
+        var d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best < 0) return null;
+      var pt = (trackPts[idx] && trackPts[idx][best]) || null;
+      return { coord: coords[best], html: formatPointInfo(pt, best, coords.length) };
+    }
+
+    // Build the popup body for a track point (lat/lon/alt/time/index).
+    function formatPointInfo(pt, i, total) {
+      var lines = [];
+      if (pt && pt.lat != null && pt.lon != null) {
+        lines.push('<b>Lat</b>: ' + pt.lat.toFixed(6));
+        lines.push('<b>Lon</b>: ' + pt.lon.toFixed(6));
+        if (pt.alt != null) lines.push('<b>Alt</b>: ' + Number(pt.alt).toFixed(1) + ' m');
+        if (pt.t)           lines.push('<b>Time</b>: ' + pt.t.toISOString().replace('T', ' ').replace('Z', ' UTC'));
+      }
+      lines.push('<b>Point</b>: ' + (i + 1) + ' / ' + total);
+      return lines.join('<br>');
+    }
 
     function buildDesc(feature) {
       var d = feature.get('description') || '';
@@ -582,7 +636,12 @@
             return ol.proj.transform([p.lon, p.lat], proj4326, proj3857);
           });
 
-          var lineF = new ol.Feature({ geometry: new ol.geom.LineString(lineCoords), name: FILENAMES[idx] });
+          // Remember the displayed vertices so line clicks can resolve to the
+          // nearest point's info.
+          trackPts[idx] = mapPts;
+          trackLineCoords[idx] = lineCoords;
+
+          var lineF = new ol.Feature({ geometry: new ol.geom.LineString(lineCoords), name: FILENAMES[idx], _role: 'line', _track: idx });
           var startF = new ol.Feature({
             geometry: new ol.geom.Point(lineCoords[0]),
             name: 'Start — ' + FILENAMES[idx], _role: 'start'

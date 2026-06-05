@@ -47,6 +47,18 @@ Fetches KML data from `/kml/{rid}` for each rid, parses it with OpenLayers `KML`
 map.getView().fit(vectorSource.getExtent(), { padding: [40, 40, 40, 40] });
 ```
 
+### Click → Point Info
+Clicking inside a panel resolves, in priority order:
+1. A SEC-SIG run feature → jam/spoof metadata popup.
+2. A Point marker (start/end) → its name + description.
+3. The **track LineString** → `nearestTrackInfo(idx, coord)` scans the panel's
+   stored `trackSampled[idx]` vertices, snaps to the closest one, and shows a
+   popup with **Lat / Lon / Alt** (altitude from the coordinate's z when
+   present) and the vertex index. The popup anchors at the snapped vertex.
+
+This makes the line itself clickable — previously only the start/end markers
+returned anything.
+
 ### View Synchronization
 4 Map instances share center/zoom via **master-slave** sync:
 ```javascript
