@@ -214,6 +214,7 @@
       <div class="tabs">
         <button class="tab-btn active" id="tabBtnSingle" onclick="openTab('single', this)">Single .ubx Analysis</button>
         <button class="tab-btn" id="tabBtnMulti" onclick="openTab('multi', this)">Multi .ubx Analysis</button>
+        <button class="tab-btn" id="tabBtnKml" onclick="openTab('kml', this)">KML Comparison</button>
       </div>
 
       <!-- Tab 1: Single UBX Analysis -->
@@ -326,7 +327,72 @@
         </div>
       </div>
 
-      <!-- Tab 3: NMEA Comparison Analysis -->
+      <!-- Tab 3: KML Comparison -->
+      <div id="tab-kml" class="tab-pane">
+        <div class="notice row">
+          <strong>How it works:</strong> Upload 1–4 KML/KMZ tracks to compare them directly
+          on a shared map — no UBX conversion needed. Useful for tracks exported elsewhere
+          or already produced by ubX-ray.
+        </div>
+
+        <form id="kmlForm" enctype="multipart/form-data" action="/compare4/kml/upload" method="post">
+          <div class="grid4 row">
+            <!-- File 1 -->
+            <div class="slot">
+              <div class="slot-label">KML 1 <span class="slot-tag required-tag">required</span></div>
+              <label id="kDrop1" class="drop" for="kFile1">
+                <h3>Drop KML/KMZ file here</h3>
+                <div class="hint">or click to browse · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="file-name" id="kName1"></div>
+              </label>
+              <input id="kFile1" class="hidden-input" type="file" name="file1" accept=".kml,.kmz" required>
+            </div>
+            <!-- File 2 -->
+            <div class="slot">
+              <div class="slot-label">KML 2 <span class="slot-tag optional-tag">optional</span></div>
+              <label id="kDrop2" class="drop" for="kFile2" style="opacity:.75;">
+                <h3>Drop KML/KMZ file here</h3>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="file-name" id="kName2"></div>
+              </label>
+              <input id="kFile2" class="hidden-input" type="file" name="file2" accept=".kml,.kmz">
+            </div>
+            <!-- File 3 -->
+            <div class="slot">
+              <div class="slot-label">KML 3 <span class="slot-tag optional-tag">optional</span></div>
+              <label id="kDrop3" class="drop" for="kFile3" style="opacity:.75;">
+                <h3>Drop KML/KMZ file here</h3>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="file-name" id="kName3"></div>
+              </label>
+              <input id="kFile3" class="hidden-input" type="file" name="file3" accept=".kml,.kmz">
+            </div>
+            <!-- File 4 -->
+            <div class="slot">
+              <div class="slot-label">KML 4 <span class="slot-tag optional-tag">optional</span></div>
+              <label id="kDrop4" class="drop" for="kFile4" style="opacity:.75;">
+                <h3>Drop KML/KMZ file here</h3>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="file-name" id="kName4"></div>
+              </label>
+              <input id="kFile4" class="hidden-input" type="file" name="file4" accept=".kml,.kmz">
+            </div>
+          </div>
+
+          <div class="actions row" id="kmlBtnRow">
+            <button id="kmlSubmitBtn" class="btn" type="submit">Upload &amp; Compare</button>
+          </div>
+        </form>
+
+        <div class="footer">
+          <div class="links">
+            <a href="/recent">View Recent Results</a>
+          </div>
+          <div class="hint">Overlay multiple KML/KMZ tracks on one map.</div>
+        </div>
+      </div>
+
+      <!-- Tab 4: NMEA Comparison Analysis -->
       <div id="tab-comparison" class="tab-pane">
         <form id="compareForm" enctype="multipart/form-data" action="/analyze_nmea" method="post">
           <div class="row" style="display:flex; gap:14px; flex-wrap:wrap;">
@@ -523,6 +589,34 @@
         document.getElementById("singleBtnRow").style.display = "flex";
         uploading = false;
       }
+    }
+
+    // ==============================
+    // KML Comparison Logic (input screen only — backend not wired yet)
+    // ==============================
+    function startKmlUpload(event) {
+      event.preventDefault();
+
+      const fi1 = document.getElementById("kFile1");
+      if (!fi1.files.length) { alert("Please select at least KML 1."); return; }
+
+      // Collect all selected files across the 4 slots for a combined check.
+      const kmlFiles = [];
+      const kmlLabels = [];
+      for (let i = 1; i <= 4; i++) {
+        const fi = document.getElementById(`kFile${i}`);
+        if (fi && fi.files.length) {
+          kmlFiles.push(fi.files[0]);
+          kmlLabels.push(`KML ${i} (${fi.files[0].name})`);
+        }
+      }
+      const sizeErr = oversizedFileError(kmlFiles, idx => kmlLabels[idx]);
+      if (sizeErr) { alert(sizeErr); return; }
+
+      // TODO: backend endpoint /compare4/kml/upload not implemented yet.
+      // For now this is the input screen only; wire the upload + comparison
+      // pipeline in a follow-up.
+      alert(`Selected ${kmlFiles.length} KML file(s). The KML comparison backend is not wired up yet — this is the input screen only.`);
     }
 
     // ==============================
@@ -742,7 +836,11 @@
       for (let i = 1; i <= 4; i++) wireMultiDropzone(`mDrop${i}`, `mFile${i}`, `mName${i}`);
       document.getElementById("multiForm").addEventListener("submit", startMultiUpload);
 
-      // Tab 3 — NMEA
+      // Tab 3 — KML Comparison (input screen only for now)
+      for (let i = 1; i <= 4; i++) wireMultiDropzone(`kDrop${i}`, `kFile${i}`, `kName${i}`);
+      document.getElementById("kmlForm").addEventListener("submit", startKmlUpload);
+
+      // Tab 4 — NMEA
       document.getElementById("compareForm").addEventListener("submit", startComparison);
       wireDropzone("dropRef", "refInput", "refName");
       wireDropzone("dropTest", "testInput", "testName");
@@ -753,6 +851,8 @@
         openTab('comparison', document.getElementById('tabBtnNmea'));
       } else if (params.get('tab') === 'multi') {
         openTab('multi', document.getElementById('tabBtnMulti'));
+      } else if (params.get('tab') === 'kml') {
+        openTab('kml', document.getElementById('tabBtnKml'));
       }
     });
   </script>
