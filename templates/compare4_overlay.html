@@ -93,17 +93,6 @@
       padding: 5px 7px; background: #fff; font-size: 13px;
       vertical-align: middle; font-family: var(--font);
     }
-    input[type="range"] { width: 160px; }
-
-    .small-label {
-      font-size: 12px; color: var(--muted); font-weight: 600;
-      margin: 0 3px; user-select: none; white-space: nowrap;
-    }
-    .timebox {
-      min-width: 200px; text-align: center; background: #fff;
-      border: 1px solid #d1d5db; border-radius: 8px;
-      padding: 5px 8px; font: 12px/1.2 ui-monospace, monospace; color: #111827;
-    }
     .badge {
       background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;
       font-weight: 700; font-size: 11px; border-radius: 999px;
@@ -203,23 +192,6 @@
         <button id="btnBaseMap" class="btn active" title="OSM Streets">Map</button>
         <button id="btnBaseSat" class="btn" title="Satellite">Satellite</button>
         <button id="btnFit" class="btn" title="Fit all tracks to view">Fit All</button>
-      </div>
-
-      <div class="sep"></div>
-
-      <!-- Playback -->
-      <div class="seg">
-        <button id="playBtn" class="btn"><span class="ico">▶</span><span>Play</span></button>
-        <span class="small-label">Speed</span>
-        <select id="speedSel">
-          <option value="1">1×</option>
-          <option value="2">2×</option>
-          <option value="5">5×</option>
-          <option value="10">10×</option>
-        </select>
-        <input id="timeRange" type="range" min="0" max="0" value="0" step="1">
-        <div id="timeLabel" class="timebox">--</div>
-        <button id="followBtn" class="btn" title="Keep marker centered">Follow</button>
       </div>
 
       <div class="sep"></div>
@@ -327,7 +299,7 @@
     });
 
     // ── Per-track vector layers ────────────────────────────────────────────
-    var trackSources = [], trackLayers = [], markerFeatures = [];
+    var trackSources = [], trackLayers = [];
 
     for (var ti = 0; ti < 4; ti++) {
       (function(idx) {
@@ -341,15 +313,6 @@
           source: src,
           style: function(f) {
             var role = f.get('_role');
-            if (role === 'marker') {
-              return new ol.style.Style({
-                image: new ol.style.Circle({
-                  radius: 7,
-                  fill:   new ol.style.Fill({ color: color }),
-                  stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
-                })
-              });
-            }
             if (role === 'start') {
               return new ol.style.Style({
                 image: new ol.style.Circle({
@@ -375,12 +338,6 @@
           }
         });
         trackLayers.push(layer);
-
-        // Moving marker feature (hidden until data loads)
-        var mf = new ol.Feature({ geometry: new ol.geom.Point([0, 0]), _role: 'marker' });
-        mf.setStyle(new ol.style.Style({})); // hidden initially
-        markerFeatures.push(mf);
-        src.addFeature(mf);
       })(ti);
     }
 
@@ -467,7 +424,7 @@
       map.forEachFeatureAtPixel(evt.pixel, function(f, layer) {
         if (!trackLayers.includes(layer)) return;
         var g = f.getGeometry();
-        if (g && g.getType() === 'Point' && f.get('_role') !== 'marker') {
+        if (g && g.getType() === 'Point') {
           popupTitle.textContent = f.get('name') || 'Point';
           popupDesc.innerHTML    = buildDesc(f);
           popupOverlay.setPosition(evt.coordinate);
@@ -520,103 +477,6 @@
       }
     });
 
-    // ── Playback ──────────────────────────────────────────────────────────
-    var allPlayback = [[], [], [], []];   // raw pts per track
-    var maxLen = 0;
-
-    var playBtn   = document.getElementById('playBtn');
-    var speedSel  = document.getElementById('speedSel');
-    var timeRange = document.getElementById('timeRange');
-    var timeLabel = document.getElementById('timeLabel');
-    var followBtn = document.getElementById('followBtn');
-
-    var playing = false, raf = null, floatIdx = 0, lastTs = 0, dataHz = 1;
-    var playIdx = 0, followEnabled = false;
-
-    function updatePlayUI(on) {
-      playBtn.classList.toggle('primary', on);
-      playBtn.innerHTML = on
-        ? '<span class="ico">⏸</span><span>Pause</span>'
-        : '<span class="ico">▶</span><span>Play</span>';
-    }
-
-    followBtn.onclick = function() {
-      followEnabled = !followEnabled;
-      followBtn.classList.toggle('active', followEnabled);
-      followBtn.textContent = followEnabled ? 'Following' : 'Follow';
-    };
-
-    function setPlayIndex(i) {
-      if (maxLen === 0) return;
-      playIdx   = Math.max(0, Math.min(maxLen - 1, i | 0));
-      floatIdx  = playIdx;
-      timeRange.value = playIdx;
-
-      // Move each track's marker proportionally
-      var pct = maxLen > 1 ? playIdx / (maxLen - 1) : 0;
-      var refTime = null;
-      for (var mi = 0; mi < 4; mi++) {
-        var pts = allPlayback[mi];
-        if (!pts.length) continue;
-        var pidx  = Math.min(pts.length - 1, Math.round(pct * (pts.length - 1)));
-        var pt    = pts[pidx];
-        var coord = ol.proj.fromLonLat([pt.lon, pt.lat]);
-        markerFeatures[mi].getGeometry().setCoordinates(coord);
-        markerFeatures[mi].changed();
-        if (mi === 0 && pt.t) refTime = pt.t;
-        if (followEnabled && mi === 0) map.getView().setCenter(coord);
-      }
-      timeLabel.textContent = refTime
-        ? refTime.toISOString().replace('T', ' ').replace('Z', ' UTC')
-        : (playIdx + 1) + ' / ' + maxLen;
-    }
-
-    function tick(ts) {
-      if (!playing) return;
-      if (!lastTs) lastTs = ts;
-      var dt = (ts - lastTs) / 1000;
-      lastTs = ts;
-      floatIdx += dataHz * parseFloat(speedSel.value || '1') * dt;
-      var next = Math.floor(floatIdx);
-      if (next !== playIdx) {
-        playIdx = Math.min(next, maxLen - 1);
-        setPlayIndex(playIdx);
-        timeRange.value = playIdx;
-      }
-      if (playIdx >= maxLen - 1) { stopPlay(); return; }
-      raf = requestAnimationFrame(tick);
-    }
-    function startPlay() { stopPlay(); playing = true; updatePlayUI(true);  lastTs = 0; raf = requestAnimationFrame(tick); }
-    function stopPlay()  { playing = false; updatePlayUI(false); if (raf) cancelAnimationFrame(raf); raf = null; }
-
-    playBtn.onclick = function() { playing ? stopPlay() : startPlay(); };
-    timeRange.oninput = function(e) { setPlayIndex(parseInt(e.target.value, 10)); if (playing) lastTs = 0; };
-
-    // ── Hz estimation (same logic as map.html) ────────────────────────────
-    function estimateHz(pts) {
-      var times = pts.map(function(p) { return p.t ? p.t.getTime() : NaN; })
-                     .filter(function(v) { return isFinite(v); });
-      if (times.length < 3) return null;
-      var buckets = {};
-      times.forEach(function(ms) {
-        var sec = Math.floor(ms / 1000);
-        buckets[sec] = (buckets[sec] || 0) + 1;
-      });
-      var counts = Object.values(buckets).sort(function(a,b){return a-b;});
-      if (counts.length) {
-        var med = counts[(counts.length / 2) | 0];
-        if (med >= 2) return med;
-      }
-      var deltas = [];
-      for (var i = 1; i < times.length; i++) {
-        var d = (times[i] - times[i-1]) / 1000;
-        if (d > 0) deltas.push(d);
-      }
-      if (!deltas.length) return null;
-      deltas.sort(function(a,b){return a-b;});
-      var mDelta = deltas[(deltas.length/2)|0];
-      return Math.min(50, Math.max(0.2, 1 / mDelta));
-    }
 
     // ── KML loading ───────────────────────────────────────────────────────
     var loadedCount = 0;
@@ -739,16 +599,6 @@
 
           trackSources[idx].addFeatures([lineF, startF, endF]);
 
-          // Show marker (initially at start)
-          var mColor = COLORS[idx];
-          markerFeatures[idx].setStyle(new ol.style.Style({
-            image: new ol.style.Circle({
-              radius: 7,
-              fill:   new ol.style.Fill({ color: mColor }),
-              stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
-            })
-          }));
-
           setLoadStatus(idx, '✅ ' + rawPts.length.toLocaleString() + ' points');
           onTrackLoaded(idx, rawPts, lineCoords);
         })
@@ -759,30 +609,11 @@
     }
 
     function onTrackLoaded(idx, rawPts, lineCoords) {
-      allPlayback[idx] = rawPts;
       loadedCount++;
 
       if (loadedCount === 4) {
-        // All slots resolved — update playback with active tracks only
-        maxLen = 0;
-        for (var i = 0; i < 4; i++) {
-          if (allPlayback[i].length > maxLen) maxLen = allPlayback[i].length;
-        }
-        timeRange.max = Math.max(0, maxLen - 1);
-        setPlayIndex(0);
-
-        // Hz from first non-empty track
-        dataHz = 10;
-        for (var hi = 0; hi < 4; hi++) {
-          if (allPlayback[hi].length > 0) {
-            var hz0 = estimateHz(allPlayback[hi]);
-            if (hz0) { dataHz = hz0; break; }
-          }
-        }
-        // Fit map
+        // All slots resolved — fit map to the combined extent.
         fitAll();
-
-        // Hide loading overlay
         document.getElementById('loadingOverlay').classList.add('hidden');
       } else if (loadedCount === 1 && rawPts.length > 0) {
         // Fit to first loaded track immediately
