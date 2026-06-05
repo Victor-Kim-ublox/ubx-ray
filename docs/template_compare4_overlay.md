@@ -24,9 +24,9 @@ A map viewer that renders GPS tracks from up to 4 UBX files **overlaid on a sing
 
 ### Header (sticky, 60px)
 - "4-Track Overlay" title
-- Toolbar (flex, wrappable), grouped left-to-right:
-  1. **Track toggles** — one colored badge button per file; click to hide/show that track's layer. Long filenames fill the first row.
-  2. **View controls** — `Map` / `Satellite` base toggle plus **Fit All** (combined in one segment); sits at the start of the second row.
+- Toolbar (flex, single row; wraps only if the viewport is too narrow), grouped left-to-right:
+  1. **Track toggles** — one colored badge button per file; click to hide/show that track's layer.
+  2. **View controls** — `Map` / `Satellite` base toggle plus **Fit All** (combined in one segment).
   3. **Distance measurement** — `Distance measure` (click two points for a Haversine read-out), `Clear` (remove the current line).
   4. **Right-side links** — `📊 Report` → `/compare4/report/{rids}` (omitted when `is_kml`), `⊞ Split Map View` → `/compare4/view/{rids}`.
 
