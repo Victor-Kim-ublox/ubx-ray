@@ -434,14 +434,17 @@
       }));
     }
 
-    // Close buttons
-    document.querySelectorAll('.ol-popup-closer').forEach(function(el) {
-      el.addEventListener('click', function(e) {
-        e.preventDefault();
-        var idx = parseInt(el.dataset.idx, 10);
-        popupOverlays[idx].setPosition(undefined);
-        document.getElementById('popup'+(idx+1)).style.display = 'none';
-      });
+    // Close buttons — delegated on document so the handler survives OpenLayers
+    // moving each popup element into its map's overlay container (per-element
+    // listeners attached here, before the maps are built, did not fire).
+    document.addEventListener('click', function(e) {
+      var closer = e.target.closest && e.target.closest('.ol-popup-closer');
+      if (!closer) return;
+      e.preventDefault();
+      var idx = parseInt(closer.dataset.idx, 10);
+      if (popupOverlays[idx]) popupOverlays[idx].setPosition(undefined);
+      var pe = document.getElementById('popup'+(idx+1));
+      if (pe) pe.style.display = 'none';
     });
 
     // ── Build 4 Maps ──────────────────────────────────────────────────────
