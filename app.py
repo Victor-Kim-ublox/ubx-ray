@@ -94,7 +94,8 @@ CLN_MAX_TOTAL_BYTES = 10 * 1024**3   # 10GB (uploads + outputs)
 CLN_MAX_RESULTS_PER_USER = 10        # 사용자별 최신 10개만 보존 (queued/running 제외)
 CLN_RETAIN_DAYS = 7                  # 업로드 후 7일 TTL
 CLN_INTERVAL_SEC = 60 * 60           # 60분마다 한 번씩
-MAX_UPLOAD_BYTES = int(os.getenv("UBXRAY_MAX_UPLOAD_MB", "300")) * 1024**2  # 300MB default
+MAX_UPLOAD_MB = int(os.getenv("UBXRAY_MAX_UPLOAD_MB", "300"))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024**2  # 300MB default
 ALLOWED_UPLOAD_EXTS = {".ubx", ".bin"}
 UBX_MAGIC = b'\xb5\x62'  # u-blox UBX sync chars
 UBX_SNIFF_WINDOW = 65536  # bytes scanned from file head to validate UBX content
@@ -446,7 +447,10 @@ def ensure_owner_or_404(rid: str, user_id: str, admin: bool = False):
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     # cookie is set by middleware
-    return templates.TemplateResponse("home.html", {"request": request})
+    return templates.TemplateResponse(
+        "home.html",
+        {"request": request, "max_upload_mb": MAX_UPLOAD_MB},
+    )
 
 @app.post("/upload")
 async def upload(
@@ -484,7 +488,11 @@ async def upload(
     if content_len:
         try:
             if int(content_len) > MAX_UPLOAD_BYTES:
-                return PlainTextResponse("File too large", status_code=413)
+                size_mb = int(content_len) / (1024 ** 2)
+                return PlainTextResponse(
+                    f"File too large ({size_mb:.1f} MB). Only files under {MAX_UPLOAD_MB} MB are allowed.",
+                    status_code=413,
+                )
         except ValueError:
             pass
 
@@ -501,7 +509,10 @@ async def upload(
                 f.close()
                 with contextlib.suppress(FileNotFoundError):
                     os.remove(save_path)
-                return PlainTextResponse("File too large", status_code=413)
+                return PlainTextResponse(
+                    f"File too large. Only files under {MAX_UPLOAD_MB} MB are allowed.",
+                    status_code=413,
+                )
             f.write(chunk)
     # Validate UBX content (scan the first 64 KB for sync bytes) before processing
     if not looks_like_ubx(save_path):
@@ -708,7 +719,10 @@ def kml_preview(request: Request, rid: str, authorization: Optional[str] = Heade
 # =========================
 @app.get("/compare4", response_class=HTMLResponse)
 def compare4_page(request: Request):
-    return templates.TemplateResponse("compare4.html", {"request": request})
+    return templates.TemplateResponse(
+        "compare4.html",
+        {"request": request, "max_upload_mb": MAX_UPLOAD_MB},
+    )
 
 @app.post("/compare4/upload")
 async def compare4_upload(
@@ -776,7 +790,10 @@ async def compare4_upload(
                 if total > MAX_UPLOAD_BYTES:
                     with contextlib.suppress(FileNotFoundError):
                         os.remove(save_path)
-                    return PlainTextResponse(f"File {idx_f+1} too large", status_code=413)
+                    return PlainTextResponse(
+                        f"File {idx_f+1} too large. Only files under {MAX_UPLOAD_MB} MB are allowed.",
+                        status_code=413,
+                    )
                 f.write(chunk)
 
         # Validate UBX content (scan the first 64 KB for sync bytes)

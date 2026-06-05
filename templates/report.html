@@ -131,12 +131,6 @@
     .chart-note { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
   </style>
 
-  {% if r.status != 'done' %}
-  <script>
-    setTimeout(() => location.reload(), 3000);
-  </script>
-  {% endif %}
-
   <script>
     // Show/hide chart box
     function toggleChart(boxId, btn) {
@@ -172,8 +166,11 @@
     <!-- ① Metadata -->
     <div class="section-title">① Metadata</div>
     <div class="card">
-      <span class="status {{ r.status|e }}">
+      <span class="status {{ r.status|e }}" id="statusBadge" data-status="{{ r.status|e }}">
         {{ r.status|capitalize }}{% if r.status == 'error' and r.error %} — {{ r.error }}{% endif %}
+        {% if r.status in ['queued', 'running'] %}
+          <span id="statusTick" style="opacity:.7;"> · auto-updating</span>
+        {% endif %}
       </span>
 
       <table class="meta-table">
@@ -182,17 +179,6 @@
         <tr><th>Total Epochs</th><td>{{ r.epoch_total if r.epoch_total is not none else '—' }}</td></tr>
         <tr><th>Missing Epochs</th><td>{{ r.epoch_missing if r.epoch_missing is not none else '—' }}</td></tr>
       </table>
-
-      <div class="action-row">
-        {% if r.kmz_path %}
-          <a class="hbtn primary" href="/download?path={{ r.kmz_path|urlencode }}">⬇ Download KMZ</a>
-          <a class="hbtn" href="/map/{{ r.id }}" target="_blank" rel="noopener">🗺 View on Map</a>
-        {% elif r.status in ['queued','running'] %}
-          <span class="status running">Processing… (auto-refreshing)</span>
-        {% else %}
-          <span class="status error">Not generated{% if r.error %}: {{ r.error }}{% endif %}</span>
-        {% endif %}
-      </div>
     </div>
 
     {% if graph_data %}
@@ -258,6 +244,58 @@
     {% endif %}
 
   </div><!-- /page -->
+
+  {% if r.status in ['queued', 'running'] %}
+  <script>
+    // Poll /api/status/{rid} every 3s. While queued/running, update only the
+    // status badge in place (no full page reload, so the user's scroll
+    // position and any chart zoom state are preserved). When the backend
+    // reports "done" (or a terminal "error" state), perform a single
+    // location.reload() so the freshly-generated graph_data is rendered.
+    (function() {
+      const RID = {{ r.id | tojson }};
+      const POLL_MS = 3000;
+      const badge = document.getElementById('statusBadge');
+
+      function setBadge(status, errMsg) {
+        if (!badge) return;
+        // Swap the CSS class (done / error / queued / running).
+        badge.classList.remove('done', 'error', 'queued', 'running');
+        if (status) badge.classList.add(status);
+        const label = status ? (status.charAt(0).toUpperCase() + status.slice(1)) : 'Unknown';
+        const suffix = (status === 'error' && errMsg) ? ' — ' + errMsg : '';
+        const tick = (status === 'queued' || status === 'running')
+          ? ' <span id="statusTick" style="opacity:.7;"> · auto-updating</span>'
+          : '';
+        badge.innerHTML = label + suffix + tick;
+        badge.dataset.status = status || '';
+      }
+
+      async function poll() {
+        try {
+          const res = await fetch('/api/status/' + encodeURIComponent(RID), { cache: 'no-store' });
+          if (!res.ok) { setTimeout(poll, POLL_MS); return; }
+          const data = await res.json();
+          const s = data.status;
+
+          if (s === 'done' || s === 'error') {
+            setBadge(s, data.error);
+            // One-shot reload so the full report (with graph_data and the
+            // KMZ/Map buttons in the header) renders.
+            setTimeout(() => location.reload(), 400);
+            return;
+          }
+          setBadge(s);
+        } catch (e) {
+          // Network hiccup — keep polling silently.
+        }
+        setTimeout(poll, POLL_MS);
+      }
+
+      setTimeout(poll, POLL_MS);
+    })();
+  </script>
+  {% endif %}
 
 {% if graph_data %}
   <script>
