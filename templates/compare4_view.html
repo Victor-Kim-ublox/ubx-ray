@@ -427,7 +427,9 @@
     for (var pi = 0; pi < 4; pi++) {
       popupOverlays.push(new ol.Overlay({
         element: document.getElementById('popup'+(pi+1)),
-        autoPan: { animation: { duration: 200 } },
+        // autoPan disabled: panels share a synced view, so auto-panning one
+        // popup into view would shift all four maps on every click.
+        autoPan: false,
         offset: [0, -10]
       }));
     }

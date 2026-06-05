@@ -368,7 +368,8 @@
     var popupDesc   = document.getElementById('popup-desc');
     var popupOverlay = new ol.Overlay({
       element: popupEl,
-      autoPan: { animation: { duration: 250 } },
+      // autoPan disabled so clicking a track/point doesn't shift the map.
+      autoPan: false,
       offset: [0, -12]
     });
     map.addOverlay(popupOverlay);
