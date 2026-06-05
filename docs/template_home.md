@@ -53,10 +53,12 @@ conversion). Modeled on the Multi tab's input screen.
   `oversizedFileError` / `MAX_UPLOAD_MB` size validation
 - Upload & Compare button → form action `/compare4/kml/upload`
 
-> **Status: input screen only.** The submit handler `startKmlUpload` validates
-> selection + size and currently shows a placeholder alert — the
-> `/compare4/kml/upload` backend and comparison pipeline are **not yet
-> implemented**. Wiring them is a follow-up task.
+The submit handler `startKmlUpload` validates selection + size, then performs a
+native form submit. The server (`POST /compare4/kml/upload`) stores each track
+with **no conversion step** — there is no progress UI because processing is
+instant — and 303-redirects straight to the overlay map view. From there the
+split view is one click away. KML comparisons are **map-only** (no graph data),
+so the map views omit their `📊 Report` button for these groups.
 
 Deep link: `?tab=kml` opens this tab directly.
 

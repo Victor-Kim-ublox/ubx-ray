@@ -97,6 +97,7 @@ CLN_INTERVAL_SEC = 60 * 60           # 60분마다 한 번씩
 MAX_UPLOAD_MB = int(os.getenv("UBXRAY_MAX_UPLOAD_MB", "300"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024**2  # 300MB default
 ALLOWED_UPLOAD_EXTS = {".ubx", ".bin"}
+ALLOWED_KML_EXTS = {".kml", ".kmz"}   # direct KML/KMZ comparison uploads
 UBX_MAGIC = b'\xb5\x62'  # u-blox UBX sync chars
 UBX_SNIFF_WINDOW = 65536  # bytes scanned from file head to validate UBX content
 ALLOWED_HZ = {1, 2, 5, 10}    # valid downsample rates exposed in the UI
@@ -116,6 +117,53 @@ def looks_like_ubx(path: str, window: int = UBX_SNIFF_WINDOW) -> bool:
     except OSError:
         return False
     return UBX_MAGIC in head
+
+def extract_kml_bytes(path: str) -> Optional[bytes]:
+    """Return the KML document bytes from a .kml or .kmz file, or None if the
+    file does not look like KML.
+
+    - `.kmz` (or any zip): returns the first ``*.kml`` entry inside the archive.
+    - `.kml` (raw XML): returns the file bytes if they contain a ``<kml`` tag.
+    """
+    try:
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path, "r") as z:
+                # Prefer doc.kml, else the first .kml entry in the archive.
+                names = z.namelist()
+                kml_name = next((n for n in names if n.lower() == "doc.kml"), None)
+                if kml_name is None:
+                    kml_name = next((n for n in names if n.lower().endswith(".kml")), None)
+                if kml_name is None:
+                    return None
+                data = z.read(kml_name)
+                return data if b"<kml" in data[:8192] else None
+        # Raw KML: cheap sniff for the root tag near the top of the file.
+        with open(path, "rb") as fh:
+            data = fh.read()
+        if b"<kml" in data[:65536]:
+            return data
+        return None
+    except (OSError, zipfile.BadZipFile):
+        return None
+
+def _opts_is_kml(opts_json: Optional[str]) -> bool:
+    """True if a result row's opts_json marks it as a direct KML upload."""
+    if not opts_json:
+        return False
+    try:
+        return bool(json.loads(opts_json).get("kml"))
+    except (ValueError, TypeError):
+        return False
+
+def write_normalized_kmz(kml_bytes: bytes, dest_path: str) -> None:
+    """Write a KMZ containing the given KML as ``doc.kml`` at `dest_path`.
+
+    Normalizing every KML/KMZ upload to a single-entry ``doc.kml`` archive lets
+    the existing ``/kml/{rid}`` endpoint and map views serve them unchanged.
+    """
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    with zipfile.ZipFile(dest_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("doc.kml", kml_bytes)
 
 # ===== Upload rate limiting (sliding window, in-memory) =====
 RATE_LIMIT_UPLOADS = 10        # max uploads per user per window
@@ -838,6 +886,115 @@ async def compare4_upload(
         status_code=303,
     )
 
+@app.post("/compare4/kml/upload")
+async def compare4_kml_upload(
+    request: Request,
+    file1: UploadFile = File(...),
+    file2: Optional[UploadFile] = File(None),
+    file3: Optional[UploadFile] = File(None),
+    file4: Optional[UploadFile] = File(None),
+):
+    """Upload 1-4 KML/KMZ tracks and compare them directly on a map.
+
+    Unlike the UBX pipeline there is no conversion step: each uploaded file is
+    validated, normalized to a single-entry ``doc.kml`` KMZ under
+    ``outputs/{rid}/result.kmz``, and inserted as a ``done`` result. The
+    existing ``/kml/{rid}`` endpoint and the split/overlay map views then work
+    unchanged. Redirects to the overlay map view.
+    """
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+
+    if not _check_rate_limit(user_id):
+        return PlainTextResponse("Too many uploads. Please wait before uploading again.",
+                                 status_code=429)
+
+    SENTINEL = "_"
+    rids = []
+    for idx_f, file in enumerate([file1, file2, file3, file4]):
+        # Empty/missing optional slots get the sentinel value
+        if file is None or not (file.filename or "").strip():
+            rids.append(SENTINEL)
+            continue
+
+        rid = uuid.uuid4().hex[:8]
+        clean_name = os.path.basename(file.filename or "")
+        if not clean_name:
+            clean_name = f"track{idx_f+1}.kml"
+
+        ext = Path(clean_name).suffix.lower()
+        if ext not in ALLOWED_KML_EXTS:
+            return PlainTextResponse(
+                f"File {idx_f+1} unsupported type: {ext or '(none)'}; allowed: {', '.join(sorted(ALLOWED_KML_EXTS))}",
+                status_code=400,
+            )
+
+        save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+        total = 0
+        with open(save_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    with contextlib.suppress(FileNotFoundError):
+                        os.remove(save_path)
+                    return PlainTextResponse(
+                        f"File {idx_f+1} too large. Only files under {MAX_UPLOAD_MB} MB are allowed.",
+                        status_code=413,
+                    )
+                f.write(chunk)
+
+        # Validate + extract the KML payload, then normalize to a doc.kml KMZ.
+        kml_bytes = extract_kml_bytes(save_path)
+        if kml_bytes is None:
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(save_path)
+            return PlainTextResponse(
+                f"File {idx_f+1} is not a valid KML/KMZ file", status_code=400
+            )
+
+        kmz_path = os.path.join(OUTPUT_DIR, rid, "result.kmz")
+        try:
+            write_normalized_kmz(kml_bytes, kmz_path)
+        except OSError as e:
+            logger.exception(f"[compare4-kml] KMZ write failed for {rid}: {e}")
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(save_path)
+            return PlainTextResponse(f"File {idx_f+1} could not be stored", status_code=500)
+
+        opts = {"kml": True}
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO results (id, user_id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
+                                     kmz_path, opts_json, status, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'done', NULL)
+            """, (
+                rid, user_id, clean_name, datetime.utcnow().isoformat(),
+                None, None, None, kmz_path, json.dumps(opts),
+            ))
+            conn.commit()
+
+        rids.append(rid)
+        logger.info(f"[compare4-kml] stored {rid} ({clean_name}) for user {user_id}")
+
+    # Tag all real slots as 'multi' and record the full group path
+    compare_group = f"{rids[0]}/{rids[1]}/{rids[2]}/{rids[3]}"
+    with get_db() as conn:
+        for rid in rids:
+            if rid != "_":
+                conn.execute(
+                    "UPDATE results SET upload_type='multi', compare_group=? WHERE id=?",
+                    (compare_group, rid),
+                )
+        conn.commit()
+
+    # KML comparison is map-only (no graph data) — land on the overlay view.
+    return RedirectResponse(
+        url=f"/compare4/overlay/{compare_group}",
+        status_code=303,
+    )
+
 @app.get("/compare4/view/{rid1}/{rid2}/{rid3}/{rid4}", response_class=HTMLResponse)
 def compare4_view(
     request: Request,
@@ -849,6 +1006,7 @@ def compare4_view(
     rids = [rid1, rid2, rid3, rid4]
 
     filenames = []
+    is_kml = False
     for rid in rids:
         if rid == "_":
             filenames.append("")
@@ -859,13 +1017,16 @@ def compare4_view(
                 return HTMLResponse("<h2>Forbidden</h2>", status_code=403)
             return HTMLResponse("<h2>Result not found</h2>", status_code=404)
         with get_db() as conn:
-            row = conn.execute("SELECT filename FROM results WHERE id=?", (rid,)).fetchone()
+            row = conn.execute("SELECT filename, opts_json FROM results WHERE id=?", (rid,)).fetchone()
         filenames.append(row[0] if row else "unknown")
+        if row and _opts_is_kml(row[1]):
+            is_kml = True
 
     return templates.TemplateResponse("compare4_view.html", {
         "request": request,
         "rids": rids,
         "filenames": filenames,
+        "is_kml": is_kml,
     })
 
 @app.get("/compare4/overlay/{rid1}/{rid2}/{rid3}/{rid4}", response_class=HTMLResponse)
@@ -879,6 +1040,7 @@ def compare4_overlay(
     rids = [rid1, rid2, rid3, rid4]
 
     filenames = []
+    is_kml = False
     for rid in rids:
         if rid == "_":
             filenames.append("")
@@ -889,13 +1051,16 @@ def compare4_overlay(
                 return HTMLResponse("<h2>Forbidden</h2>", status_code=403)
             return HTMLResponse("<h2>Result not found</h2>", status_code=404)
         with get_db() as conn:
-            row = conn.execute("SELECT filename FROM results WHERE id=?", (rid,)).fetchone()
+            row = conn.execute("SELECT filename, opts_json FROM results WHERE id=?", (rid,)).fetchone()
         filenames.append(row[0] if row else "unknown")
+        if row and _opts_is_kml(row[1]):
+            is_kml = True
 
     return templates.TemplateResponse("compare4_overlay.html", {
         "request": request,
         "rids": rids,
         "filenames": filenames,
+        "is_kml": is_kml,
     })
 
 @app.get("/api/status/{rid}")

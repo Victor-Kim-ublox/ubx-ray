@@ -183,9 +183,11 @@
     <div class="sep" style="margin-left:auto;"></div>
 
     <div style="display:flex;gap:6px;">
+      {% if not is_kml %}
       <a id="reportLink"  href="#" class="btn" style="background:#0f172a;color:#fff;border:1px solid #0f172a;font-size:12px;">
         📊 Report
       </a>
+      {% endif %}
       <a id="overlayLink" href="#" class="btn" style="background:#FF6E59;color:#fff;border:1px solid #FF6E59;font-size:12px;">
         ⊙ Overlay Map View
       </a>
@@ -765,8 +767,9 @@
     // ── Overlay / Report 링크 설정 ───────────────────────────────────────
     document.getElementById('overlayLink').href =
       '/compare4/overlay/' + RIDS.join('/');
-    document.getElementById('reportLink').href =
-      '/compare4/report/' + RIDS.join('/');
+    // Report button is omitted for KML-only comparisons (no graph data).
+    var reportLinkEl = document.getElementById('reportLink');
+    if (reportLinkEl) reportLinkEl.href = '/compare4/report/' + RIDS.join('/');
 
     // ── Init ──────────────────────────────────────────────────────────────
     window.addEventListener('DOMContentLoaded', function() {

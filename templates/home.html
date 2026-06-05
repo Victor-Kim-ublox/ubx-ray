@@ -592,10 +592,13 @@
     }
 
     // ==============================
-    // KML Comparison Logic (input screen only — backend not wired yet)
+    // KML Comparison Logic
     // ==============================
+    let kmlUploading = false;
+
     function startKmlUpload(event) {
       event.preventDefault();
+      if (kmlUploading) return;
 
       const fi1 = document.getElementById("kFile1");
       if (!fi1.files.length) { alert("Please select at least KML 1."); return; }
@@ -613,10 +616,13 @@
       const sizeErr = oversizedFileError(kmlFiles, idx => kmlLabels[idx]);
       if (sizeErr) { alert(sizeErr); return; }
 
-      // TODO: backend endpoint /compare4/kml/upload not implemented yet.
-      // For now this is the input screen only; wire the upload + comparison
-      // pipeline in a follow-up.
-      alert(`Selected ${kmlFiles.length} KML file(s). The KML comparison backend is not wired up yet — this is the input screen only.`);
+      // KML comparison has no conversion step — the server stores the tracks
+      // and 303-redirects straight to the overlay map view. A plain native
+      // submit is enough; just guard against double-submit and show a hint.
+      kmlUploading = true;
+      const btn = document.getElementById("kmlSubmitBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "Uploading…"; }
+      document.getElementById("kmlForm").submit();
     }
 
     // ==============================

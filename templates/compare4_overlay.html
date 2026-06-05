@@ -236,7 +236,9 @@
 
     <!-- Right side: view switcher -->
     <div style="display:flex;gap:6px;flex-shrink:0;">
+      {% if not is_kml %}
       <a id="reportLink"    href="#" class="btn" style="background:#0f172a;color:#fff;border:1px solid #0f172a;font-size:12px;">📊 Report</a>
+      {% endif %}
       <a id="splitViewLink" href="#" class="btn" style="background:#f3f4f6;border:1px solid #d1d5db;font-size:12px;">⊞ Split Map View</a>
     </div>
   </header>
@@ -281,8 +283,9 @@
     // Split view / Report link
     document.getElementById('splitViewLink').href =
       '/compare4/view/' + RIDS.join('/');
-    document.getElementById('reportLink').href =
-      '/compare4/report/' + RIDS.join('/');
+    // Report button is omitted for KML-only comparisons (no graph data).
+    var reportLinkEl = document.getElementById('reportLink');
+    if (reportLinkEl) reportLinkEl.href = '/compare4/report/' + RIDS.join('/');
 
     // Count active (non-sentinel) tracks
     var activeTrackCount = RIDS.filter(function(r) { return r !== '_'; }).length;

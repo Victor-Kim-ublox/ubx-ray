@@ -16,6 +16,7 @@ A map viewer that renders GPS tracks from up to 4 UBX files **overlaid on a sing
 |---|---|---|
 | `rids` | list[str] | 4 result IDs (`"_"` for empty slots) |
 | `filenames` | list[str] | Filename corresponding to each rid |
+| `is_kml` | bool | True when the group came from a direct KML/KMZ upload; hides the `📊 Report` button (KML comparisons have no graph data) |
 
 ---
 
@@ -28,7 +29,7 @@ A map viewer that renders GPS tracks from up to 4 UBX files **overlaid on a sing
   2. **View controls** — `Map` / `Satellite` base toggle plus **Fit All** (combined in one segment); sits at the start of the second row alongside Playback.
   3. **Playback** — `▶ Play` / `⏸ Pause`, speed selector (1× / 2× / 5× / 10×), timeline slider, UTC readout, `Follow`.
   4. **Distance measurement** — `Distance measure` (click two points for a Haversine read-out), `Clear` (remove the current line).
-  5. **Right-side links** — `📊 Report` → `/compare4/report/{rids}`, `⊞ Split Map View` → `/compare4/view/{rids}`.
+  5. **Right-side links** — `📊 Report` → `/compare4/report/{rids}` (omitted when `is_kml`), `⊞ Split Map View` → `/compare4/view/{rids}`.
 
 ### Map (`#map`)
 Full-screen OpenLayers single map instance (viewport height minus header).
