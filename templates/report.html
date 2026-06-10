@@ -312,7 +312,7 @@
     const minX = xLabels.length > 0 ? xLabels[0] : null;
     const maxX = xLabels.length > 0 ? xLabels[xLabels.length - 1] : null;
 
-    // iTOW -> UTC HH:MM:SS
+    // iTOW -> UTC HH:MM:SS.cc (seconds with exactly two decimals)
     function formatITOW(itow) {
         if (itow == null) return '';
         let ms = itow - 18000;
@@ -324,8 +324,9 @@
         const hh = Math.floor(rem / 3600).toString().padStart(2, '0');
         const mm = Math.floor((rem % 3600) / 60).toString().padStart(2, '0');
         const ss = (rem % 60).toString().padStart(2, '0');
+        const cc = Math.floor((ms % 1000) / 10).toString().padStart(2, '0');
 
-        return `${hh}:${mm}:${ss}`;
+        return `${hh}:${mm}:${ss}.${cc}`;
     }
 
     // Sync zoom/pan across all charts (snap to 100ms grid)

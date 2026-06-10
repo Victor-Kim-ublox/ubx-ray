@@ -556,9 +556,14 @@
       return sanitizeHtml(lines.length ? lines.join('<br>') : d);
     }
 
+    // "YYYY-MM-DD HH:MM:SS.cc UTC" — seconds with exactly two decimals.
+    function fmtUtc(d) {
+      return d.toISOString().replace('T', ' ').replace(/\.(\d{2})\d*Z$/, '.$1 UTC');
+    }
+
     // Find the displayed vertex of panel `idx` closest to a 3857 coordinate,
     // returning the snapped coordinate and an HTML info block
-    // (lat/lon/alt + time when the source KML carried timestamps).
+    // (time when the source KML carried timestamps + lat/lon/alt).
     function nearestTrackInfo(idx, coordinate) {
       var coords = trackSampled[idx];
       if (!coords || !coords.length) return null;
@@ -574,13 +579,13 @@
       var pt = (trackPtsSampled[idx] && trackPtsSampled[idx][best]) || null;
       var lines = [];
       if (pt) {
+        if (pt.t && !isNaN(pt.t.getTime())) {
+          lines.push('<b>Time</b>: ' + fmtUtc(pt.t));
+        }
         lines.push('<b>Lat</b>: ' + pt.lat.toFixed(6));
         lines.push('<b>Lon</b>: ' + pt.lon.toFixed(6));
         if (isFinite(pt.alt) && pt.alt !== 0) {
           lines.push('<b>Alt</b>: ' + Number(pt.alt).toFixed(1) + ' m');
-        }
-        if (pt.t && !isNaN(pt.t.getTime())) {
-          lines.push('<b>Time</b>: ' + pt.t.toISOString().replace('T', ' ').replace('Z', ' UTC'));
         }
       } else {
         var ll = ol.proj.toLonLat([c[0], c[1]]);

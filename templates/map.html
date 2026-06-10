@@ -422,7 +422,8 @@
       const coord = ol.proj.fromLonLat([p.lon, p.lat]);
       marker.getGeometry().setCoordinates(coord);
       marker.changed();
-      timeLabel.textContent = p.t ? p.t.toISOString().replace('T',' ').replace('Z',' UTC') : '--';
+      // Seconds with exactly two decimals: "YYYY-MM-DD HH:MM:SS.cc UTC"
+      timeLabel.textContent = p.t ? p.t.toISOString().replace('T',' ').replace(/\.(\d{2})\d*Z$/, '.$1 UTC') : '--';
       if (followEnabled) map.getView().setCenter(coord);
     }
 

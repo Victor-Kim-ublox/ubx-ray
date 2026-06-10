@@ -18,6 +18,7 @@ import math
 import zipfile
 import json
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 UBX_SYNC1 = 0xB5
 UBX_SYNC2 = 0x62
@@ -254,6 +255,7 @@ def parse_nav_pvt(payload: memoryview):
         "iTOW": iTOW,
         "year": year, "month": month, "day": day,
         "hour": hour, "min": minute, "sec": sec,
+        "nano": nano,   # signed ns offset of the second (for sub-second timestamps)
         "validDate": validDate, "validTime": validTime,
         "fixType": fixType,
         "flags": flags,
@@ -528,7 +530,18 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     heading_true = normalize_heading(heading_raw)
                     icon_heading = normalize_heading(heading_true + 180.0)
 
-                    ts = f"{rec['year']:04d}-{rec['month']:02d}-{rec['day']:02d}T{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}Z"
+                    # Timestamp with two decimal places on the seconds, using
+                    # the NAV-PVT `nano` field (signed ns offset, may roll the
+                    # second backwards). Shown in the popup description and
+                    # used as the KML <when> for playback ordering.
+                    try:
+                        t = datetime(rec['year'], rec['month'], rec['day'],
+                                     rec['hour'], rec['min'], rec['sec']) \
+                            + timedelta(seconds=rec.get('nano', 0) * 1e-9)
+                        ts = t.strftime("%Y-%m-%dT%H:%M:%S") + f".{t.microsecond // 10000:02d}Z"
+                    except ValueError:
+                        ts = (f"{rec['year']:04d}-{rec['month']:02d}-{rec['day']:02d}"
+                              f"T{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}.00Z")
                     href = "https://maps.google.com/mapfiles/kml/shapes/arrow.png"
                     
                     if alt_abs:

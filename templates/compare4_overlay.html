@@ -476,14 +476,19 @@
       return { coord: coords[best], html: formatPointInfo(pt, best, coords.length) };
     }
 
-    // Build the popup body for a track point (lat/lon/alt/time/index).
+    // "YYYY-MM-DD HH:MM:SS.cc UTC" — seconds with exactly two decimals.
+    function fmtUtc(d) {
+      return d.toISOString().replace('T', ' ').replace(/\.(\d{2})\d*Z$/, '.$1 UTC');
+    }
+
+    // Build the popup body for a track point (time/lat/lon/alt/index).
     function formatPointInfo(pt, i, total) {
       var lines = [];
       if (pt && pt.lat != null && pt.lon != null) {
+        if (pt.t && !isNaN(pt.t.getTime())) lines.push('<b>Time</b>: ' + fmtUtc(pt.t));
         lines.push('<b>Lat</b>: ' + pt.lat.toFixed(6));
         lines.push('<b>Lon</b>: ' + pt.lon.toFixed(6));
         if (pt.alt != null) lines.push('<b>Alt</b>: ' + Number(pt.alt).toFixed(1) + ' m');
-        if (pt.t && !isNaN(pt.t.getTime())) lines.push('<b>Time</b>: ' + pt.t.toISOString().replace('T', ' ').replace('Z', ' UTC'));
       }
       lines.push('<b>Point</b>: ' + (i + 1) + ' / ' + total);
       return lines.join('<br>');

@@ -338,14 +338,15 @@
 
     RIDS.forEach(function(r, i){ fetchGraph(i); });
 
-    // ── iTOW → HH:MM:SS ─────────────────────────────────────────────────
+    // ── iTOW → HH:MM:SS.cc (seconds with exactly two decimals) ──────────
     function fmtITOW(itow) {
       var ms = itow - 18000; if (ms < 0) ms += 604800000;
       var s  = Math.floor(ms / 1000) % 86400;
       var hh = String(Math.floor(s/3600)).padStart(2,'0');
       var mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
       var ss = String(s%60).padStart(2,'0');
-      return hh+':'+mm+':'+ss;
+      var cc = String(Math.floor((ms % 1000) / 10)).padStart(2,'0');
+      return hh+':'+mm+':'+ss+'.'+cc;
     }
 
     // ── Compute CDF ────────────────────────────────────────────────────────

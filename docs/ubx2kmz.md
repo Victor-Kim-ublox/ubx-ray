@@ -52,6 +52,7 @@ The "Top 5 Avg" is now divided by `len(top_k)` instead of a fixed 5, so epochs w
 |---|---|---|
 | iTOW | 0–3 | ms (32-bit unsigned) |
 | year/month/day/hour/min/sec | 4–9 | Constructs UTC timestamp |
+| nano | 16–19 | signed ns offset of the second; gives the timestamp two decimal places (`SS.cc`, may roll the second backwards when negative) |
 | fixType | 20 | 0=NoFix, 2=2D, 3=3D, 4=GNSS+DR, 5=Time-only |
 | flags | 21 | gnssFixOK bit (bit 0) |
 | lon | 24–27 | ×1e-7 → degrees |
@@ -73,7 +74,7 @@ Each NAV-PVT epoch produces one `<Placemark>`:
 
 ```xml
 <Placemark>
-  <TimeStamp><when>2024-01-01T12:00:00Z</when></TimeStamp>
+  <TimeStamp><when>2024-01-01T12:00:00.00Z</when></TimeStamp>
   <Style>
     <IconStyle>
       <color>FF00FF00</color>   <!-- color based on fixType -->
