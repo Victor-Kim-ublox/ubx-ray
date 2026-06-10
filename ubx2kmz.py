@@ -446,7 +446,9 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             if cls_ == target_class and id_ == PVT_ID:
                 total_msgs += 1
                 rec = parse_nav_pvt(payload)
-                if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 3, 4):
+                # fixType: 1=DR only, 2=2D, 3=3D, 4=GNSS+DR. 0 (no fix) and
+                # 5 (time only) carry no usable position and are skipped.
+                if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 2, 3, 4):
                     last_pvt_itow = rec["iTOW"]
                     # === [추가됨] Missing Epoch 계산 로직 ===
                     curr_itow = rec["iTOW"]
@@ -504,6 +506,10 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                         else:
                             heading_raw = rec["headMot"]; heading_src = "headMot"
                         color = "FFFF0000"
+                    elif rec["fixType"] == 2:
+                        # 2D fix: yellow, heading from motion (vehicle heading
+                        # is not meaningful without a 3D solution).
+                        heading_raw = rec["headMot"]; heading_src = "headMot"; color = "FF00FFFF"
                     elif rec["fixType"] == 3:
                         heading_raw = rec["headMot"]; heading_src = "headMot"; color = "FF00C800"
                     elif rec["fixType"] == 4:

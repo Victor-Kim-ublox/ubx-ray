@@ -91,13 +91,17 @@ Each NAV-PVT epoch produces one `<Placemark>`:
 
 ### Icon Color by fixType (KML AABBGGRR format)
 
+Epochs with `fixType` in `(1, 2, 3, 4)` are kept; `0` (no fix) and `5`
+(time only) carry no usable position and are skipped entirely.
+
 | fixType | Color | Meaning |
 |---|---|---|
-| 3 or 4 | `FF00FF00` green | Normal 3D / DR Fix |
+| 3 | `FF00C800` green | 3D Fix |
+| 4 | `FF00A5FF` orange | GNSS + Dead Reckoning |
 | 2 | `FF00FFFF` yellow | 2D Fix |
-| 0 or 1 | `FF0000FF` red | No Fix / Dead Reckoning only |
+| 1 | `FF800080` purple | Dead Reckoning only |
 
-If `gnssFixOK=0`, the icon is always red regardless of fix type.
+If `gnssFixOK=0`, the icon is always red (`FFFF0000`) regardless of fix type.
 
 ---
 
