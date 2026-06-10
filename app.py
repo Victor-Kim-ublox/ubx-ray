@@ -477,6 +477,18 @@ def run_ubx2kmz(
 # =========================
 # Async queue wrapper (limit concurrency)
 # =========================
+# Strong references to in-flight background tasks. asyncio keeps only weak
+# references to tasks, so a fire-and-forget create_task() result can be
+# garbage-collected mid-conversion (documented asyncio footgun) — the job
+# would then sit in 'queued'/'running' forever.
+_bg_tasks: set = set()
+
+def spawn_bg(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
 async def enqueue_convert(filepath, rid, **opts):
     with get_db() as conn:
         conn.execute("UPDATE results SET status='queued', error=NULL WHERE id=?", (rid,))
@@ -615,7 +627,7 @@ async def upload(
         ))
         conn.commit()
 
-    asyncio.create_task(enqueue_convert(save_path, rid, **opts))
+    spawn_bg(enqueue_convert(save_path, rid, **opts))
 
     return RedirectResponse(url=f"/report/{rid}", status_code=303)
 
@@ -882,7 +894,7 @@ async def compare4_upload(
             ))
             conn.commit()
 
-        asyncio.create_task(enqueue_convert(save_path, rid, **opts))
+        spawn_bg(enqueue_convert(save_path, rid, **opts))
         rids.append(rid)
         logger.info(f"[compare4] queued {rid} ({clean_name}) for user {user_id}")
 
