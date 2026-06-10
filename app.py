@@ -135,6 +135,16 @@ def extract_kml_bytes(path: str) -> Optional[bytes]:
                     kml_name = next((n for n in names if n.lower().endswith(".kml")), None)
                 if kml_name is None:
                     return None
+                # Zip-bomb guard: the upload size limit only bounds the
+                # *compressed* archive. Reject entries whose declared
+                # uncompressed size exceeds the upload cap before reading
+                # them fully into memory.
+                info = z.getinfo(kml_name)
+                if info.file_size > MAX_UPLOAD_BYTES:
+                    logger.warning(
+                        f"KML entry too large ({info.file_size} B uncompressed) in {path}"
+                    )
+                    return None
                 data = z.read(kml_name)
                 return data if b"<kml" in data[:8192] else None
         # Raw KML: cheap sniff for the root tag near the top of the file.
