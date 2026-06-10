@@ -522,15 +522,35 @@
       }
     })();
 
+    // Sanitize untrusted HTML (KML <description> comes from the uploaded file)
+    // before it is assigned to innerHTML: drop script-capable elements, on*
+    // handlers, and javascript: URLs.
+    function sanitizeHtml(html) {
+      var doc = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+      var root = doc.body;
+      root.querySelectorAll('script,iframe,object,embed,form,style,link,meta,base').forEach(function(el){ el.remove(); });
+      root.querySelectorAll('*').forEach(function(el){
+        Array.prototype.slice.call(el.attributes).forEach(function(a){
+          var n = a.name.toLowerCase();
+          var v = (a.value || '').trim().toLowerCase();
+          if (n.indexOf('on') === 0 ||
+              ((n === 'href' || n === 'src' || n === 'xlink:href') && v.indexOf('javascript:') === 0)) {
+            el.removeAttribute(a.name);
+          }
+        });
+      });
+      return root.innerHTML;
+    }
+
     function buildDesc(feature) {
       var d = feature.get('description') || '';
-      if (d && d.trim().charAt(0) === '<') return d;
+      if (d && d.trim().charAt(0) === '<') return sanitizeHtml(d);
       var props = feature.getProperties(), lines = [];
       for (var k in props) {
         if (['geometry','name','description','_role','_track'].indexOf(k) >= 0) continue;
         if (props[k] != null && props[k] !== '') lines.push('<b>'+k+'</b>: '+props[k]);
       }
-      return lines.length ? lines.join('<br>') : d;
+      return sanitizeHtml(lines.length ? lines.join('<br>') : d);
     }
 
     // Find the displayed vertex of panel `idx` closest to a 3857 coordinate,
