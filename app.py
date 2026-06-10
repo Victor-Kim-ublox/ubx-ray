@@ -570,7 +570,9 @@ async def upload(
 
     logger.info(f"Uploaded by {user_id}: {save_path}")
 
-    summary = quick_ubx_summary(save_path)
+    # mmap scan of a file up to MAX_UPLOAD_BYTES — run off the event loop so
+    # other requests aren't stalled while it reads the disk.
+    summary = await run_in_threadpool(quick_ubx_summary, save_path)
 
     hz_val: Optional[int] = None
     s = (hz or "").strip()
@@ -852,7 +854,8 @@ async def compare4_upload(
                 f"File {idx_f+1} is not a valid UBX binary", status_code=400
             )
 
-        summary = quick_ubx_summary(save_path)
+        # mmap scan off the event loop (same reason as the single-upload path).
+        summary = await run_in_threadpool(quick_ubx_summary, save_path)
 
         with get_db() as conn:
             conn.execute("""
@@ -946,7 +949,9 @@ async def compare4_kml_upload(
                 f.write(chunk)
 
         # Validate + extract the KML payload, then normalize to a doc.kml KMZ.
-        kml_bytes = extract_kml_bytes(save_path)
+        # Both steps read/compress up to MAX_UPLOAD_BYTES — keep them off the
+        # event loop.
+        kml_bytes = await run_in_threadpool(extract_kml_bytes, save_path)
         if kml_bytes is None:
             with contextlib.suppress(FileNotFoundError):
                 os.remove(save_path)
@@ -956,7 +961,7 @@ async def compare4_kml_upload(
 
         kmz_path = os.path.join(OUTPUT_DIR, rid, "result.kmz")
         try:
-            write_normalized_kmz(kml_bytes, kmz_path)
+            await run_in_threadpool(write_normalized_kmz, kml_bytes, kmz_path)
         except OSError as e:
             logger.exception(f"[compare4-kml] KMZ write failed for {rid}: {e}")
             with contextlib.suppress(FileNotFoundError):
