@@ -393,8 +393,9 @@ def run_ubx2kmz(
         args += ["--alt-abs"]
     if ck:
         args += ["--ck"]
-    if html:
-        args += ["--html"]
+    # NOTE: `html` is accepted for backward compatibility but intentionally not
+    # forwarded — ubx2kmz.py has no --html argument, and passing it makes
+    # argparse exit(2) so the conversion fails with a confusing error.
     if mapm:
         args += ["--mapm"]
 
