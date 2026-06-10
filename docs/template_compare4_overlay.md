@@ -64,7 +64,9 @@ snapped vertex. This makes the overlaid lines themselves clickable.
 
 For each active rid:
 1. `fetch('/kml/{rid}')` → KML text
-2. Parse with OpenLayers `new ol.format.KML()`
+2. Parse manually with DOMParser, in order: `gx:Track` (`<when>` +
+   `<gx:coord>` pairs) → Point placemarks with optional `<TimeStamp>` →
+   `LineString` placemarks (plain KML routes, no per-vertex time)
 3. Create `new ol.layer.Vector({ source, style })`
 4. Apply per-track color override (see below)
 

@@ -483,7 +483,7 @@
         lines.push('<b>Lat</b>: ' + pt.lat.toFixed(6));
         lines.push('<b>Lon</b>: ' + pt.lon.toFixed(6));
         if (pt.alt != null) lines.push('<b>Alt</b>: ' + Number(pt.alt).toFixed(1) + ' m');
-        if (pt.t)           lines.push('<b>Time</b>: ' + pt.t.toISOString().replace('T', ' ').replace('Z', ' UTC'));
+        if (pt.t && !isNaN(pt.t.getTime())) lines.push('<b>Time</b>: ' + pt.t.toISOString().replace('T', ' ').replace('Z', ' UTC'));
       }
       lines.push('<b>Point</b>: ' + (i + 1) + ' / ' + total);
       return lines.join('<br>');
@@ -635,6 +635,19 @@
               rawPts.push({ t: wn ? new Date(wn.textContent.trim()) : null, lon: parts[0], lat: parts[1], alt: parts[2]||0 });
             }
             if (rawPts.some(function(p){return p.t;})) rawPts.sort(function(a,b){return a.t-b.t;});
+          }
+
+          // LineString fallback (plain KML routes; no per-vertex time)
+          if (!rawPts.length) {
+            var lss = doc.getElementsByTagNameNS(KMLNS, 'LineString');
+            for (var li = 0; li < lss.length; li++) {
+              var lcn = lss[li].getElementsByTagNameNS(KMLNS, 'coordinates')[0];
+              if (!lcn) continue;
+              lcn.textContent.trim().split(/\s+/).forEach(function(tok){
+                var lc = tok.split(',').map(Number);
+                if (lc.length >= 2) rawPts.push({ t: null, lon: lc[0], lat: lc[1], alt: lc[2]||0 });
+              });
+            }
           }
 
           if (!rawPts.length) {

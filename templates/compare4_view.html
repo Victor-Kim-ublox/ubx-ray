@@ -317,6 +317,9 @@
     // Displayed vertices (EPSG:3857) per panel, so a clicked line resolves to
     // its nearest point's coordinates.
     var trackSampled = [[], [], [], []];
+    // Matching source data per displayed vertex ({lon,lat,alt,t}) so the
+    // popup can show altitude and timestamp of the snapped point.
+    var trackPtsSampled = [[], [], [], []];
     for (var vi = 0; vi < 4; vi++) {
       var vsrc = new ol.source.Vector();
       vectorSources.push(vsrc);
@@ -554,7 +557,8 @@
     }
 
     // Find the displayed vertex of panel `idx` closest to a 3857 coordinate,
-    // returning the snapped coordinate and an HTML info block (lat/lon/alt).
+    // returning the snapped coordinate and an HTML info block
+    // (lat/lon/alt + time when the source KML carried timestamps).
     function nearestTrackInfo(idx, coordinate) {
       var coords = trackSampled[idx];
       if (!coords || !coords.length) return null;
@@ -567,12 +571,21 @@
       }
       if (best < 0) return null;
       var c  = coords[best];
-      var ll = ol.proj.toLonLat([c[0], c[1]]);
+      var pt = (trackPtsSampled[idx] && trackPtsSampled[idx][best]) || null;
       var lines = [];
-      lines.push('<b>Lat</b>: ' + ll[1].toFixed(6));
-      lines.push('<b>Lon</b>: ' + ll[0].toFixed(6));
-      if (c.length > 2 && isFinite(c[2]) && c[2] !== 0) {
-        lines.push('<b>Alt</b>: ' + Number(c[2]).toFixed(1) + ' m');
+      if (pt) {
+        lines.push('<b>Lat</b>: ' + pt.lat.toFixed(6));
+        lines.push('<b>Lon</b>: ' + pt.lon.toFixed(6));
+        if (isFinite(pt.alt) && pt.alt !== 0) {
+          lines.push('<b>Alt</b>: ' + Number(pt.alt).toFixed(1) + ' m');
+        }
+        if (pt.t && !isNaN(pt.t.getTime())) {
+          lines.push('<b>Time</b>: ' + pt.t.toISOString().replace('T', ' ').replace('Z', ' UTC'));
+        }
+      } else {
+        var ll = ol.proj.toLonLat([c[0], c[1]]);
+        lines.push('<b>Lat</b>: ' + ll[1].toFixed(6));
+        lines.push('<b>Lon</b>: ' + ll[0].toFixed(6));
       }
       lines.push('<b>Point</b>: ' + (best + 1) + ' / ' + coords.length);
       return { coord: c, html: lines.join('<br>') };
@@ -764,50 +777,83 @@
           return res.text();
         })
         .then(function(kmlText) {
-          // ── Parse KML ──────────────────────────────────────────────────
-          var format = new ol.format.KML({ extractStyles: false, showPointNames: false });
-          var features = format.readFeatures(kmlText, {
-            dataProjection: 'EPSG:4326',
-            featureProjection: 'EPSG:3857'
-          });
+          // ── Parse KML manually (same parser as the overlay view) ───────
+          // ol.format.KML drops <TimeStamp>/<when>, so we extract coordinates
+          // AND per-point times ourselves; the popup can then show the time
+          // of the nearest vertex.
+          var doc   = new DOMParser().parseFromString(kmlText, 'application/xml');
+          var KMLNS = 'http://www.opengis.net/kml/2.2';
+          var GXNS  = 'http://www.google.com/kml/ext/2.2';
+          var pts   = [];   // {lon, lat, alt, t}
 
-          // ── Performance fix: 개별 Point 수만개 → LineString 1개 ────────
-          // 비교 뷰에서는 경로 모양만 보이면 충분 → 훨씬 빠름
-          var coords = [];
-          for (var fi = 0; fi < features.length; fi++) {
-            var geom = features[fi].getGeometry();
-            if (!geom) continue;
-            var type = geom.getType();
-            if (type === 'Point') {
-              coords.push(geom.getCoordinates());
-            } else if (type === 'LineString') {
-              // gx:Track 등 이미 LineString인 경우
-              var lCoords = geom.getCoordinates();
-              for (var li = 0; li < lCoords.length; li++) coords.push(lCoords[li]);
+          // 1) gx:Track (paired <when> + <gx:coord>)
+          var tracks = doc.getElementsByTagNameNS(GXNS, 'Track');
+          for (var ti2 = 0; ti2 < tracks.length; ti2++) {
+            var whens   = Array.from(tracks[ti2].getElementsByTagNameNS(KMLNS, 'when')).map(function(n){ return n.textContent.trim(); });
+            var gcoords = Array.from(tracks[ti2].getElementsByTagNameNS(GXNS,  'coord')).map(function(n){ return n.textContent.trim(); });
+            var N = Math.min(whens.length, gcoords.length);
+            for (var gi = 0; gi < N; gi++) {
+              var gc = gcoords[gi].split(/\s+/).map(Number);
+              if (gc.length >= 2) pts.push({ lon: gc[0], lat: gc[1], alt: gc[2] || 0, t: new Date(whens[gi]) });
             }
           }
 
-          if (coords.length === 0) {
+          // 2) Point placemarks (ubx-ray KMZ: one Point + TimeStamp per epoch)
+          if (!pts.length) {
+            var pms = doc.getElementsByTagNameNS(KMLNS, 'Placemark');
+            for (var pi2 = 0; pi2 < pms.length; pi2++) {
+              var ptEl = pms[pi2].getElementsByTagNameNS(KMLNS, 'Point')[0];
+              if (!ptEl) continue;
+              var cn = ptEl.getElementsByTagNameNS(KMLNS, 'coordinates')[0];
+              if (!cn) continue;
+              var parts = cn.textContent.trim().split(',').map(Number);
+              var wn = pms[pi2].getElementsByTagNameNS(KMLNS, 'when')[0];
+              pts.push({ lon: parts[0], lat: parts[1], alt: parts[2] || 0,
+                         t: wn ? new Date(wn.textContent.trim()) : null });
+            }
+            if (pts.some(function(p){ return p.t; })) pts.sort(function(a,b){ return a.t - b.t; });
+          }
+
+          // 3) LineString placemarks (plain KML routes; no per-vertex time)
+          if (!pts.length) {
+            var lss = doc.getElementsByTagNameNS(KMLNS, 'LineString');
+            for (var li2 = 0; li2 < lss.length; li2++) {
+              var cn2 = lss[li2].getElementsByTagNameNS(KMLNS, 'coordinates')[0];
+              if (!cn2) continue;
+              cn2.textContent.trim().split(/\s+/).forEach(function(tok){
+                var c2 = tok.split(',').map(Number);
+                if (c2.length >= 2) pts.push({ lon: c2[0], lat: c2[1], alt: c2[2] || 0, t: null });
+              });
+            }
+          }
+
+          if (pts.length === 0) {
             statusEl.innerHTML = '⚠️ No track data found';
-            console.warn('Panel ' + (idx+1) + ': no coords extracted from ' + features.length + ' features');
+            console.warn('Panel ' + (idx+1) + ': no coords extracted from KML');
             return;
           }
 
           // 비교뷰용 다운샘플: 4000포인트 초과 시 균등 샘플링
           var MAX_PTS = 4000;
-          var sampled = coords;
-          if (coords.length > MAX_PTS) {
-            var step = coords.length / MAX_PTS;
-            sampled = [];
+          var sampledPts = pts;
+          if (pts.length > MAX_PTS) {
+            var step = pts.length / MAX_PTS;
+            sampledPts = [];
             for (var si = 0; si < MAX_PTS; si++) {
-              sampled.push(coords[Math.round(si * step)]);
+              sampledPts.push(pts[Math.round(si * step)]);
             }
             // 항상 마지막 점 포함
-            sampled.push(coords[coords.length - 1]);
+            sampledPts.push(pts[pts.length - 1]);
           }
 
-          // Remember displayed vertices for nearest-point lookups on click.
+          var sampled = sampledPts.map(function(p){
+            return ol.proj.transform([p.lon, p.lat], 'EPSG:4326', 'EPSG:3857');
+          });
+
+          // Remember displayed vertices (projected + source data incl. time)
+          // for nearest-point lookups on click.
           trackSampled[idx] = sampled;
+          trackPtsSampled[idx] = sampledPts;
 
           // 경로 LineString
           var trackLine = new ol.Feature({
@@ -839,7 +885,7 @@
 
           // Overlay UBX-SEC-SIG jamming/spoofing runs for this panel.
           loadSecSigPanel(idx, rid);
-          console.log('Panel ' + (idx+1) + ' loaded: ' + coords.length + ' pts → ' + sampled.length + ' sampled');
+          console.log('Panel ' + (idx+1) + ' loaded: ' + pts.length + ' pts → ' + sampled.length + ' sampled');
         })
         .catch(function(err) {
           statusEl.innerHTML = '❌ Map load error: ' + err.message;

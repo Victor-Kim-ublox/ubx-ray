@@ -40,7 +40,19 @@ Each panel:
 ## Map Synchronization Logic (JavaScript)
 
 ### KML Loading
-Fetches KML data from `/kml/{rid}` for each rid, parses it with OpenLayers `KML` format, and adds it as a Vector Layer.
+Fetches KML data from `/kml/{rid}` for each rid and parses it **manually with
+DOMParser** (the same parser as the overlay view) — `ol.format.KML` is not
+used because it drops `<TimeStamp>`/`<when>` elements, which the click popup
+needs. Extraction order per file:
+
+1. `gx:Track` — paired `<when>` + `<gx:coord>` (time per vertex)
+2. Point placemarks — one `<Point>` + optional `<TimeStamp>` per epoch
+   (ubx-ray-generated KMZ); sorted by time when present
+3. `LineString` placemarks — plain KML routes (no per-vertex time)
+
+The resulting `{lon, lat, alt, t}` points are downsampled (uniform sampling
+above 4000 points), projected to EPSG:3857 for the track LineString feature,
+and kept in `trackPtsSampled[idx]` parallel arrays for nearest-point lookups.
 
 ```javascript
 // Fit map view to the loaded track extent after KML is loaded
@@ -53,8 +65,9 @@ Clicking inside a panel resolves, in priority order:
 2. A Point marker (start/end) → its name + description.
 3. The **track LineString** → `nearestTrackInfo(idx, coord)` scans the panel's
    stored `trackSampled[idx]` vertices, snaps to the closest one, and shows a
-   popup with **Lat / Lon / Alt** (altitude from the coordinate's z when
-   present) and the vertex index. The popup anchors at the snapped vertex.
+   popup with **Lat / Lon / Alt / Time** (time and altitude shown when the
+   source KML carried them) and the vertex index. The popup anchors at the
+   snapped vertex.
 
 This makes the line itself clickable — previously only the start/end markers
 returned anything.
