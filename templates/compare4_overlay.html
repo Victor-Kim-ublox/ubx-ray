@@ -476,28 +476,53 @@
       return { coord: coords[best], html: formatPointInfo(pt, best, coords.length) };
     }
 
-    // Build the popup body for a track point (lat/lon/alt/time/index).
+    // "YYYY-MM-DD HH:MM:SS.cc UTC" — seconds with exactly two decimals.
+    function fmtUtc(d) {
+      return d.toISOString().replace('T', ' ').replace(/\.(\d{2})\d*Z$/, '.$1 UTC');
+    }
+
+    // Build the popup body for a track point (time/lat/lon/alt/index).
     function formatPointInfo(pt, i, total) {
       var lines = [];
       if (pt && pt.lat != null && pt.lon != null) {
+        if (pt.t && !isNaN(pt.t.getTime())) lines.push('<b>Time</b>: ' + fmtUtc(pt.t));
         lines.push('<b>Lat</b>: ' + pt.lat.toFixed(6));
         lines.push('<b>Lon</b>: ' + pt.lon.toFixed(6));
         if (pt.alt != null) lines.push('<b>Alt</b>: ' + Number(pt.alt).toFixed(1) + ' m');
-        if (pt.t)           lines.push('<b>Time</b>: ' + pt.t.toISOString().replace('T', ' ').replace('Z', ' UTC'));
       }
       lines.push('<b>Point</b>: ' + (i + 1) + ' / ' + total);
       return lines.join('<br>');
     }
 
+    // Sanitize untrusted HTML (KML <description> comes from the uploaded file)
+    // before it is assigned to innerHTML: drop script-capable elements, on*
+    // handlers, and javascript: URLs.
+    function sanitizeHtml(html) {
+      var doc = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+      var root = doc.body;
+      root.querySelectorAll('script,iframe,object,embed,form,style,link,meta,base').forEach(function(el){ el.remove(); });
+      root.querySelectorAll('*').forEach(function(el){
+        Array.prototype.slice.call(el.attributes).forEach(function(a){
+          var n = a.name.toLowerCase();
+          var v = (a.value || '').trim().toLowerCase();
+          if (n.indexOf('on') === 0 ||
+              ((n === 'href' || n === 'src' || n === 'xlink:href') && v.indexOf('javascript:') === 0)) {
+            el.removeAttribute(a.name);
+          }
+        });
+      });
+      return root.innerHTML;
+    }
+
     function buildDesc(feature) {
       var d = feature.get('description') || '';
-      if (d && d.trim().charAt(0) === '<') return d;
+      if (d && d.trim().charAt(0) === '<') return sanitizeHtml(d);
       var props = feature.getProperties(), lines = [];
       for (var k in props) {
-        if (['geometry','name','description','_role'].indexOf(k) >= 0) continue;
+        if (['geometry','name','description','_role','_track'].indexOf(k) >= 0) continue;
         if (props[k] != null && props[k] !== '') lines.push('<b>' + k + '</b>: ' + props[k]);
       }
-      return lines.length ? lines.join('<br>') : (d || '');
+      return sanitizeHtml(lines.length ? lines.join('<br>') : (d || ''));
     }
 
     // ── Measure tool ──────────────────────────────────────────────────────
@@ -615,6 +640,19 @@
               rawPts.push({ t: wn ? new Date(wn.textContent.trim()) : null, lon: parts[0], lat: parts[1], alt: parts[2]||0 });
             }
             if (rawPts.some(function(p){return p.t;})) rawPts.sort(function(a,b){return a.t-b.t;});
+          }
+
+          // LineString fallback (plain KML routes; no per-vertex time)
+          if (!rawPts.length) {
+            var lss = doc.getElementsByTagNameNS(KMLNS, 'LineString');
+            for (var li = 0; li < lss.length; li++) {
+              var lcn = lss[li].getElementsByTagNameNS(KMLNS, 'coordinates')[0];
+              if (!lcn) continue;
+              lcn.textContent.trim().split(/\s+/).forEach(function(tok){
+                var lc = tok.split(',').map(Number);
+                if (lc.length >= 2) rawPts.push({ t: null, lon: lc[0], lat: lc[1], alt: lc[2]||0 });
+              });
+            }
           }
 
           if (!rawPts.length) {

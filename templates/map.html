@@ -281,6 +281,27 @@
     map.addOverlay(overlay);
     closer.onclick = () => { overlay.setPosition(undefined); container.style.display = 'none'; return false; };
 
+    // Sanitize untrusted HTML (KML <description> comes from the uploaded file)
+    // before it is assigned to innerHTML: drop script-capable elements, on*
+    // handlers, and javascript: URLs. DOMParser does not execute scripts while
+    // parsing, so this walk is safe.
+    function sanitizeHtml(html) {
+      const doc = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+      const root = doc.body;
+      root.querySelectorAll('script,iframe,object,embed,form,style,link,meta,base').forEach(el => el.remove());
+      root.querySelectorAll('*').forEach(el => {
+        Array.from(el.attributes).forEach(a => {
+          const n = a.name.toLowerCase();
+          const v = (a.value || '').trim().toLowerCase();
+          if (n.startsWith('on') ||
+              ((n === 'href' || n === 'src' || n === 'xlink:href') && v.startsWith('javascript:'))) {
+            el.removeAttribute(a.name);
+          }
+        });
+      });
+      return root.innerHTML;
+    }
+
     function getFeatureInfo(f) {
       const n = f.get('name') || 'Point';
       let d = f.get('description') || '';
@@ -292,7 +313,7 @@
         if (v != null && v !== '') extra.push(`<div><b>${k}</b>: ${v}</div>`);
       }
       if (extra.length && !d) d = extra.join(''); else if (extra.length) d += extra.join('');
-      return { n, d };
+      return { n, d: sanitizeHtml(d) };
     }
 
     let measureActive = false;
@@ -401,7 +422,8 @@
       const coord = ol.proj.fromLonLat([p.lon, p.lat]);
       marker.getGeometry().setCoordinates(coord);
       marker.changed();
-      timeLabel.textContent = p.t ? p.t.toISOString().replace('T',' ').replace('Z',' UTC') : '--';
+      // Seconds with exactly two decimals: "YYYY-MM-DD HH:MM:SS.cc UTC"
+      timeLabel.textContent = p.t ? p.t.toISOString().replace('T',' ').replace(/\.(\d{2})\d*Z$/, '.$1 UTC') : '--';
       if (followEnabled) map.getView().setCenter(coord);
     }
 

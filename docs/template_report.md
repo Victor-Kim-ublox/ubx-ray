@@ -71,7 +71,7 @@ Chart interaction:
 - `chartjs-plugin-zoom` + `hammerjs` for wheel zoom / drag pan on the x axis
 - `syncCharts(sourceChart)` snaps min/max to a 100 ms grid and propagates the
   range to the other three charts so all time axes stay aligned
-- `formatITOW(itow)` converts GPS iTOW to `HH:MM:SS` UTC for tick labels and
+- `formatITOW(itow)` converts GPS iTOW to `HH:MM:SS.cc` UTC (two-decimal seconds) for tick labels and
   tooltip titles
 - Shared `commonScalesX`, `commonTooltip`, `zoomOptions`, and
   `FIXED_Y_WIDTH = 85` keep left-hand y axes aligned across charts

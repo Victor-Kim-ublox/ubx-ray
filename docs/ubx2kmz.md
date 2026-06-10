@@ -52,6 +52,7 @@ The "Top 5 Avg" is now divided by `len(top_k)` instead of a fixed 5, so epochs w
 |---|---|---|
 | iTOW | 0–3 | ms (32-bit unsigned) |
 | year/month/day/hour/min/sec | 4–9 | Constructs UTC timestamp |
+| nano | 16–19 | signed ns offset of the second; gives the timestamp two decimal places (`SS.cc`, may roll the second backwards when negative) |
 | fixType | 20 | 0=NoFix, 2=2D, 3=3D, 4=GNSS+DR, 5=Time-only |
 | flags | 21 | gnssFixOK bit (bit 0) |
 | lon | 24–27 | ×1e-7 → degrees |
@@ -73,7 +74,7 @@ Each NAV-PVT epoch produces one `<Placemark>`:
 
 ```xml
 <Placemark>
-  <TimeStamp><when>2024-01-01T12:00:00Z</when></TimeStamp>
+  <TimeStamp><when>2024-01-01T12:00:00.00Z</when></TimeStamp>
   <Style>
     <IconStyle>
       <color>FF00FF00</color>   <!-- color based on fixType -->
@@ -91,13 +92,17 @@ Each NAV-PVT epoch produces one `<Placemark>`:
 
 ### Icon Color by fixType (KML AABBGGRR format)
 
+Epochs with `fixType` in `(1, 2, 3, 4)` are kept; `0` (no fix) and `5`
+(time only) carry no usable position and are skipped entirely.
+
 | fixType | Color | Meaning |
 |---|---|---|
-| 3 or 4 | `FF00FF00` green | Normal 3D / DR Fix |
+| 3 | `FF00C800` green | 3D Fix |
+| 4 | `FF00A5FF` orange | GNSS + Dead Reckoning |
 | 2 | `FF00FFFF` yellow | 2D Fix |
-| 0 or 1 | `FF0000FF` red | No Fix / Dead Reckoning only |
+| 1 | `FF800080` purple | Dead Reckoning only |
 
-If `gnssFixOK=0`, the icon is always red regardless of fix type.
+If `gnssFixOK=0`, the icon is always red (`FFFF0000`) regardless of fix type.
 
 ---
 

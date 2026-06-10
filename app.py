@@ -135,6 +135,16 @@ def extract_kml_bytes(path: str) -> Optional[bytes]:
                     kml_name = next((n for n in names if n.lower().endswith(".kml")), None)
                 if kml_name is None:
                     return None
+                # Zip-bomb guard: the upload size limit only bounds the
+                # *compressed* archive. Reject entries whose declared
+                # uncompressed size exceeds the upload cap before reading
+                # them fully into memory.
+                info = z.getinfo(kml_name)
+                if info.file_size > MAX_UPLOAD_BYTES:
+                    logger.warning(
+                        f"KML entry too large ({info.file_size} B uncompressed) in {path}"
+                    )
+                    return None
                 data = z.read(kml_name)
                 return data if b"<kml" in data[:8192] else None
         # Raw KML: cheap sniff for the root tag near the top of the file.
@@ -383,8 +393,9 @@ def run_ubx2kmz(
         args += ["--alt-abs"]
     if ck:
         args += ["--ck"]
-    if html:
-        args += ["--html"]
+    # NOTE: `html` is accepted for backward compatibility but intentionally not
+    # forwarded — ubx2kmz.py has no --html argument, and passing it makes
+    # argparse exit(2) so the conversion fails with a confusing error.
     if mapm:
         args += ["--mapm"]
 
@@ -434,13 +445,15 @@ def run_ubx2kmz(
             except Exception as e:
                 logger.warning(f"Failed to read stats from {json_path}: {e}")
 
-        # DB Update (missing_count 반영)
+        # DB Update (missing_count 반영). COALESCE keeps the upload-time
+        # quick-summary count when the converter produced no stats (e.g.
+        # --mapm mode writes no graph JSON) instead of nulling it out.
         with get_db() as conn:
             conn.execute(
                 """
-                UPDATE results 
+                UPDATE results
                 SET kmz_path=?, status='done', error=NULL,
-                    epoch_missing=?, epoch_total=?
+                    epoch_missing=?, epoch_total=COALESCE(?, epoch_total)
                 WHERE id=?
                 """,
                 (final_kmz, missing_count, total_count if total_count > 0 else None, rid),
@@ -464,6 +477,18 @@ def run_ubx2kmz(
 # =========================
 # Async queue wrapper (limit concurrency)
 # =========================
+# Strong references to in-flight background tasks. asyncio keeps only weak
+# references to tasks, so a fire-and-forget create_task() result can be
+# garbage-collected mid-conversion (documented asyncio footgun) — the job
+# would then sit in 'queued'/'running' forever.
+_bg_tasks: set = set()
+
+def spawn_bg(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
 async def enqueue_convert(filepath, rid, **opts):
     with get_db() as conn:
         conn.execute("UPDATE results SET status='queued', error=NULL WHERE id=?", (rid,))
@@ -570,7 +595,9 @@ async def upload(
 
     logger.info(f"Uploaded by {user_id}: {save_path}")
 
-    summary = quick_ubx_summary(save_path)
+    # mmap scan of a file up to MAX_UPLOAD_BYTES — run off the event loop so
+    # other requests aren't stalled while it reads the disk.
+    summary = await run_in_threadpool(quick_ubx_summary, save_path)
 
     hz_val: Optional[int] = None
     s = (hz or "").strip()
@@ -600,7 +627,7 @@ async def upload(
         ))
         conn.commit()
 
-    asyncio.create_task(enqueue_convert(save_path, rid, **opts))
+    spawn_bg(enqueue_convert(save_path, rid, **opts))
 
     return RedirectResponse(url=f"/report/{rid}", status_code=303)
 
@@ -852,7 +879,8 @@ async def compare4_upload(
                 f"File {idx_f+1} is not a valid UBX binary", status_code=400
             )
 
-        summary = quick_ubx_summary(save_path)
+        # mmap scan off the event loop (same reason as the single-upload path).
+        summary = await run_in_threadpool(quick_ubx_summary, save_path)
 
         with get_db() as conn:
             conn.execute("""
@@ -866,7 +894,7 @@ async def compare4_upload(
             ))
             conn.commit()
 
-        asyncio.create_task(enqueue_convert(save_path, rid, **opts))
+        spawn_bg(enqueue_convert(save_path, rid, **opts))
         rids.append(rid)
         logger.info(f"[compare4] queued {rid} ({clean_name}) for user {user_id}")
 
@@ -946,7 +974,9 @@ async def compare4_kml_upload(
                 f.write(chunk)
 
         # Validate + extract the KML payload, then normalize to a doc.kml KMZ.
-        kml_bytes = extract_kml_bytes(save_path)
+        # Both steps read/compress up to MAX_UPLOAD_BYTES — keep them off the
+        # event loop.
+        kml_bytes = await run_in_threadpool(extract_kml_bytes, save_path)
         if kml_bytes is None:
             with contextlib.suppress(FileNotFoundError):
                 os.remove(save_path)
@@ -956,7 +986,7 @@ async def compare4_kml_upload(
 
         kmz_path = os.path.join(OUTPUT_DIR, rid, "result.kmz")
         try:
-            write_normalized_kmz(kml_bytes, kmz_path)
+            await run_in_threadpool(write_normalized_kmz, kml_bytes, kmz_path)
         except OSError as e:
             logger.exception(f"[compare4-kml] KMZ write failed for {rid}: {e}")
             with contextlib.suppress(FileNotFoundError):

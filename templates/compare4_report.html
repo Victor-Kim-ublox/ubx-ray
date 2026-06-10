@@ -338,14 +338,15 @@
 
     RIDS.forEach(function(r, i){ fetchGraph(i); });
 
-    // ── iTOW → HH:MM:SS ─────────────────────────────────────────────────
+    // ── iTOW → HH:MM:SS.cc (seconds with exactly two decimals) ──────────
     function fmtITOW(itow) {
       var ms = itow - 18000; if (ms < 0) ms += 604800000;
       var s  = Math.floor(ms / 1000) % 86400;
       var hh = String(Math.floor(s/3600)).padStart(2,'0');
       var mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
       var ss = String(s%60).padStart(2,'0');
-      return hh+':'+mm+':'+ss;
+      var cc = String(Math.floor((ms % 1000) / 10)).padStart(2,'0');
+      return hh+':'+mm+':'+ss+'.'+cc;
     }
 
     // ── Compute CDF ────────────────────────────────────────────────────────
@@ -561,7 +562,8 @@
 
         var row = '<tr>';
         row += '<td><div class="dot" style="background:'+COLORS[i]+'"></div></td>';
-        row += '<td><div class="file-header"><span title="'+fn+'">'+fnShort+'</span></div></td>';
+        // Filenames are user-controlled — escape before innerHTML injection.
+        row += '<td><div class="file-header"><span title="'+escHtml(fn)+'">'+escHtml(fnShort)+'</span></div></td>';
         row += '<td>'+(d.stats ? d.stats.epoch_total.toLocaleString() : '—')+'</td>';
         row += cell(mean(d.acc2d),   ' m', bwAcc,  i, 3);
         row += cell(mean(d.acc3d),   ' m', bwAcc3, i, 3);
@@ -800,6 +802,11 @@
     function shortName(fn, i) {
       fn = fn || ('Track '+(i+1));
       return fn.length > 20 ? fn.slice(0,18)+'…' : fn;
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
   })();
