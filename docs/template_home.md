@@ -1,7 +1,10 @@
 # templates/home.html
 
 ## Overview
-The **main home screen** of ubX-ray. Provides three analysis tabs (Single / Multi / NMEA) in a single-page SPA-style interface.
+The **main home screen** of ubX-ray. Provides four analysis tabs
+(Single / Multi / KML Comparison / NMEA) in a single-page SPA-style interface.
+Only Single, Multi, and KML Comparison have tab buttons in the nav; the NMEA
+pane is reachable via `?tab=nmea`.
 
 ---
 
@@ -39,7 +42,27 @@ Upload 1–4 UBX/BIN files for comparison analysis.
 
 **Notice box:** Explains how KMZ background processing and automatic map sync work
 
-### Tab 3: NMEA Comparison (`#tab-comparison`)
+### Tab 3: KML Comparison (`#tab-kml`)
+Upload 1–4 **KML/KMZ** tracks to compare directly on a shared map (no UBX
+conversion). Modeled on the Multi tab's input screen.
+
+**Form elements:**
+- 2×2 grid of dropzones (KML 1–4; KML 1 is required), inputs `kFile1..4`,
+  dropzones `kDrop1..4`, name slots `kName1..4`, `accept=".kml,.kmz"`
+- Reuses `wireMultiDropzone` (border/opacity feedback) and the shared
+  `oversizedFileError` / `MAX_UPLOAD_MB` size validation
+- Upload & Compare button → form action `/compare4/kml/upload`
+
+The submit handler `startKmlUpload` validates selection + size, then performs a
+native form submit. The server (`POST /compare4/kml/upload`) stores each track
+with **no conversion step** — there is no progress UI because processing is
+instant — and 303-redirects straight to the overlay map view. From there the
+split view is one click away. KML comparisons are **map-only** (no graph data),
+so the map views omit their `📊 Report` button for these groups.
+
+Deep link: `?tab=kml` opens this tab directly.
+
+### Tab 4: NMEA Comparison (`#tab-comparison`)
 Upload two NMEA files (Reference + Test Device) for position error analysis.
 
 **Form elements:**

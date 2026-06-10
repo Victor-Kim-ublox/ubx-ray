@@ -16,6 +16,7 @@ A map viewer that renders GPS tracks from up to 4 UBX files **overlaid on a sing
 |---|---|---|
 | `rids` | list[str] | 4 result IDs (`"_"` for empty slots) |
 | `filenames` | list[str] | Filename corresponding to each rid |
+| `is_kml` | bool | True when the group came from a direct KML/KMZ upload; hides the `📊 Report` button (KML comparisons have no graph data) |
 
 ---
 
@@ -23,12 +24,15 @@ A map viewer that renders GPS tracks from up to 4 UBX files **overlaid on a sing
 
 ### Header (sticky, 60px)
 - "4-Track Overlay" title
-- Toolbar (flex, wrappable), grouped left-to-right:
-  1. **Track toggles** — one colored badge button per file; click to hide/show that track's layer. Long filenames fill the first row.
-  2. **View controls** — `Map` / `Satellite` base toggle plus **Fit All** (combined in one segment); sits at the start of the second row alongside Playback.
-  3. **Playback** — `▶ Play` / `⏸ Pause`, speed selector (1× / 2× / 5× / 10×), timeline slider, UTC readout, `Follow`.
-  4. **Distance measurement** — `Distance measure` (click two points for a Haversine read-out), `Clear` (remove the current line).
-  5. **Right-side links** — `📊 Report` → `/compare4/report/{rids}`, `⊞ Split Map View` → `/compare4/view/{rids}`.
+- Toolbar (flex, single row; wraps only if the viewport is too narrow), grouped left-to-right:
+  1. **Track toggles** — one colored badge button per file; click to hide/show that track's layer.
+  2. **View controls** — `Map` / `Satellite` base toggle plus **Fit All** (combined in one segment).
+  3. **Distance measurement** — `Distance measure` (click two points for a Haversine read-out), `Clear` (remove the current line).
+  4. **Right-side links** — `📊 Report` → `/compare4/report/{rids}` (omitted when `is_kml`), `⊞ Split Map View` → `/compare4/view/{rids}`.
+
+> **No playback.** The timeline/play feature was removed from the comparison
+> map views — they show overlaid static tracks (line + start/end markers) for
+> direct comparison, with no moving marker, speed selector, or Follow control.
 
 ### Map (`#map`)
 Full-screen OpenLayers single map instance (viewport height minus header).
@@ -42,6 +46,17 @@ On badge button click:
 layer.setVisible(!layer.getVisible());
 btn.classList.toggle('dimmed');  // visual feedback for inactive state
 ```
+
+---
+
+## Click → Point Info
+A single click resolves, in priority order: a start/end **Point** marker (name
++ description), else the clicked **track LineString**. For a line, the per-track
+`trackPts[idx]` / `trackLineCoords[idx]` arrays are scanned via
+`nearestTrackInfo(idx, coord)` to snap to the nearest displayed vertex, and the
+popup shows **Lat / Lon / Alt / Time** (time and altitude shown when the source
+KML carried them, e.g. gx:Track) plus the vertex index. The popup anchors at the
+snapped vertex. This makes the overlaid lines themselves clickable.
 
 ---
 

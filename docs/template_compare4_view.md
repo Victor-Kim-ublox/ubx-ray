@@ -16,6 +16,7 @@ A map viewer that displays GPS tracks from up to 4 UBX files in a **2×2 split-s
 |---|---|---|
 | `rids` | list[str] | 4 result IDs (`"_"` for empty slots) |
 | `filenames` | list[str] | Filename corresponding to each rid |
+| `is_kml` | bool | True for direct KML/KMZ comparison groups; hides the `📊 Report` button |
 
 ---
 
@@ -25,7 +26,7 @@ A map viewer that displays GPS tracks from up to 4 UBX files in a **2×2 split-s
 - ubX-ray brand
 - **View controls** segment (grouped like the single map view): `Map` / `Satellite` base toggle + `Fit All` (fits every panel to its track extent).
 - **Jam/Spoof segment** (`#secSeg`, hidden until at least one panel produces a SEC-SIG run). Contains a single toggle button that hides/shows jam + spoofing overlays across **all four panels at once**, plus the same SVG legend used by the single map view (Jam / Spf ind. / Spf aff.).
-- Right-side links: `📊 Report`, `⊙ Overlay Map View` → `/compare4/overlay/{rids}`.
+- Right-side links: `📊 Report` (omitted when `is_kml`), `⊙ Overlay Map View` → `/compare4/overlay/{rids}`.
 
 ### Map Grid (`#grid`)
 `grid-template-columns: 1fr 1fr` — 2 columns × 2 rows = up to 4 panels.
@@ -45,6 +46,18 @@ Fetches KML data from `/kml/{rid}` for each rid, parses it with OpenLayers `KML`
 // Fit map view to the loaded track extent after KML is loaded
 map.getView().fit(vectorSource.getExtent(), { padding: [40, 40, 40, 40] });
 ```
+
+### Click → Point Info
+Clicking inside a panel resolves, in priority order:
+1. A SEC-SIG run feature → jam/spoof metadata popup.
+2. A Point marker (start/end) → its name + description.
+3. The **track LineString** → `nearestTrackInfo(idx, coord)` scans the panel's
+   stored `trackSampled[idx]` vertices, snaps to the closest one, and shows a
+   popup with **Lat / Lon / Alt** (altitude from the coordinate's z when
+   present) and the vertex index. The popup anchors at the snapped vertex.
+
+This makes the line itself clickable — previously only the start/end markers
+returned anything.
 
 ### View Synchronization
 4 Map instances share center/zoom via **master-slave** sync:

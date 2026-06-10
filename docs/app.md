@@ -85,10 +85,11 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/compare4` | Multi upload page (compare4.html) |
-| `POST` | `/compare4/upload` | Upload 1–4 files → queue each → redirect to `/compare4/report/{r1}/{r2}/{r3}/{r4}` |
+| `POST` | `/compare4/upload` | Upload 1–4 UBX files → queue each → redirect to `/compare4/report/{r1}/{r2}/{r3}/{r4}` |
+| `POST` | `/compare4/kml/upload` | Upload 1–4 KML/KMZ tracks (no conversion) → store as `done` → redirect to `/compare4/overlay/{...}` |
 | `GET` | `/compare4/report/{r1}/{r2}/{r3}/{r4}` | Analysis report (compare4_report.html) |
-| `GET` | `/compare4/view/{r1}/{r2}/{r3}/{r4}` | Split map view (compare4_view.html) |
-| `GET` | `/compare4/overlay/{r1}/{r2}/{r3}/{r4}` | Overlay map view (compare4_overlay.html) |
+| `GET` | `/compare4/view/{r1}/{r2}/{r3}/{r4}` | Split map view (compare4_view.html); hides the Report button for KML groups |
+| `GET` | `/compare4/overlay/{r1}/{r2}/{r3}/{r4}` | Overlay map view (compare4_overlay.html); hides the Report button for KML groups |
 
 ### API Endpoints
 
@@ -109,6 +110,16 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 
 ### `looks_like_ubx(path, window=65536)`
 Upload-time validator. Returns `True` when the UBX sync pattern `0xB5 0x62` appears anywhere in the first `window` bytes of the saved file (default 64 KB). The sync bytes are not required at offset 0, because many u-blox loggers prepend NMEA sentences or vendor headers before the first UBX frame. Called from both `/upload` and `/compare4/upload`; on `False` the file is deleted and a 400 "Invalid file format" response is returned.
+
+### `extract_kml_bytes(path)` / `write_normalized_kmz(kml_bytes, dest)`
+KML-comparison upload helpers. `extract_kml_bytes` returns the KML document
+bytes from a `.kml` (raw XML, sniffed for a `<kml` tag) or `.kmz`/zip (prefers
+`doc.kml`, else the first `*.kml` entry), or `None` if the file isn't KML.
+`write_normalized_kmz` repackages those bytes into a single-entry `doc.kml`
+KMZ at `outputs/{rid}/result.kmz`, so the existing `/kml/{rid}` endpoint and
+the split/overlay map views serve KML uploads with no special-casing.
+`_opts_is_kml(opts_json)` reports whether a result row was a direct KML upload
+(used by the map views to hide the Report button).
 
 ### `quick_ubx_summary(filepath)`
 High-speed scan of the UBX binary via mmap, counting **NAV-PVT frame occurrences**. No CRC verification — only checks the header (sync bytes + class/id + length), making it very fast. Used for the epoch count displayed immediately after upload.

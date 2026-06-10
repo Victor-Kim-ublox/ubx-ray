@@ -183,9 +183,11 @@
     <div class="sep" style="margin-left:auto;"></div>
 
     <div style="display:flex;gap:6px;">
+      {% if not is_kml %}
       <a id="reportLink"  href="#" class="btn" style="background:#0f172a;color:#fff;border:1px solid #0f172a;font-size:12px;">
         📊 Report
       </a>
+      {% endif %}
       <a id="overlayLink" href="#" class="btn" style="background:#FF6E59;color:#fff;border:1px solid #FF6E59;font-size:12px;">
         ⊙ Overlay Map View
       </a>
@@ -312,6 +314,9 @@
 
     // ── KML track layers (one per map) ────────────────────────────────────
     var vectorSources = [], vectorLayers = [];
+    // Displayed vertices (EPSG:3857) per panel, so a clicked line resolves to
+    // its nearest point's coordinates.
+    var trackSampled = [[], [], [], []];
     for (var vi = 0; vi < 4; vi++) {
       var vsrc = new ol.source.Vector();
       vectorSources.push(vsrc);
@@ -422,19 +427,24 @@
     for (var pi = 0; pi < 4; pi++) {
       popupOverlays.push(new ol.Overlay({
         element: document.getElementById('popup'+(pi+1)),
-        autoPan: { animation: { duration: 200 } },
+        // autoPan disabled: panels share a synced view, so auto-panning one
+        // popup into view would shift all four maps on every click.
+        autoPan: false,
         offset: [0, -10]
       }));
     }
 
-    // Close buttons
-    document.querySelectorAll('.ol-popup-closer').forEach(function(el) {
-      el.addEventListener('click', function(e) {
-        e.preventDefault();
-        var idx = parseInt(el.dataset.idx, 10);
-        popupOverlays[idx].setPosition(undefined);
-        document.getElementById('popup'+(idx+1)).style.display = 'none';
-      });
+    // Close buttons — delegated on document so the handler survives OpenLayers
+    // moving each popup element into its map's overlay container (per-element
+    // listeners attached here, before the maps are built, did not fire).
+    document.addEventListener('click', function(e) {
+      var closer = e.target.closest && e.target.closest('.ol-popup-closer');
+      if (!closer) return;
+      e.preventDefault();
+      var idx = parseInt(closer.dataset.idx, 10);
+      if (popupOverlays[idx]) popupOverlays[idx].setPosition(undefined);
+      var pe = document.getElementById('popup'+(idx+1));
+      if (pe) pe.style.display = 'none';
     });
 
     // ── Build 4 Maps ──────────────────────────────────────────────────────
@@ -456,7 +466,13 @@
       for (var qi = 0; qi < 4; qi++) {
         (function(idx) {
           maps[idx].on('singleclick', function(evt) {
+            // Ignore clicks that land on the popup itself (e.g. the × closer),
+            // otherwise this handler would immediately re-open the popup.
+            var tgt = evt.originalEvent && evt.originalEvent.target;
+            if (tgt && tgt.closest && tgt.closest('.ol-popup')) return;
+
             var hit = false;
+            var lineTrack = -1;   // track idx of a clicked LineString
             var secL = secLayersPerPanel[idx];
             maps[idx].forEachFeatureAtPixel(evt.pixel, function(f, layer) {
               // SEC-SIG feature — show jam/spoof run metadata
@@ -469,7 +485,10 @@
                 return true;
               }
               if (layer !== vectorLayers[idx]) return;
-              if (f.getGeometry() && f.getGeometry().getType() === 'Point') {
+              var g = f.getGeometry();
+              if (!g) return;
+              var gt = g.getType();
+              if (gt === 'Point') {
                 document.getElementById('ptitle'+(idx+1)).textContent = f.get('name') || 'Point';
                 document.getElementById('pdesc'+(idx+1)).innerHTML    = buildDesc(f);
                 popupOverlays[idx].setPosition(evt.coordinate);
@@ -477,7 +496,23 @@
                 hit = true;
                 return true;
               }
+              if (gt === 'LineString' && f.get('_track') != null && lineTrack < 0) {
+                lineTrack = f.get('_track');   // remember, keep scanning for a Point/marker
+              }
             }, { hitTolerance: 6 });
+
+            // No marker hit but a track line was clicked → snap to nearest vertex.
+            if (!hit && lineTrack >= 0) {
+              var info = nearestTrackInfo(lineTrack, evt.coordinate);
+              if (info) {
+                document.getElementById('ptitle'+(idx+1)).textContent = (FILENAMES[lineTrack] || ('Track ' + (lineTrack + 1))) + ' — nearest point';
+                document.getElementById('pdesc'+(idx+1)).innerHTML    = info.html;
+                popupOverlays[idx].setPosition(info.coord);
+                document.getElementById('popup'+(idx+1)).style.display = 'block';
+                hit = true;
+              }
+            }
+
             if (!hit) {
               popupOverlays[idx].setPosition(undefined);
               document.getElementById('popup'+(idx+1)).style.display = 'none';
@@ -492,10 +527,35 @@
       if (d && d.trim().charAt(0) === '<') return d;
       var props = feature.getProperties(), lines = [];
       for (var k in props) {
-        if (['geometry','name','description'].indexOf(k) >= 0) continue;
+        if (['geometry','name','description','_role','_track'].indexOf(k) >= 0) continue;
         if (props[k] != null && props[k] !== '') lines.push('<b>'+k+'</b>: '+props[k]);
       }
       return lines.length ? lines.join('<br>') : d;
+    }
+
+    // Find the displayed vertex of panel `idx` closest to a 3857 coordinate,
+    // returning the snapped coordinate and an HTML info block (lat/lon/alt).
+    function nearestTrackInfo(idx, coordinate) {
+      var coords = trackSampled[idx];
+      if (!coords || !coords.length) return null;
+      var best = -1, bestD = Infinity;
+      for (var i = 0; i < coords.length; i++) {
+        var dx = coords[i][0] - coordinate[0];
+        var dy = coords[i][1] - coordinate[1];
+        var d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best < 0) return null;
+      var c  = coords[best];
+      var ll = ol.proj.toLonLat([c[0], c[1]]);
+      var lines = [];
+      lines.push('<b>Lat</b>: ' + ll[1].toFixed(6));
+      lines.push('<b>Lon</b>: ' + ll[0].toFixed(6));
+      if (c.length > 2 && isFinite(c[2]) && c[2] !== 0) {
+        lines.push('<b>Alt</b>: ' + Number(c[2]).toFixed(1) + ' m');
+      }
+      lines.push('<b>Point</b>: ' + (best + 1) + ' / ' + coords.length);
+      return { coord: c, html: lines.join('<br>') };
     }
 
     // ── Base map toggle ───────────────────────────────────────────────────
@@ -726,10 +786,15 @@
             sampled.push(coords[coords.length - 1]);
           }
 
+          // Remember displayed vertices for nearest-point lookups on click.
+          trackSampled[idx] = sampled;
+
           // 경로 LineString
           var trackLine = new ol.Feature({
             geometry: new ol.geom.LineString(sampled),
-            name: FILENAMES[idx]
+            name: FILENAMES[idx],
+            _role: 'line',
+            _track: idx
           });
 
           // 시작점 / 끝점 마커
@@ -765,8 +830,9 @@
     // ── Overlay / Report 링크 설정 ───────────────────────────────────────
     document.getElementById('overlayLink').href =
       '/compare4/overlay/' + RIDS.join('/');
-    document.getElementById('reportLink').href =
-      '/compare4/report/' + RIDS.join('/');
+    // Report button is omitted for KML-only comparisons (no graph data).
+    var reportLinkEl = document.getElementById('reportLink');
+    if (reportLinkEl) reportLinkEl.href = '/compare4/report/' + RIDS.join('/');
 
     // ── Init ──────────────────────────────────────────────────────────────
     window.addEventListener('DOMContentLoaded', function() {
