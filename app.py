@@ -445,13 +445,15 @@ def run_ubx2kmz(
             except Exception as e:
                 logger.warning(f"Failed to read stats from {json_path}: {e}")
 
-        # DB Update (missing_count 반영)
+        # DB Update (missing_count 반영). COALESCE keeps the upload-time
+        # quick-summary count when the converter produced no stats (e.g.
+        # --mapm mode writes no graph JSON) instead of nulling it out.
         with get_db() as conn:
             conn.execute(
                 """
-                UPDATE results 
+                UPDATE results
                 SET kmz_path=?, status='done', error=NULL,
-                    epoch_missing=?, epoch_total=?
+                    epoch_missing=?, epoch_total=COALESCE(?, epoch_total)
                 WHERE id=?
                 """,
                 (final_kmz, missing_count, total_count if total_count > 0 else None, rid),
