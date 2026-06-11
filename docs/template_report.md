@@ -43,8 +43,18 @@ KMZ download and map-viewer entry points live in the sticky header
 (`⬇ KMZ`, `🗺 Map`) so they are always visible and not duplicated inside
 the card. They appear only once `kmz_path` is set.
 
-### ② Position Accuracy (2D vs 3D)
-Chart: `#accChart`. Overlaid 2D (blue) / 3D (orange) lines vs iTOW.
+### ② Position Accuracy (2D vs 3D) — primary PVT
+Chart: `#accChart`. Overlaid 2D (blue) / 3D (orange) lines vs iTOW. The
+section title names the primary PVT class (`graph_data.primary_pvt`,
+defaults to NAV-PVT for legacy graph JSONs).
+
+### ②-2 Position Accuracy (2D vs 3D) — secondary PVT
+Chart: `#acc2Chart`. Rendered only when the log also carried frames of the
+*other* PVT class (`graph_data.alt_labels` non-empty) — e.g. NAV2-PVT
+(0x29 0x07, same payload layout) alongside NAV-PVT. Same 2D/3D series
+styling; the title names the class via `graph_data.alt_pvt`. The chart
+joins `syncCharts`/`resetAllZooms`, and the shared x range (`minX`/`maxX`)
+spans both streams.
 
 ### ③ Fix Type Status
 Chart: `#fixChart`. Stepped line 0..5 (No fix / DR / 2D / 3D / GNSS+DR / Time).

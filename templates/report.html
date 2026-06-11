@@ -182,8 +182,8 @@
     </div>
 
     {% if graph_data %}
-    <!-- ② 2D vs 3D Accuracy -->
-    <div class="section-title">② Position Accuracy (2D vs 3D)</div>
+    <!-- ② 2D vs 3D Accuracy (primary PVT stream) -->
+    <div class="section-title">② Position Accuracy (2D vs 3D) — {{ graph_data.primary_pvt | default('NAV-PVT') }}</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -192,6 +192,20 @@
       <p class="chart-note">Scroll to zoom, drag to pan · all chart X-axes synchronized</p>
       <div class="chart-wrap" id="accChartBox" style="height:280px">
         <canvas id="accChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data and graph_data.alt_labels and graph_data.alt_labels|length > 0 %}
+    <!-- ②-2 2D vs 3D Accuracy (secondary PVT stream, e.g. NAV2-PVT) -->
+    <div class="section-title">②-2 Position Accuracy (2D vs 3D) — {{ graph_data.alt_pvt | default('NAV2-PVT') }}</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('acc2ChartBox', this)">👁 Hide Chart</button>
+      </div>
+      <div class="chart-wrap" id="acc2ChartBox" style="height:280px">
+        <canvas id="acc2Chart"></canvas>
       </div>
     </div>
     {% endif %}
@@ -300,6 +314,7 @@
 {% if graph_data %}
   <script>
     let accChartInstance = null;
+    let acc2ChartInstance = null;   // secondary PVT stream (e.g. NAV2-PVT)
     let fixChartInstance = null;
     let cnoChartInstance = null;
     let secChartInstance = null;
@@ -308,9 +323,16 @@
 
     const gData = {{ graph_data | tojson }};
 
+    // Shared x range spans both PVT streams so the synced axes cover
+    // whichever starts earlier / ends later.
     const xLabels = gData.labels;
-    const minX = xLabels.length > 0 ? xLabels[0] : null;
-    const maxX = xLabels.length > 0 ? xLabels[xLabels.length - 1] : null;
+    const altLabels = gData.alt_labels || [];
+    const xFirsts = [];
+    const xLasts  = [];
+    if (xLabels.length > 0)   { xFirsts.push(xLabels[0]);   xLasts.push(xLabels[xLabels.length - 1]); }
+    if (altLabels.length > 0) { xFirsts.push(altLabels[0]); xLasts.push(altLabels[altLabels.length - 1]); }
+    const minX = xFirsts.length > 0 ? Math.min.apply(null, xFirsts) : null;
+    const maxX = xLasts.length  > 0 ? Math.max.apply(null, xLasts)  : null;
 
     // iTOW -> UTC HH:MM:SS.cc (seconds with exactly two decimals)
     function formatITOW(itow) {
@@ -337,7 +359,7 @@
         const min = Math.round(x.min / 100) * 100;
         const max = Math.round(x.max / 100) * 100;
 
-        const charts = [accChartInstance, fixChartInstance, cnoChartInstance, secChartInstance];
+        const charts = [accChartInstance, acc2ChartInstance, fixChartInstance, cnoChartInstance, secChartInstance];
         charts.forEach(chart => {
             if (chart && chart.scales.x) {
                 chart.options.scales.x.min = min;
@@ -348,7 +370,7 @@
     }
 
     function resetAllZooms() {
-        const charts = [accChartInstance, fixChartInstance, cnoChartInstance, secChartInstance];
+        const charts = [accChartInstance, acc2ChartInstance, fixChartInstance, cnoChartInstance, secChartInstance];
         charts.forEach(c => {
             if(c) {
                 c.resetZoom();
@@ -445,6 +467,60 @@
         }
       }
     });
+
+    // 1b. Accuracy Chart — secondary PVT stream (e.g. NAV2-PVT), rendered only
+    // when the log carried frames of the other PVT class.
+    const acc2Canvas = document.getElementById('acc2Chart');
+    if (acc2Canvas && gData.alt_labels && gData.alt_labels.length > 0) {
+      const ctxAcc2 = acc2Canvas.getContext('2d');
+      acc2ChartInstance = new Chart(ctxAcc2, {
+        type: 'line',
+        data: {
+          labels: gData.alt_labels,
+          datasets: [
+            {
+              label: '2D Accuracy (m)',
+              data: gData.alt_acc2d,
+              borderColor: '#4A90E2',
+              backgroundColor: 'rgba(74, 144, 226, 0.1)',
+              borderWidth: 2,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              tension: 0.1
+            },
+            {
+              label: '3D Accuracy (m)',
+              data: gData.alt_acc3d,
+              borderColor: '#FF6E59',
+              backgroundColor: 'rgba(255, 110, 89, 0.1)',
+              borderWidth: 2,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              tension: 0.1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top' },
+            tooltip: commonTooltip,
+            zoom: zoomOptions
+          },
+          scales: {
+            x: commonScalesX,
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Accuracy (meters)' },
+              afterFit: (ctx) => { ctx.width = FIXED_Y_WIDTH; }
+            }
+          }
+        }
+      });
+    }
 
     // 2. Fix Type Chart
     if (gData.fix_type && gData.fix_type.length > 0) {

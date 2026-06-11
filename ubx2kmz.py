@@ -396,6 +396,14 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         "lon": [],          # deg, per kept epoch (for map overlays)
         "cno_labels": [],
         "cno_top_avg": [],
+        # Accuracy series of the *other* PVT class (NAV2-PVT when the primary
+        # is NAV-PVT, and vice versa). Populated only when such frames exist,
+        # so the report can show both accuracy charts side by side.
+        "primary_pvt": "NAV2-PVT" if use_nav2 else "NAV-PVT",
+        "alt_pvt":     "NAV-PVT" if use_nav2 else "NAV2-PVT",
+        "alt_labels": [],
+        "alt_acc2d": [],
+        "alt_acc3d": [],
         # UBX-SEC-SIG (jamming/spoofing). Populated only if SEC-SIG frames are found.
         "sec_labels": [],     # iTOW per sample, aligned with the last NAV-PVT iTOW
         "jam_state": [],      # 0=Unknown, 1=OK, 2=Warning
@@ -416,6 +424,7 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     last_pvt_itow = None  # most recent PVT iTOW seen, used to timestamp SEC-SIG frames
 
     target_class = NAV2_CLASS if use_nav2 else NAV_CLASS
+    alt_class    = NAV_CLASS if use_nav2 else NAV2_CLASS  # same payload layout
     period = 1000 // hz if hz else None
 
     buf.append(HEADER)
@@ -562,6 +571,19 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     ))
                     valid_msgs += 1
                     if hz: kept += 1
+
+            # 1b. Secondary PVT class (NAV2-PVT alongside NAV-PVT, or vice
+            # versa). Same payload layout; only the accuracy series is kept
+            # so the report can chart both message streams.
+            elif cls_ == alt_class and id_ == PVT_ID:
+                rec = parse_nav_pvt(payload)
+                if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 2, 3, 4):
+                    if not (hz and (rec["iTOW"] % period) != 0):
+                        a_h = rec.get("pos_acc", 0.0)
+                        a_v = rec.get("alt_acc", 0.0)
+                        graph_data["alt_labels"].append(rec["iTOW"])
+                        graph_data["alt_acc2d"].append(round(a_h, 3))
+                        graph_data["alt_acc3d"].append(round(math.sqrt(a_h**2 + a_v**2), 3))
 
             # 2. NAV-SAT 처리
             elif cls_ == NAV_CLASS and id_ == SAT_ID:
