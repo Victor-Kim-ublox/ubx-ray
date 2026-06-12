@@ -351,6 +351,39 @@
         return `${hh}:${mm}:${ss}.${cc}`;
     }
 
+    // Shared Y scale for the two accuracy charts (NAV-PVT vs NAV2-PVT):
+    // compute the max accuracy value across BOTH streams within the visible
+    // x window and apply it to both charts, so their y axes always match and
+    // the streams are directly comparable. No-op when only one chart exists.
+    function syncAccYAxes() {
+        if (!accChartInstance || !acc2ChartInstance) return;
+        const xs = accChartInstance.options.scales.x;
+        const lo = (xs.min != null) ? xs.min : minX;
+        const hi = (xs.max != null) ? xs.max : maxX;
+
+        let yMax = 0;
+        const series = [
+            [gData.labels,     gData.acc2d,     gData.acc3d],
+            [gData.alt_labels, gData.alt_acc2d, gData.alt_acc3d]
+        ];
+        series.forEach(([labels, a2, a3]) => {
+            for (let i = 0; i < labels.length; i++) {
+                const x = labels[i];
+                if (x < lo || x > hi) continue;
+                if (a2[i] > yMax) yMax = a2[i];
+                if (a3[i] > yMax) yMax = a3[i];
+            }
+        });
+        if (yMax <= 0) return;
+
+        const top = yMax * 1.05;   // small headroom above the tallest peak
+        [accChartInstance, acc2ChartInstance].forEach(c => {
+            c.options.scales.y.min = 0;
+            c.options.scales.y.max = top;
+            c.update('none');
+        });
+    }
+
     // Sync zoom/pan across all charts (snap to 100ms grid)
     function syncCharts(sourceChart) {
         const x = sourceChart.scales.x;
@@ -367,6 +400,7 @@
                 chart.update('none');
             }
         });
+        syncAccYAxes();
     }
 
     function resetAllZooms() {
@@ -379,6 +413,7 @@
                 c.update();
             }
         });
+        syncAccYAxes();
     }
 
     const zoomOptions = {
@@ -520,6 +555,9 @@
           }
         }
       });
+
+      // Apply the shared Y scale on first render (not only after a zoom).
+      syncAccYAxes();
     }
 
     // 2. Fix Type Chart

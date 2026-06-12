@@ -56,6 +56,15 @@ styling; the title names the class via `graph_data.alt_pvt`. The chart
 joins `syncCharts`/`resetAllZooms`, and the shared x range (`minX`/`maxX`)
 spans both streams.
 
+**Shared Y scale** — when both accuracy charts exist, `syncAccYAxes()`
+computes the max accuracy value across *both* streams within the visible
+x window (+5% headroom) and applies the same `y.min`/`y.max` to both
+charts, so the streams are directly comparable at a glance. It runs on
+first render, after every zoom/pan (`syncCharts`), and on
+`resetAllZooms`; zooming into a quieter window shrinks both axes
+together. No-op when only one accuracy chart is present (y autoscales
+as before).
+
 ### ③ Fix Type Status
 Chart: `#fixChart`. Stepped line 0..5 (No fix / DR / 2D / 3D / GNSS+DR / Time).
 Rendered only when `graph_data.fix_type` is present.
