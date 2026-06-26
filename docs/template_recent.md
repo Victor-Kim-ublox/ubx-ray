@@ -50,13 +50,29 @@ Row field order:
 | `running` | blue | Conversion in progress |
 | `error` | red | Conversion failed |
 
-### Action Links (active only when `done`)
+### Action Links
+
+A 4-file comparison upload produces **one row per member file** (each with its
+own `rid` and `kmz_path`), all sharing the same `compare_group`. Buttons differ
+by `upload_type`:
+
+**Single rows** (`upload_type='single'`):
 
 | Button | Link | Description |
 |---|---|---|
 | Report | `/report/{rid}` | Analysis report page |
 | Map | `/map/{rid}` | Map viewer |
 | KMZ | `/download?path={kmz_path}` | Download KMZ file |
+
+**Multi rows** (`upload_type='multi'`, shown once `kmz` exists):
+
+| Button | Link | Description |
+|---|---|---|
+| Comparison Report | `/compare4/report/{cgroup}` | 4-way comparison report |
+| Split Map | `/compare4/view/{cgroup}` | Split map view |
+| Overlay | `/compare4/overlay/{cgroup}` | Overlay map view |
+| **Single Map** | `/map/{rid}` | This member file in the full single map view (playback, SEC-SIG overlays, per-point tooltips) — the group/comparison views are intentionally simpler, so this exposes the richer single-file viewer per track |
+| KMZ | `/download?path={kmz_path}` | Download this member's KMZ |
 
 ---
 
