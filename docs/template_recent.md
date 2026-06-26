@@ -35,7 +35,7 @@ Row field order:
 |---|---|
 | # | Row number |
 | Filename | Original filename |
-| Uploaded | Upload timestamp (UTC) |
+| Uploaded | Upload timestamp (UTC), seconds precision — ISO fractional seconds are stripped (`uploaded.split('.')[0]`) |
 | Epochs | epoch_total (NAV-PVT frame count) |
 | Missing | epoch_missing count + percentage |
 | Status | Status badge |

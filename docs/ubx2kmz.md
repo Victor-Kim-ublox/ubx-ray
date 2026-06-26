@@ -150,6 +150,12 @@ After conversion, a `_graph.json` file is saved alongside the KMZ. Used for char
   "lon":       [float, ...],
   "cno_labels":  [iTOW, ...],
   "cno_top_avg": [float, ...],
+
+  "primary_pvt": "NAV-PVT" | "NAV2-PVT",   // class used for the KML track
+  "alt_pvt":     "NAV2-PVT" | "NAV-PVT",   // the *other* PVT class
+  "alt_labels":  [iTOW, ...],   // accuracy series of the other PVT class;
+  "alt_acc2d":   [float, ...],  // empty when the log carries no frames of
+  "alt_acc3d":   [float, ...],  // that class. Same validity + Hz filtering.
   // cno_scatter has been removed — only the Top-5 line is rendered now, and
   // emitting every tracked satellite per epoch ballooned the graph JSON.
 
