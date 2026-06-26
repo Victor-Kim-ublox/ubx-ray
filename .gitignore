@@ -7,6 +7,10 @@ uploads/
 tools/
 logs/
 
+# Local-only assets (screenshots, slide deck) — not part of the codebase
+captures/
+*.pptx
+
 # Python bytecode / caches
 __pycache__/
 *.py[cod]

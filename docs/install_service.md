@@ -78,7 +78,7 @@ Get-Content .\logs\ubxray.err.log -Wait -Tail 50
 
 # Update environment variables without removing the service
 .\tools\nssm\nssm.exe set ubxray AppEnvironmentExtra `
-    PYTHONUNBUFFERED=1 UBXRAY_MAX_UPLOAD_MB=300 UBXRAY_ADMIN_TOKEN=newtoken
+    PYTHONUNBUFFERED=1 UBXRAY_MAX_UPLOAD_MB=1024 UBXRAY_ADMIN_TOKEN=newtoken
 Restart-Service ubxray
 ```
 

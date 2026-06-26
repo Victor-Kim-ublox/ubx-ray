@@ -228,7 +228,7 @@
           <!-- Pretty dropzone = label for input -->
           <label id="dropzone" class="drop row" for="fileInput">
             <h2>Drop your UBX/BIN file here or click to browse</h2>
-            <div class="hint">Max 1 file · up to {{ max_upload_mb | default(300) }} MB</div>
+            <div class="hint">Max 1 file · up to {{ max_upload_mb | default(1024) }} MB</div>
             <div class="file-name" id="fileName"></div>
           </label>
 
@@ -272,7 +272,7 @@
               <div class="slot-label">File 1 <span class="slot-tag required-tag">required</span></div>
               <label id="mDrop1" class="drop" for="mFile1">
                 <h3>Drop UBX/BIN file here</h3>
-                <div class="hint">or click to browse · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="hint">or click to browse · up to {{ max_upload_mb | default(1024) }} MB</div>
                 <div class="file-name" id="mName1"></div>
               </label>
               <input id="mFile1" class="hidden-input" type="file" name="file1" accept=".ubx,.bin" required>
@@ -282,7 +282,7 @@
               <div class="slot-label">File 2 <span class="slot-tag optional-tag">optional</span></div>
               <label id="mDrop2" class="drop" for="mFile2" style="opacity:.75;">
                 <h3>Drop UBX/BIN file here</h3>
-                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
                 <div class="file-name" id="mName2"></div>
               </label>
               <input id="mFile2" class="hidden-input" type="file" name="file2" accept=".ubx,.bin">
@@ -292,7 +292,7 @@
               <div class="slot-label">File 3 <span class="slot-tag optional-tag">optional</span></div>
               <label id="mDrop3" class="drop" for="mFile3" style="opacity:.75;">
                 <h3>Drop UBX/BIN file here</h3>
-                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
                 <div class="file-name" id="mName3"></div>
               </label>
               <input id="mFile3" class="hidden-input" type="file" name="file3" accept=".ubx,.bin">
@@ -302,7 +302,7 @@
               <div class="slot-label">File 4 <span class="slot-tag optional-tag">optional</span></div>
               <label id="mDrop4" class="drop" for="mFile4" style="opacity:.75;">
                 <h3>Drop UBX/BIN file here</h3>
-                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
                 <div class="file-name" id="mName4"></div>
               </label>
               <input id="mFile4" class="hidden-input" type="file" name="file4" accept=".ubx,.bin">
@@ -342,7 +342,7 @@
               <div class="slot-label">KML 1 <span class="slot-tag required-tag">required</span></div>
               <label id="kDrop1" class="drop" for="kFile1">
                 <h3>Drop KML/KMZ file here</h3>
-                <div class="hint">or click to browse · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="hint">or click to browse · up to {{ max_upload_mb | default(1024) }} MB</div>
                 <div class="file-name" id="kName1"></div>
               </label>
               <input id="kFile1" class="hidden-input" type="file" name="file1" accept=".kml,.kmz" required>
@@ -352,7 +352,7 @@
               <div class="slot-label">KML 2 <span class="slot-tag optional-tag">optional</span></div>
               <label id="kDrop2" class="drop" for="kFile2" style="opacity:.75;">
                 <h3>Drop KML/KMZ file here</h3>
-                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
                 <div class="file-name" id="kName2"></div>
               </label>
               <input id="kFile2" class="hidden-input" type="file" name="file2" accept=".kml,.kmz">
@@ -362,7 +362,7 @@
               <div class="slot-label">KML 3 <span class="slot-tag optional-tag">optional</span></div>
               <label id="kDrop3" class="drop" for="kFile3" style="opacity:.75;">
                 <h3>Drop KML/KMZ file here</h3>
-                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
                 <div class="file-name" id="kName3"></div>
               </label>
               <input id="kFile3" class="hidden-input" type="file" name="file3" accept=".kml,.kmz">
@@ -372,7 +372,7 @@
               <div class="slot-label">KML 4 <span class="slot-tag optional-tag">optional</span></div>
               <label id="kDrop4" class="drop" for="kFile4" style="opacity:.75;">
                 <h3>Drop KML/KMZ file here</h3>
-                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+                <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
                 <div class="file-name" id="kName4"></div>
               </label>
               <input id="kFile4" class="hidden-input" type="file" name="file4" accept=".kml,.kmz">
@@ -499,7 +499,7 @@
     // Upload size limit (mirrors backend MAX_UPLOAD_BYTES). Used for
     // pre-flight validation so the user sees an immediate error instead of
     // waiting for the 413 response after the transfer finishes.
-    const MAX_UPLOAD_MB = {{ max_upload_mb | default(300) }};
+    const MAX_UPLOAD_MB = {{ max_upload_mb | default(1024) }};
     const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
     // Returns an error message when any file exceeds the limit, else null.

@@ -60,7 +60,7 @@ if (!file1Input.files.length) {
   alert('Please select at least File 1.');
   return;
 }
-// Enforce MAX_UPLOAD_MB (default 300 MB) per file on the client.
+// Enforce MAX_UPLOAD_MB (default 1024 MB) per file on the client.
 // oversized -> alert() + preventDefault().
 // Count how many files are selected
 // Disable button + show spinner + loading text
@@ -76,9 +76,9 @@ both the `drop` and `change` events. When `file.size` exceeds
 - clears the input so the form cannot submit the oversized file,
 - adds the `.oversized` class to the dropzone (red dashed border + red
   background) to make the failure state obvious,
-- writes `"⚠ N.N MB — exceeds 300 MB limit"` into the filename slot.
+- writes `"⚠ N.N MB — exceeds 1024 MB limit"` into the filename slot.
 
-Every dropzone hint also advertises the capacity (`"up to 300 MB"`).
+Every dropzone hint also advertises the capacity (`"up to 1024 MB"`).
 
 Standard HTML form submit (not fetch) → server issues 303 redirect to `/compare4/report/{r1}/{r2}/{r3}/{r4}`.
 
