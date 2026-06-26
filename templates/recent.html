@@ -207,8 +207,8 @@
           {% endif %}
         </td>
 
-        <!-- Uploaded -->
-        <td>{{ uploaded }}</td>
+        <!-- Uploaded (seconds precision; drop ISO fractional seconds) -->
+        <td>{{ uploaded.split('.')[0] if uploaded else '—' }}</td>
       </tr>
     {% endfor %}
   </table>
