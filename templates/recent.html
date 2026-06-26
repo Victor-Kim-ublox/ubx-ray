@@ -191,6 +191,10 @@
             {% if kmz %}
               <a class="btn secondary" href="/compare4/view/{{ cgroup }}">Split Map</a>
               <a class="btn secondary" href="/compare4/overlay/{{ cgroup }}">Overlay</a>
+              <!-- This row is one member of the multi group, with its own rid:
+                   open it in the full-featured single map view (playback,
+                   SEC-SIG, per-point tooltips). -->
+              <a class="btn secondary" href="/map/{{ id }}" title="View this file in the single map view">Single Map</a>
               <a class="btn secondary" href="/download?path={{ kmz|urlencode }}">KMZ</a>
             {% endif %}
           {% else %}
