@@ -163,7 +163,7 @@
             <div class="slot-label">File 1 <span style="color:var(--primary);font-weight:400;text-transform:none;font-size:11px;">required</span></div>
             <label id="drop1" class="drop" for="file1Input">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse · up to {{ max_upload_mb | default(300) }} MB</div>
+              <div class="hint">or click to browse · up to {{ max_upload_mb | default(1024) }} MB</div>
               <div class="file-name" id="name1"></div>
             </label>
             <input id="file1Input" class="hidden-input" type="file" name="file1" accept=".ubx,.bin" required>
@@ -174,7 +174,7 @@
             <div class="slot-label">File 2 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop2" class="drop" for="file2Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
               <div class="file-name" id="name2"></div>
             </label>
             <input id="file2Input" class="hidden-input" type="file" name="file2" accept=".ubx,.bin">
@@ -185,7 +185,7 @@
             <div class="slot-label">File 3 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop3" class="drop" for="file3Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
               <div class="file-name" id="name3"></div>
             </label>
             <input id="file3Input" class="hidden-input" type="file" name="file3" accept=".ubx,.bin">
@@ -196,7 +196,7 @@
             <div class="slot-label">File 4 <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:11px;">optional</span></div>
             <label id="drop4" class="drop" for="file4Input" style="opacity:.75;">
               <h3>Drop UBX/BIN file here</h3>
-              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(300) }} MB</div>
+              <div class="hint">or click to browse · leave empty to skip · up to {{ max_upload_mb | default(1024) }} MB</div>
               <div class="file-name" id="name4"></div>
             </label>
             <input id="file4Input" class="hidden-input" type="file" name="file4" accept=".ubx,.bin">
@@ -245,7 +245,7 @@
     // Upload size limit (mirrors backend MAX_UPLOAD_BYTES). Used for
     // pre-flight validation on file drop / selection so the user sees an
     // immediate error instead of waiting for the 413 after the transfer.
-    const MAX_UPLOAD_MB = {{ max_upload_mb | default(300) }};
+    const MAX_UPLOAD_MB = {{ max_upload_mb | default(1024) }};
     const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
     // Validate a freshly-picked file. If it exceeds MAX_UPLOAD_BYTES, clear
@@ -310,8 +310,8 @@
           return;
         }
         // Count how many files are selected for loading text, and enforce
-        // the 300 MB (MAX_UPLOAD_MB) per-file limit on the client side so
-        // the user gets an immediate error instead of waiting for the 413.
+        // the MAX_UPLOAD_MB per-file limit on the client side so the user
+        // gets an immediate error instead of waiting for the 413.
         let count = 0;
         for (let i = 1; i <= 4; i++) {
           const fi = document.getElementById(`file${i}Input`);

@@ -52,7 +52,7 @@ deleting stored uploads directly from the server shell. Dry-run by default;
 
 `install_service.ps1` (doc: `docs/install_service.md`) registers ubx-ray as a
 Windows service via NSSM. Run from an elevated PowerShell:
-`.\install_service.ps1 [-Port 8000] [-AdminToken "..."] [-MaxUploadMB 300]`.
+`.\install_service.ps1 [-Port 8000] [-AdminToken "..."] [-MaxUploadMB 1024]`.
 The service runs under `LocalSystem`, starts at boot without user logon, logs
 to `.\logs\`, and is auto-restarted by NSSM on crash. Use
 `.\install_service.ps1 -Uninstall` to remove.
@@ -61,7 +61,7 @@ to `.\logs\`, and is auto-restarted by NSSM on crash. Use
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `UBXRAY_MAX_UPLOAD_MB` | 300 | Max upload file size |
+| `UBXRAY_MAX_UPLOAD_MB` | 1024 | Max upload file size |
 | `UBXRAY_ADMIN_TOKEN` | (none) | Bearer token to bypass ownership checks |
 
 Hardcoded limits in `app.py`: 10 GB total disk quota, 10 results per user, 7-day TTL, cleanup every 3600s, `MAX_CONVERT` = CPU cores ÷ 2.

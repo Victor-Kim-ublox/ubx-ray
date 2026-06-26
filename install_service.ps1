@@ -25,7 +25,7 @@
 param(
     [int]    $Port           = 8000,
     [string] $AdminToken     = "",
-    [int]    $MaxUploadMB    = 300,
+    [int]    $MaxUploadMB    = 1024,
     [string] $ServiceName    = "ubxray",
     [switch] $Uninstall
 )

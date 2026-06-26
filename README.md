@@ -66,7 +66,7 @@ use the NSSM-based installer. Run from an **Administrator** PowerShell:
 
 ```powershell
 .\install_service.ps1                       # default port 8000
-.\install_service.ps1 -Port 8080 -AdminToken "secret" -MaxUploadMB 500
+.\install_service.ps1 -Port 8080 -AdminToken "secret" -MaxUploadMB 1024
 ```
 
 The script downloads NSSM, registers the `ubxray` service (LocalSystem,
@@ -101,11 +101,14 @@ Get-Content .\logs\ubxray.err.log -Wait -Tail 50
 
 | Env Var | Default | Purpose |
 |---|---|---|
-| `UBXRAY_MAX_UPLOAD_MB` | `300` | Max upload file size (MB) |
+| `UBXRAY_MAX_UPLOAD_MB` | `1024` | Max upload file size (MB) |
 | `UBXRAY_ADMIN_TOKEN` | _(none)_ | Bearer token to bypass per-user ownership checks |
 
 Hardcoded limits in `app.py`: 10 GB total disk quota, 10 results per user,
-7-day TTL, cleanup every 3600 s, `MAX_CONVERT` = CPU cores ÷ 2.
+7-day TTL, cleanup every 3600 s, `MAX_CONVERT` = CPU cores ÷ 2. Note: at the
+1 GB upload limit, the 10 GB quota holds roughly 10 full-size logs across all
+users before LRU cleanup kicks in — raise `CLN_MAX_TOTAL_BYTES` if you expect
+many large uploads.
 
 ---
 

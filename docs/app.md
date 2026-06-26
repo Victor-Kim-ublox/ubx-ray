@@ -18,7 +18,7 @@ The **main backend** of the ubX-ray web service. An async HTTP server built on F
 
 | Constant | Default | Description |
 |---|---|---|
-| `MAX_UPLOAD_BYTES` | 300 MB | Configurable via env var `UBXRAY_MAX_UPLOAD_MB` |
+| `MAX_UPLOAD_BYTES` | 1 GB (1024 MB) | Configurable via env var `UBXRAY_MAX_UPLOAD_MB` |
 | `CLN_MAX_TOTAL_BYTES` | 10 GB | LRU deletion when disk limit is exceeded |
 | `CLN_MAX_RESULTS_PER_USER` | 10 | Maximum number of results retained per user |
 | `CLN_RETAIN_DAYS` | 7 | TTL after upload (days) |
