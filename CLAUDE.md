@@ -64,7 +64,7 @@ to `.\logs\`, and is auto-restarted by NSSM on crash. Use
 | `UBXRAY_MAX_UPLOAD_MB` | 1024 | Max upload file size |
 | `UBXRAY_ADMIN_TOKEN` | (none) | Bearer token to bypass ownership checks |
 
-Hardcoded limits in `app.py`: 10 GB total disk quota, 10 results per user, 7-day TTL, cleanup every 3600s, `MAX_CONVERT` = CPU cores ÷ 2.
+Limits in `app.py`: 50 GB total disk quota (env `UBXRAY_MAX_TOTAL_GB`), 10 results per user, 7-day TTL, cleanup every 3600s, `MAX_CONVERT` = CPU cores ÷ 2.
 
 ## File Layout
 
