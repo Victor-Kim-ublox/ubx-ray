@@ -92,9 +92,9 @@ COOKIE_SAMESITE = "lax"
 # ===== Cleanup 정책 =====
 # Total disk budget for uploads + outputs (env-overridable). Scaled up with
 # the 1 GB upload limit: at 1 GB/file × 10 results per user, one user can use
-# ~10 GB, so 50 GB holds ~4-5 users at full capacity before LRU cleanup.
-CLN_MAX_TOTAL_GB = int(os.getenv("UBXRAY_MAX_TOTAL_GB", "50"))
-CLN_MAX_TOTAL_BYTES = CLN_MAX_TOTAL_GB * 1024**3   # 50GB default (uploads + outputs)
+# ~10 GB, so 100 GB holds ~10 users at full capacity before LRU cleanup.
+CLN_MAX_TOTAL_GB = int(os.getenv("UBXRAY_MAX_TOTAL_GB", "100"))
+CLN_MAX_TOTAL_BYTES = CLN_MAX_TOTAL_GB * 1024**3   # 100GB default (uploads + outputs)
 CLN_MAX_RESULTS_PER_USER = 10        # 사용자별 최신 10개만 보존 (queued/running 제외)
 CLN_RETAIN_DAYS = 7                  # 업로드 후 7일 TTL
 CLN_INTERVAL_SEC = 60 * 60           # 60분마다 한 번씩

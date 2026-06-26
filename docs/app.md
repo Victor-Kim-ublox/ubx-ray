@@ -19,7 +19,7 @@ The **main backend** of the ubX-ray web service. An async HTTP server built on F
 | Constant | Default | Description |
 |---|---|---|
 | `MAX_UPLOAD_BYTES` | 1 GB (1024 MB) | Configurable via env var `UBXRAY_MAX_UPLOAD_MB` |
-| `CLN_MAX_TOTAL_BYTES` | 50 GB | LRU deletion when disk limit is exceeded; configurable via env var `UBXRAY_MAX_TOTAL_GB` |
+| `CLN_MAX_TOTAL_BYTES` | 100 GB | LRU deletion when disk limit is exceeded; configurable via env var `UBXRAY_MAX_TOTAL_GB` |
 | `CLN_MAX_RESULTS_PER_USER` | 10 | Maximum number of results retained per user |
 | `CLN_RETAIN_DAYS` | 7 | TTL after upload (days) |
 | `CLN_INTERVAL_SEC` | 3600 | Cleanup interval (seconds) |
@@ -141,7 +141,7 @@ A background daemon thread (`cln_loop`) starts at app startup and runs cleanup i
 
 1. **TTL Expiry** (`cln_expired`): Delete results older than `CLN_RETAIN_DAYS` days
 2. **Keep Latest N Per User** (`cln_keep_latest_per_user`): Remove older results beyond the per-user limit
-3. **Disk Quota** (`cln_quota`): LRU deletion of oldest completed results when exceeding `CLN_MAX_TOTAL_BYTES` (50 GB default)
+3. **Disk Quota** (`cln_quota`): LRU deletion of oldest completed results when exceeding `CLN_MAX_TOTAL_BYTES` (100 GB default)
 4. **Orphan Cleanup** (`cln_orphans`): Remove files/folders not in DB + NULL out kmz_path for missing KMZ files
 5. **VACUUM**: Optimize the SQLite file
 
