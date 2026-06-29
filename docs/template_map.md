@@ -33,6 +33,15 @@ A **KMZ-based map viewer** for single UBX file analysis results. Renders KML poi
 ### Map (`#map`)
 Full-screen (viewport height minus header height).
 
+### Loading overlay (`#loadingOverlay`)
+A fixed full-screen overlay (blurred backdrop + spinner + "Loading map…" /
+"Fetching track data") shown on first paint while the KML track is fetched.
+Matters now that uploads can be up to 1 GB — the derived KMZ can take a
+moment to load. `hideLoading()` removes it when the track layer's
+`vectorSource` reaches the `ready` state (the real "track on screen" moment),
+on its `error` state, and as a fallback when `loadData()` resolves/rejects, so
+the user is never left behind a stuck spinner.
+
 ---
 
 ## Map Layer Structure
