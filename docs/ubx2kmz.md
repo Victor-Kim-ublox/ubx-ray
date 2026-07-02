@@ -31,6 +31,18 @@ python ubx2kmz.py <ubx_file> [options]
 | NAV-SAT | 0x01 | 0x35 | Per-SV CN0 used for the CN0 chart |
 | AID-MAPM | 0x0B | 0x05 | Map-matching points (white arrows, `--mapm`) |
 | SEC-SIG | 0x27 | 0x09 | Jamming / spoofing status (version 0x02) |
+| INF-* | 0x04 | 0x00–0x04 | Receiver text messages (ERROR/WARNING/NOTICE/TEST/DEBUG) |
+
+### UBX-INF messages
+
+Class `0x04` carries ASCII text emitted by the receiver. All five levels are
+collected into `graph_data["inf_messages"]` as `{itow, utc, level, text}` in
+file order (capped at `INF_MAX = 2000`). INF frames have no time of their own,
+so each is tagged with the **nearest preceding PVT** time reference
+(`inf_ref_itow` / `inf_ref_utc`, updated for any valid-time epoch incl. no-fix);
+messages before the first fix have `itow`/`utc` = `null`. A printable-ratio
+guard (≥ 80% printable ASCII) drops false sync matches when checksum
+verification is off. Rendered in the report as the "Receiver Messages" table.
 
 NAV-PVT payload valid lengths: 92 or 96 bytes (`VALID_LEN_SET`)
 
@@ -164,7 +176,11 @@ After conversion, a `_graph.json` file is saved alongside the KMZ. Used for char
   "spf_state":        [int, ...],
   "jam_det_enabled":  [0|1, ...],
   "spf_det_enabled":  [0|1, ...],
-  "sec_freqs":        [[{"freq_mhz": float, "jammed": bool}, ...], ...]
+  "sec_freqs":        [[{"freq_mhz": float, "jammed": bool}, ...], ...],
+
+  "inf_messages":     [{"itow": int|null, "utc": "…Z"|null,
+                        "level": "ERROR|WARNING|NOTICE|TEST|DEBUG",
+                        "text": str}, ...]
 }
 ```
 

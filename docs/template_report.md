@@ -78,6 +78,16 @@ performance. Rendered only when `cno_top_avg` has length > 0.
 Chart: `#secChart`. Two stepped lines: jamming (red, 0..2) and spoofing
 (amber, 0..3). Rendered only when `sec_labels` is non-empty.
 
+### ⑥ Receiver Messages (UBX-INF)
+Table `#infBody` (not a chart), rendered only when `graph_data.inf_messages`
+is non-empty. Columns: **Time (UTC) · iTOW · Level · Message** — one row per
+UBX-INF frame in log order. Time/iTOW come from the nearest preceding PVT;
+pre-first-fix messages show `—`. Level badges are colour-coded
+(ERROR red / WARNING amber / NOTICE blue / TEST・DEBUG grey). Per-level filter
+buttons toggle row visibility (only levels present are shown), and the note
+line summarises the per-level counts. The table body scrolls within a fixed
+max height.
+
 ---
 
 ## Per-Chart Controls
