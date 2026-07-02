@@ -205,85 +205,9 @@
       </table>
     </div>
 
-    {% if graph_data %}
-    <!-- ② 2D vs 3D Accuracy (primary PVT stream) -->
-    <div class="section-title">② Position Accuracy (2D vs 3D) — {{ graph_data.primary_pvt | default('NAV-PVT') }}</div>
-    <div class="card">
-      <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
-        <button class="ctl-btn" onclick="toggleChart('accChartBox', this)">👁 Hide Chart</button>
-      </div>
-      <p class="chart-note">Scroll to zoom, drag to pan · all chart X-axes synchronized</p>
-      <div class="chart-wrap" id="accChartBox" style="height:280px">
-        <canvas id="accChart"></canvas>
-      </div>
-    </div>
-    {% endif %}
-
-    {% if graph_data and graph_data.alt_labels and graph_data.alt_labels|length > 0 %}
-    <!-- ②-2 2D vs 3D Accuracy (secondary PVT stream, e.g. NAV2-PVT) -->
-    <div class="section-title">②-2 Position Accuracy (2D vs 3D) — {{ graph_data.alt_pvt | default('NAV2-PVT') }}</div>
-    <div class="card">
-      <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
-        <button class="ctl-btn" onclick="toggleChart('acc2ChartBox', this)">👁 Hide Chart</button>
-      </div>
-      <div class="chart-wrap" id="acc2ChartBox" style="height:280px">
-        <canvas id="acc2Chart"></canvas>
-      </div>
-    </div>
-    {% endif %}
-
-    {% if graph_data and graph_data.fix_type %}
-    <!-- ③ Fix Type -->
-    <div class="section-title">③ Fix Type Status</div>
-    <div class="card">
-      <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
-        <button class="ctl-btn" onclick="toggleChart('fixChartBox', this)">👁 Hide Chart</button>
-      </div>
-      <div class="chart-wrap" id="fixChartBox" style="height:200px">
-        <canvas id="fixChart"></canvas>
-      </div>
-    </div>
-    {% endif %}
-
-    {% if graph_data and graph_data.cno_top_avg and graph_data.cno_top_avg|length > 0 %}
-    <!-- ④ CN0 -->
-    <div class="section-title">④ Satellite Signal Density (CN0)</div>
-    <div class="card">
-      <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
-        <button class="ctl-btn" onclick="toggleChart('cnoChartBox', this)">👁 Hide Chart</button>
-      </div>
-      <p class="chart-note">Green line: Top-5 Avg CN0 across tracked satellites (qualityInd ≥ 4)</p>
-      <div class="chart-wrap" id="cnoChartBox" style="height:300px">
-        <canvas id="cnoChart"></canvas>
-      </div>
-    </div>
-    {% endif %}
-
-    {% if graph_data and graph_data.sec_labels and graph_data.sec_labels|length > 0 %}
-    <!-- ⑤ Jamming & Spoofing -->
-    <div class="section-title">⑤ Jamming &amp; Spoofing Status (UBX-SEC-SIG)</div>
-    <div class="card">
-      <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
-        <button class="ctl-btn" onclick="toggleChart('secChartBox', this)">👁 Hide Chart</button>
-      </div>
-      <p class="chart-note">
-        Jamming: Unknown / OK / Warning &nbsp;·&nbsp;
-        Spoofing: Unknown / OK / Indicated / Affirmed
-      </p>
-      <div class="chart-wrap" id="secChartBox" style="height:240px">
-        <canvas id="secChart"></canvas>
-      </div>
-    </div>
-    {% endif %}
-
     {% if graph_data and graph_data.inf_messages and graph_data.inf_messages|length > 0 %}
-    <!-- ⑥ UBX-INF Messages -->
-    <div class="section-title">⑥ Receiver Messages (UBX-INF)</div>
+    <!-- ② UBX-INF Messages (surfaced early so receiver errors are seen first) -->
+    <div class="section-title">② Receiver Messages (UBX-INF)</div>
     <div class="card">
       <p class="chart-note" id="infNote">
         Text messages emitted by the receiver, in log order, with the nearest
@@ -303,6 +227,82 @@
           </thead>
           <tbody id="infBody"></tbody>
         </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data %}
+    <!-- ③ 2D vs 3D Accuracy (primary PVT stream) -->
+    <div class="section-title">③ Position Accuracy (2D vs 3D) — {{ graph_data.primary_pvt | default('NAV-PVT') }}</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('accChartBox', this)">👁 Hide Chart</button>
+      </div>
+      <p class="chart-note">Scroll to zoom, drag to pan · all chart X-axes synchronized</p>
+      <div class="chart-wrap" id="accChartBox" style="height:280px">
+        <canvas id="accChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data and graph_data.alt_labels and graph_data.alt_labels|length > 0 %}
+    <!-- ③-2 2D vs 3D Accuracy (secondary PVT stream, e.g. NAV2-PVT) -->
+    <div class="section-title">③-2 Position Accuracy (2D vs 3D) — {{ graph_data.alt_pvt | default('NAV2-PVT') }}</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('acc2ChartBox', this)">👁 Hide Chart</button>
+      </div>
+      <div class="chart-wrap" id="acc2ChartBox" style="height:280px">
+        <canvas id="acc2Chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data and graph_data.fix_type %}
+    <!-- ④ Fix Type -->
+    <div class="section-title">④ Fix Type Status</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('fixChartBox', this)">👁 Hide Chart</button>
+      </div>
+      <div class="chart-wrap" id="fixChartBox" style="height:200px">
+        <canvas id="fixChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data and graph_data.cno_top_avg and graph_data.cno_top_avg|length > 0 %}
+    <!-- ⑤ CN0 -->
+    <div class="section-title">⑤ Satellite Signal Density (CN0)</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('cnoChartBox', this)">👁 Hide Chart</button>
+      </div>
+      <p class="chart-note">Green line: Top-5 Avg CN0 across tracked satellites (qualityInd ≥ 4)</p>
+      <div class="chart-wrap" id="cnoChartBox" style="height:300px">
+        <canvas id="cnoChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if graph_data and graph_data.sec_labels and graph_data.sec_labels|length > 0 %}
+    <!-- ⑥ Jamming & Spoofing -->
+    <div class="section-title">⑥ Jamming &amp; Spoofing Status (UBX-SEC-SIG)</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
+        <button class="ctl-btn" onclick="toggleChart('secChartBox', this)">👁 Hide Chart</button>
+      </div>
+      <p class="chart-note">
+        Jamming: Unknown / OK / Warning &nbsp;·&nbsp;
+        Spoofing: Unknown / OK / Indicated / Affirmed
+      </p>
+      <div class="chart-wrap" id="secChartBox" style="height:240px">
+        <canvas id="secChart"></canvas>
       </div>
     </div>
     {% endif %}

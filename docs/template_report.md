@@ -43,12 +43,22 @@ KMZ download and map-viewer entry points live in the sticky header
 (`⬇ KMZ`, `🗺 Map`) so they are always visible and not duplicated inside
 the card. They appear only once `kmz_path` is set.
 
-### ② Position Accuracy (2D vs 3D) — primary PVT
+### ② Receiver Messages (UBX-INF)
+Table `#infBody` (not a chart), placed right after Metadata so receiver errors
+are seen first. Rendered only when `graph_data.inf_messages` is non-empty.
+Columns: **Time (UTC) · iTOW · Level · Message** — one row per UBX-INF frame in
+log order. Time/iTOW come from the nearest preceding PVT; pre-first-fix messages
+show `—`. Level badges are colour-coded (ERROR red / WARNING amber / NOTICE
+blue / TEST・DEBUG grey). Per-level filter buttons toggle row visibility (only
+levels present are shown), and the note line summarises the per-level counts.
+The table body scrolls within a fixed max height.
+
+### ③ Position Accuracy (2D vs 3D) — primary PVT
 Chart: `#accChart`. Overlaid 2D (blue) / 3D (orange) lines vs iTOW. The
 section title names the primary PVT class (`graph_data.primary_pvt`,
 defaults to NAV-PVT for legacy graph JSONs).
 
-### ②-2 Position Accuracy (2D vs 3D) — secondary PVT
+### ③-2 Position Accuracy (2D vs 3D) — secondary PVT
 Chart: `#acc2Chart`. Rendered only when the log also carried frames of the
 *other* PVT class (`graph_data.alt_labels` non-empty) — e.g. NAV2-PVT
 (0x29 0x07, same payload layout) alongside NAV-PVT. Same 2D/3D series
@@ -65,28 +75,18 @@ first render, after every zoom/pan (`syncCharts`), and on
 together. No-op when only one accuracy chart is present (y autoscales
 as before).
 
-### ③ Fix Type Status
+### ④ Fix Type Status
 Chart: `#fixChart`. Stepped line 0..5 (No fix / DR / 2D / 3D / GNSS+DR / Time).
 Rendered only when `graph_data.fix_type` is present.
 
-### ④ Satellite Signal Density (CN0)
+### ⑤ Satellite Signal Density (CN0)
 Chart: `#cnoChart`. Single green line = Top-5 average CN0 across satellites
 with `qualityInd >= 4`. The per-satellite scatter dataset was removed for
 performance. Rendered only when `cno_top_avg` has length > 0.
 
-### ⑤ Jamming & Spoofing Status (UBX-SEC-SIG)
+### ⑥ Jamming & Spoofing Status (UBX-SEC-SIG)
 Chart: `#secChart`. Two stepped lines: jamming (red, 0..2) and spoofing
 (amber, 0..3). Rendered only when `sec_labels` is non-empty.
-
-### ⑥ Receiver Messages (UBX-INF)
-Table `#infBody` (not a chart), rendered only when `graph_data.inf_messages`
-is non-empty. Columns: **Time (UTC) · iTOW · Level · Message** — one row per
-UBX-INF frame in log order. Time/iTOW come from the nearest preceding PVT;
-pre-first-fix messages show `—`. Level badges are colour-coded
-(ERROR red / WARNING amber / NOTICE blue / TEST・DEBUG grey). Per-level filter
-buttons toggle row visibility (only levels present are shown), and the note
-line summarises the per-level counts. The table body scrolls within a fixed
-max height.
 
 ---
 
