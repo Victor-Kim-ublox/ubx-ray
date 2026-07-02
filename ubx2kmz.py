@@ -29,6 +29,13 @@ SAT_ID     = 0x35
 SEC_CLASS  = 0x27
 SECSIG_ID  = 0x09
 
+# UBX-INF (class 0x04): informational text messages emitted by the receiver.
+# Payload is ASCII. Surfaced in the report so users can see what the receiver
+# reported (errors/warnings/notices) and at which point in the log.
+INF_CLASS  = 0x04
+INF_LEVELS = {0x00: "ERROR", 0x01: "WARNING", 0x02: "NOTICE", 0x03: "TEST", 0x04: "DEBUG"}
+INF_MAX    = 2000  # cap collected INF messages to keep the graph JSON bounded
+
 # SEC-SIG jamming / spoofing state codes
 JAM_STATE_UNKNOWN   = 0
 JAM_STATE_OK        = 1
@@ -370,6 +377,18 @@ def normalize_heading(deg: float) -> float:
         h += 360.0
     return h
 
+def pvt_utc_str(rec) -> str:
+    """UTC timestamp for a NAV-PVT record with two decimal places on the
+    seconds (uses the signed `nano` offset). Format: YYYY-MM-DDTHH:MM:SS.ccZ."""
+    try:
+        t = datetime(rec['year'], rec['month'], rec['day'],
+                     rec['hour'], rec['min'], rec['sec']) \
+            + timedelta(seconds=rec.get('nano', 0) * 1e-9)
+        return t.strftime("%Y-%m-%dT%H:%M:%S") + f".{t.microsecond // 10000:02d}Z"
+    except ValueError:
+        return (f"{rec['year']:04d}-{rec['month']:02d}-{rec['day']:02d}"
+                f"T{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}.00Z")
+
 def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
               alt_abs: bool = False, verify_ck: bool = False):
     buf = []
@@ -411,6 +430,10 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         "jam_det_enabled": [],
         "spf_det_enabled": [],
         "sec_freqs": [],      # list per sample: [{freq_mhz, jammed}, ...]
+        # UBX-INF messages: [{itow, utc, level, text}, ...] in file order.
+        # itow/utc are the most recent PVT time reference (None before the
+        # first fix, since INF frames carry no time of their own).
+        "inf_messages": [],
         # [추가] 통계 정보 저장용
         "stats": {
             "epoch_total": 0,
@@ -422,6 +445,10 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     itow_to_cno = {}
     itow_to_secsig = {}
     last_pvt_itow = None  # most recent PVT iTOW seen, used to timestamp SEC-SIG frames
+    # Time reference for INF messages: updated for ANY valid-time PVT epoch
+    # (even no-fix), so INF frames get the closest available timestamp.
+    inf_ref_itow = None
+    inf_ref_utc  = None
 
     target_class = NAV2_CLASS if use_nav2 else NAV_CLASS
     alt_class    = NAV_CLASS if use_nav2 else NAV2_CLASS  # same payload layout
@@ -457,6 +484,12 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             if cls_ == target_class and id_ == PVT_ID:
                 total_msgs += 1
                 rec = parse_nav_pvt(payload)
+                # Update the INF time reference for any epoch with a valid
+                # date/time, regardless of fix (so INF messages during a no-fix
+                # period still get the nearest timestamp).
+                if rec and rec["validDate"] and rec["validTime"]:
+                    inf_ref_itow = rec["iTOW"]
+                    inf_ref_utc  = pvt_utc_str(rec)
                 # fixType: 1=DR only, 2=2D, 3=3D, 4=GNSS+DR. 0 (no fix) and
                 # 5 (time only) carry no usable position and are skipped.
                 if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 2, 3, 4):
@@ -539,18 +572,10 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     heading_true = normalize_heading(heading_raw)
                     icon_heading = normalize_heading(heading_true + 180.0)
 
-                    # Timestamp with two decimal places on the seconds, using
-                    # the NAV-PVT `nano` field (signed ns offset, may roll the
-                    # second backwards). Shown in the popup description and
+                    # Timestamp with two decimal places on the seconds (uses the
+                    # NAV-PVT `nano` field). Shown in the popup description and
                     # used as the KML <when> for playback ordering.
-                    try:
-                        t = datetime(rec['year'], rec['month'], rec['day'],
-                                     rec['hour'], rec['min'], rec['sec']) \
-                            + timedelta(seconds=rec.get('nano', 0) * 1e-9)
-                        ts = t.strftime("%Y-%m-%dT%H:%M:%S") + f".{t.microsecond // 10000:02d}Z"
-                    except ValueError:
-                        ts = (f"{rec['year']:04d}-{rec['month']:02d}-{rec['day']:02d}"
-                              f"T{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}.00Z")
+                    ts = pvt_utc_str(rec)
                     href = "https://maps.google.com/mapfiles/kml/shapes/arrow.png"
                     
                     if alt_abs:
@@ -597,6 +622,23 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 sec_rec = parse_sec_sig(payload)
                 if sec_rec and last_pvt_itow is not None:
                     itow_to_secsig[last_pvt_itow] = sec_rec
+
+            # 4. UBX-INF (ASCII text messages). Collected in file order with the
+            # nearest PVT time reference so the report can show what the receiver
+            # reported and when.
+            elif cls_ == INF_CLASS and id_ in INF_LEVELS:
+                if len(graph_data["inf_messages"]) < INF_MAX:
+                    text = bytes(payload).decode("ascii", "ignore").strip()
+                    # Guard against false sync matches (verify_ck off by default):
+                    # a real INF payload is printable text.
+                    printable = sum(1 for c in text if 32 <= ord(c) < 127)
+                    if text and printable >= 0.8 * len(text):
+                        graph_data["inf_messages"].append({
+                            "itow":  inf_ref_itow,
+                            "utc":   inf_ref_utc,
+                            "level": INF_LEVELS[id_],
+                            "text":  text,
+                        })
 
             i = frame_end
 

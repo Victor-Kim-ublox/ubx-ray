@@ -129,6 +129,30 @@
     }
     .chart-controls .ctl-btn:hover { background: #e5e7eb; }
     .chart-note { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+
+    /* UBX-INF message log table */
+    .inf-scroll { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .inf-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .inf-table th {
+      position: sticky; top: 0; z-index: 1;
+      text-align: left; padding: 7px 10px; background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700;
+    }
+    .inf-table td { padding: 6px 10px; border-bottom: 1px solid #f0f2f5; vertical-align: top; }
+    .inf-table tr:last-child td { border-bottom: none; }
+    .inf-table td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; color: #374151; }
+    .inf-table td.msg { word-break: break-word; }
+    .inf-badge {
+      display: inline-block; padding: 1px 7px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .inf-ERROR   { background: var(--error-bg);   color: var(--error-text); }
+    .inf-WARNING { background: var(--warn-bg);    color: var(--warn-text); }
+    .inf-NOTICE  { background: #eef2ff; color: #3730a3; }
+    .inf-TEST    { background: #f0f2f5; color: #475569; }
+    .inf-DEBUG   { background: #f0f2f5; color: #64748b; }
+    .inf-filter-btn.off { opacity: .4; text-decoration: line-through; }
   </style>
 
   <script>
@@ -181,9 +205,35 @@
       </table>
     </div>
 
+    {% if graph_data and graph_data.inf_messages and graph_data.inf_messages|length > 0 %}
+    <!-- ② UBX-INF Messages (surfaced early so receiver errors are seen first) -->
+    <div class="section-title">② Receiver Messages (UBX-INF)</div>
+    <div class="card">
+      <p class="chart-note" id="infNote">
+        Text messages emitted by the receiver, in log order, with the nearest
+        PVT time. Messages before the first fix have no time (—).
+      </p>
+      <div class="chart-controls" id="infFilters">
+        <button class="ctl-btn inf-filter-btn" data-level="ERROR">ERROR</button>
+        <button class="ctl-btn inf-filter-btn" data-level="WARNING">WARNING</button>
+        <button class="ctl-btn inf-filter-btn" data-level="NOTICE">NOTICE</button>
+        <button class="ctl-btn inf-filter-btn" data-level="TEST">TEST</button>
+        <button class="ctl-btn inf-filter-btn" data-level="DEBUG">DEBUG</button>
+      </div>
+      <div class="inf-scroll">
+        <table class="inf-table">
+          <thead>
+            <tr><th style="width:180px">Time (UTC)</th><th style="width:120px">iTOW</th><th style="width:90px">Level</th><th>Message</th></tr>
+          </thead>
+          <tbody id="infBody"></tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
     {% if graph_data %}
-    <!-- ② 2D vs 3D Accuracy (primary PVT stream) -->
-    <div class="section-title">② Position Accuracy (2D vs 3D) — {{ graph_data.primary_pvt | default('NAV-PVT') }}</div>
+    <!-- ③ 2D vs 3D Accuracy (primary PVT stream) -->
+    <div class="section-title">③ Position Accuracy (2D vs 3D) — {{ graph_data.primary_pvt | default('NAV-PVT') }}</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -197,8 +247,8 @@
     {% endif %}
 
     {% if graph_data and graph_data.alt_labels and graph_data.alt_labels|length > 0 %}
-    <!-- ②-2 2D vs 3D Accuracy (secondary PVT stream, e.g. NAV2-PVT) -->
-    <div class="section-title">②-2 Position Accuracy (2D vs 3D) — {{ graph_data.alt_pvt | default('NAV2-PVT') }}</div>
+    <!-- ③-2 2D vs 3D Accuracy (secondary PVT stream, e.g. NAV2-PVT) -->
+    <div class="section-title">③-2 Position Accuracy (2D vs 3D) — {{ graph_data.alt_pvt | default('NAV2-PVT') }}</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -211,8 +261,8 @@
     {% endif %}
 
     {% if graph_data and graph_data.fix_type %}
-    <!-- ③ Fix Type -->
-    <div class="section-title">③ Fix Type Status</div>
+    <!-- ④ Fix Type -->
+    <div class="section-title">④ Fix Type Status</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -225,8 +275,8 @@
     {% endif %}
 
     {% if graph_data and graph_data.cno_top_avg and graph_data.cno_top_avg|length > 0 %}
-    <!-- ④ CN0 -->
-    <div class="section-title">④ Satellite Signal Density (CN0)</div>
+    <!-- ⑤ CN0 -->
+    <div class="section-title">⑤ Satellite Signal Density (CN0)</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -240,8 +290,8 @@
     {% endif %}
 
     {% if graph_data and graph_data.sec_labels and graph_data.sec_labels|length > 0 %}
-    <!-- ⑤ Jamming & Spoofing -->
-    <div class="section-title">⑤ Jamming &amp; Spoofing Status (UBX-SEC-SIG)</div>
+    <!-- ⑥ Jamming & Spoofing -->
+    <div class="section-title">⑥ Jamming &amp; Spoofing Status (UBX-SEC-SIG)</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -747,6 +797,66 @@
           }
         });
     }
+
+    // ── UBX-INF message log ─────────────────────────────────────────────
+    (function() {
+      const msgs = gData.inf_messages || [];
+      const body = document.getElementById('infBody');
+      if (!body || !msgs.length) return;
+
+      function esc(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+      // "YYYY-MM-DD HH:MM:SS.cc" from the stored ...cc Z string, or — if none.
+      function fmtUtc(u) {
+        if (!u) return '—';
+        return u.replace('T', ' ').replace('Z', '');
+      }
+
+      const hidden = {};   // level -> true when filtered out
+
+      function render() {
+        const rows = [];
+        for (let i = 0; i < msgs.length; i++) {
+          const m = msgs[i];
+          if (hidden[m.level]) continue;
+          rows.push(
+            '<tr>' +
+              '<td class="mono">' + fmtUtc(m.utc) + '</td>' +
+              '<td class="mono">' + (m.itow != null ? m.itow : '—') + '</td>' +
+              '<td><span class="inf-badge inf-' + esc(m.level) + '">' + esc(m.level) + '</span></td>' +
+              '<td class="msg">' + esc(m.text) + '</td>' +
+            '</tr>'
+          );
+        }
+        body.innerHTML = rows.length ? rows.join('') :
+          '<tr><td colspan="4" style="color:#9ca3af;padding:12px">No messages for the selected levels.</td></tr>';
+      }
+
+      // Level filter buttons — toggle visibility per level.
+      document.querySelectorAll('#infFilters .inf-filter-btn').forEach(function(btn) {
+        const lvl = btn.dataset.level;
+        // Only show buttons for levels actually present.
+        if (!msgs.some(function(m){ return m.level === lvl; })) { btn.style.display = 'none'; return; }
+        btn.addEventListener('click', function() {
+          hidden[lvl] = !hidden[lvl];
+          btn.classList.toggle('off', !!hidden[lvl]);
+          render();
+        });
+      });
+
+      // Summary count in the note.
+      const note = document.getElementById('infNote');
+      if (note) {
+        const counts = {};
+        msgs.forEach(function(m){ counts[m.level] = (counts[m.level]||0)+1; });
+        const parts = Object.keys(counts).map(function(k){ return counts[k] + ' ' + k; });
+        note.innerHTML = note.innerHTML + '<br><b>' + msgs.length + ' messages</b> (' + parts.join(', ') + ')';
+      }
+
+      render();
+    })();
   </script>
   {% endif %}
 </body>
