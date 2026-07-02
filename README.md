@@ -75,6 +75,12 @@ intentionally omitted in production — restart explicitly after code changes.
 
 See [`docs/install_service.md`](docs/install_service.md) for full details.
 
+### Public access (Cloudflare Tunnel + Access)
+
+To reach the service from outside the LAN for free (HTTPS, no port-forwarding),
+it is fronted by a Cloudflare Tunnel with a Cloudflare Access email-code login
+gate. See [`docs/cloudflare_tunnel.md`](docs/cloudflare_tunnel.md).
+
 ### Service operations
 
 ```powershell

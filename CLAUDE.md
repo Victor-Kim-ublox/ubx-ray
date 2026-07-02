@@ -57,6 +57,14 @@ The service runs under `LocalSystem`, starts at boot without user logon, logs
 to `.\logs\`, and is auto-restarted by NSSM on crash. Use
 `.\install_service.ps1 -Uninstall` to remove.
 
+## Public Access (Cloudflare Tunnel + Access)
+
+The service is exposed at **https://ubx-ray.com** via a Cloudflare Tunnel
+(`cloudflared`, run under an NSSM service `cloudflared-ubxray`) with a
+Cloudflare Access email-code gate restricted to `@u-blox.com`. No
+port-forwarding / public IP / paid plan. Full setup + ops:
+`docs/cloudflare_tunnel.md`.
+
 ## Key Configuration
 
 | Env Var | Default | Purpose |
