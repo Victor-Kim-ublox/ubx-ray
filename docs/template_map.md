@@ -100,19 +100,18 @@ Several popups can stay open at once (for comparison) — each click **adds** on
 rather than replacing the previous. Each popup closes via its own `×`; a
 **Close popups** toolbar button (shown only while any are open) clears them all.
 
-Each popup is tied to its point:
-- A **numbered ring marker** (coloured, on `pinLayer` zIndex 720) is dropped on
-  the clicked point, and the popup shows the **same coloured number badge**
-  (`.pt-num`) plus a matching top border — so it is always clear which popup
-  belongs to which point. Numbers are the smallest free integer (reused on
-  close); colours cycle through `POPUP_COLORS`.
-- `avoidOverlap()` nudges a just-placed popup **upward** until its bounding box
-  no longer intersects any other open popup, so they never cover each other.
+Each popup is tied to its point by a **numbered ring marker** (coloured, on
+`pinLayer` zIndex 720) dropped on the clicked point; the popup shows the **same
+coloured number badge** (`.pt-num`) plus a matching top border — so it is
+always clear which popup belongs to which point. Numbers are the smallest free
+integer (reused on close); colours cycle through `POPUP_COLORS`.
 
-Each popup is **draggable by its title bar** (`makeDraggable()`, pointer events
-with pointer capture) — dragging adjusts the overlay's pixel offset, so the
-popup can be repositioned freely while still tracking its point on zoom/pan.
-`stopEvent` keeps the map from panning during a drag.
+New popups appear at a fixed offset just above their point (they may overlap if
+points are close). Each popup is **draggable by its title bar**
+(`makeDraggable()`, pointer events with pointer capture) — dragging adjusts the
+overlay's pixel offset, so the user repositions overlapping popups by hand while
+each still tracks its point on zoom/pan. `stopEvent` keeps the map from panning
+during a drag.
 
 `addPointPopup()` creates a fresh `ol.Overlay` per click (`stopEvent:true`,
 `autoPan:false`); descriptions run through `sanitizeHtml()` first. Closing a

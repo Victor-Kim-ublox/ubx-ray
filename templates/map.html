@@ -431,24 +431,6 @@
       });
     }
 
-    // Move a just-placed popup up until its box no longer overlaps others.
-    function avoidOverlap(entry) {
-      const el = entry.el;
-      const others = pointPopups.filter(p => p !== entry).map(p => p.el);
-      let offY = -14;
-      for (let iter = 0; iter < 60; iter++) {
-        entry.overlay.setOffset([0, offY]);
-        const r = el.getBoundingClientRect();
-        let overlap = false;
-        for (const o of others) {
-          const ro = o.getBoundingClientRect();
-          if (!(r.right < ro.left || r.left > ro.right || r.bottom < ro.top || r.top > ro.bottom)) { overlap = true; break; }
-        }
-        if (!overlap) return;
-        offY -= 12;   // nudge upward
-      }
-    }
-
     function addPointPopup(coordinate, title, descHtml) {
       const num = nextNum();
       const color = POPUP_COLORS[(num - 1) % POPUP_COLORS.length];
@@ -476,8 +458,7 @@
       const entry = { overlay: ov, el, pin, num, userMoved: false };
       cl.onclick = (e) => { e.preventDefault(); removePointPopup(entry); return false; };
       pointPopups.push(entry);
-      avoidOverlap(entry);
-      makeDraggable(entry, t);   // drag by the title bar
+      makeDraggable(entry, t);   // drag by the title bar to reposition
       refreshClearPopupsBtn();
     }
 
