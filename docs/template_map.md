@@ -87,13 +87,22 @@ Sequentially reveals points based on their TimeStamp:
 
 Current point metadata (UTC time, coordinates, speed, etc.) is displayed on screen during playback.
 
-### Feature Click Tooltip
-Clicking a point shows the KML `<description>` content in a popup:
+### Feature Click Popups (multiple, stacked)
+Clicking a point spawns an **independent popup** anchored to that point's
+marker, showing the KML `<description>` content:
 - UTC, iTOW, FixType, Flags
 - Heading, HeadAcc
 - Speed (m/s, km/h), SpeedAcc
 - Lat, Lon, PosAcc2D
 - Alt, AltAcc
+
+Several popups can stay open at once (for comparison) — each click **adds** one
+rather than replacing the previous. Each popup closes via its own `×`; a
+**Close popups** toolbar button (shown only while any are open) clears them all.
+`addPointPopup()` creates a fresh `ol.Overlay` per click (`stopEvent:true`,
+`autoPan:false`); descriptions are run through `sanitizeHtml()` first. The
+measurement result and SEC-SIG click popups still use the single shared
+`#popup` overlay.
 
 ---
 

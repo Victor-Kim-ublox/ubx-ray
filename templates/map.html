@@ -99,8 +99,8 @@
       text-decoration: none; color: #aaa; font-weight: bold; font-size: 18px;
     }
     .ol-popup-closer:hover { color: #000; }
-    #popup-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; }
-    #popup-desc  { font-size: 13px; color: #333; line-height: 1.4; }
+    #popup-title, .pt-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; padding-right: 14px; }
+    #popup-desc,  .pt-desc  { font-size: 13px; color: #333; line-height: 1.4; }
 
     .sec-legend {
       display: inline-flex;
@@ -182,6 +182,7 @@
       <div class="seg">
         <button id="measureBtn" class="btn" title="Measure distance between two points">Distance measure</button>
         <button id="clearBtn" class="btn" title="Clear current measurement">Clear</button>
+        <button id="clearPopupsBtn" class="btn" title="Close all point popups" style="display:none;">Close popups</button>
       </div>
 
       <div class="sep" id="secSegSep" style="display:none;"></div>
@@ -349,23 +350,57 @@
       return { n, d: sanitizeHtml(d) };
     }
 
+    // ===== Multiple point popups =====
+    // Each Point click spawns its own popup overlay so several can stay open
+    // at once for comparison; each closes independently via its × button.
+    const pointPopups = [];  // { overlay, el }
+    const clearPopupsBtn = document.getElementById('clearPopupsBtn');
+
+    function refreshClearPopupsBtn() {
+      clearPopupsBtn.style.display = pointPopups.length ? '' : 'none';
+    }
+    function removePointPopup(entry) {
+      map.removeOverlay(entry.overlay);
+      const i = pointPopups.indexOf(entry);
+      if (i >= 0) pointPopups.splice(i, 1);
+      refreshClearPopupsBtn();
+    }
+    function clearPointPopups() {
+      while (pointPopups.length) removePointPopup(pointPopups[0]);
+    }
+    clearPopupsBtn.addEventListener('click', clearPointPopups);
+
+    function addPointPopup(coordinate, title, descHtml) {
+      const el = document.createElement('div');
+      el.className = 'ol-popup';
+      const cl = document.createElement('a');
+      cl.href = '#'; cl.className = 'ol-popup-closer'; cl.textContent = '×';
+      const t = document.createElement('div'); t.className = 'pt-title'; t.textContent = title;
+      const d = document.createElement('div'); d.className = 'pt-desc'; d.innerHTML = descHtml;
+      el.appendChild(cl); el.appendChild(t); el.appendChild(d);
+      const ov = new ol.Overlay({ element: el, offset: [0, -12], stopEvent: true, autoPan: false });
+      map.addOverlay(ov);
+      ov.setPosition(coordinate);
+      const entry = { overlay: ov, el };
+      cl.onclick = (e) => { e.preventDefault(); removePointPopup(entry); return false; };
+      pointPopups.push(entry);
+      refreshClearPopupsBtn();
+    }
+
     let measureActive = false;
     map.on('singleclick', evt => {
       if (measureActive) return;
-      let hit = false;
       map.forEachFeatureAtPixel(evt.pixel, (f, layer) => {
         if (layer !== vectorLayer) return;
         const g = f.getGeometry();
         if (g && g.getType() === 'Point') {
           const info = getFeatureInfo(f);
-          titleEl.textContent = info.n;
-          descEl.innerHTML = info.d;
-          overlay.setPosition(evt.coordinate);
-          container.style.display = 'block';
-          hit = true; return true;
+          // Snap the popup to the point's own coordinate (not the click pixel)
+          // so stacked popups line up on their markers.
+          addPointPopup(g.getCoordinates(), info.n, info.d);
+          return true;
         }
       }, { hitTolerance: 5 });
-      if (!hit) { overlay.setPosition(undefined); container.style.display = 'none'; }
     });
 
     // ===== Measurement =====
