@@ -99,10 +99,20 @@ marker, showing the KML `<description>` content:
 Several popups can stay open at once (for comparison) — each click **adds** one
 rather than replacing the previous. Each popup closes via its own `×`; a
 **Close popups** toolbar button (shown only while any are open) clears them all.
+
+Each popup is tied to its point:
+- A **numbered ring marker** (coloured, on `pinLayer` zIndex 720) is dropped on
+  the clicked point, and the popup shows the **same coloured number badge**
+  (`.pt-num`) plus a matching top border — so it is always clear which popup
+  belongs to which point. Numbers are the smallest free integer (reused on
+  close); colours cycle through `POPUP_COLORS`.
+- `avoidOverlap()` nudges a just-placed popup **upward** until its bounding box
+  no longer intersects any other open popup, so they never cover each other.
+
 `addPointPopup()` creates a fresh `ol.Overlay` per click (`stopEvent:true`,
-`autoPan:false`); descriptions are run through `sanitizeHtml()` first. The
-measurement result and SEC-SIG click popups still use the single shared
-`#popup` overlay.
+`autoPan:false`); descriptions run through `sanitizeHtml()` first. Closing a
+popup removes both its overlay and its ring marker. The measurement result and
+SEC-SIG click popups still use the single shared `#popup` overlay.
 
 ---
 
