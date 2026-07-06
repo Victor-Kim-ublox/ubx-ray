@@ -100,7 +100,7 @@
     }
     .ol-popup-closer:hover { color: #000; }
     #popup-title, .pt-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; padding-right: 14px; }
-    .pt-title { user-select: none; -webkit-user-select: none; touch-action: none; }
+    #popup-title, .pt-title { user-select: none; -webkit-user-select: none; touch-action: none; }
     #popup-desc,  .pt-desc  { font-size: 13px; color: #333; line-height: 1.4; }
     /* Numbered badge linking a popup to its point marker */
     .pt-num {
@@ -321,6 +321,9 @@
     const overlay = new ol.Overlay({ element: container, autoPan: { animation: { duration: 250 } }, offset: [0, -12] });
     map.addOverlay(overlay);
     closer.onclick = () => { overlay.setPosition(undefined); container.style.display = 'none'; return false; };
+    // Make the shared popup (measurement result + SEC-SIG) draggable by its
+    // title, same as the point popups. (makeDraggable is hoisted below.)
+    makeDraggable(overlay, titleEl);
 
     // Sanitize untrusted HTML (KML <description> comes from the uploaded file)
     // before it is assigned to innerHTML: drop script-capable elements, on*
@@ -406,20 +409,20 @@
     clearPopupsBtn.addEventListener('click', clearPointPopups);
 
     // Let the user drag a popup by its title bar. Dragging adjusts the
-    // overlay's pixel offset (the popup stays tied to its point marker, so it
-    // still tracks the point on zoom/pan). stopEvent on the overlay keeps the
-    // map from panning while dragging.
-    function makeDraggable(entry, handle) {
+    // overlay's pixel offset (the popup stays tied to its anchor, so it still
+    // tracks the point on zoom/pan). stopEvent on the overlay keeps the map
+    // from panning while dragging. Works for point popups and the shared
+    // measurement / SEC-SIG popup alike.
+    function makeDraggable(ovl, handle) {
       handle.style.cursor = 'move';
       handle.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
         e.preventDefault();
         const startX = e.clientX, startY = e.clientY;
-        const off = entry.overlay.getOffset().slice();
-        entry.userMoved = true;
+        const off = (ovl.getOffset() || [0, 0]).slice();
         try { handle.setPointerCapture(e.pointerId); } catch (_) {}
         function onMove(ev) {
-          entry.overlay.setOffset([off[0] + (ev.clientX - startX), off[1] + (ev.clientY - startY)]);
+          ovl.setOffset([off[0] + (ev.clientX - startX), off[1] + (ev.clientY - startY)]);
         }
         function onUp(ev) {
           handle.removeEventListener('pointermove', onMove);
@@ -455,10 +458,10 @@
       const ov = new ol.Overlay({ element: el, offset: [0, -14], stopEvent: true, autoPan: false });
       map.addOverlay(ov);
       ov.setPosition(coordinate);
-      const entry = { overlay: ov, el, pin, num, userMoved: false };
+      const entry = { overlay: ov, el, pin, num };
       cl.onclick = (e) => { e.preventDefault(); removePointPopup(entry); return false; };
       pointPopups.push(entry);
-      makeDraggable(entry, t);   // drag by the title bar to reposition
+      makeDraggable(ov, t);   // drag by the title bar to reposition
       refreshClearPopupsBtn();
     }
 
@@ -515,6 +518,7 @@
         const len = ol.sphere.getLength(line, { projection: map.getView().getProjection() });
         titleEl.textContent = 'Distance';
         descEl.innerHTML = formatDist(len);
+        overlay.setOffset([0, -12]);   // reset any prior drag
         overlay.setPosition(line.getCoordinateAt(0.5));
         container.style.display = 'block';
         setMeasureActive(false);
@@ -815,6 +819,7 @@
         if (!secLayers.includes(layer)) return;
         titleEl.textContent = f.get('secTitle') || 'UBX-SEC-SIG';
         descEl.innerHTML   = f.get('secDesc')  || '';
+        overlay.setOffset([0, -12]);   // reset any prior drag
         overlay.setPosition(evt.coordinate);
         container.style.display = 'block';
         return true;

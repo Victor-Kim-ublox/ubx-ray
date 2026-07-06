@@ -115,8 +115,11 @@ during a drag.
 
 `addPointPopup()` creates a fresh `ol.Overlay` per click (`stopEvent:true`,
 `autoPan:false`); descriptions run through `sanitizeHtml()` first. Closing a
-popup removes both its overlay and its ring marker. The measurement result and
-SEC-SIG click popups still use the single shared `#popup` overlay.
+popup removes both its overlay and its ring marker.
+
+The measurement result and SEC-SIG click popups use the single shared `#popup`
+overlay, which is **also draggable** by its title (same `makeDraggable`); its
+offset resets to the default each time it is shown for a new feature.
 
 ---
 
