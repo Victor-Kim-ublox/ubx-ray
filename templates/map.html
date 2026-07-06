@@ -100,6 +100,7 @@
     }
     .ol-popup-closer:hover { color: #000; }
     #popup-title, .pt-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; padding-right: 14px; }
+    .pt-title { user-select: none; -webkit-user-select: none; touch-action: none; }
     #popup-desc,  .pt-desc  { font-size: 13px; color: #333; line-height: 1.4; }
     /* Numbered badge linking a popup to its point marker */
     .pt-num {
@@ -404,6 +405,32 @@
     }
     clearPopupsBtn.addEventListener('click', clearPointPopups);
 
+    // Let the user drag a popup by its title bar. Dragging adjusts the
+    // overlay's pixel offset (the popup stays tied to its point marker, so it
+    // still tracks the point on zoom/pan). stopEvent on the overlay keeps the
+    // map from panning while dragging.
+    function makeDraggable(entry, handle) {
+      handle.style.cursor = 'move';
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const startX = e.clientX, startY = e.clientY;
+        const off = entry.overlay.getOffset().slice();
+        entry.userMoved = true;
+        try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        function onMove(ev) {
+          entry.overlay.setOffset([off[0] + (ev.clientX - startX), off[1] + (ev.clientY - startY)]);
+        }
+        function onUp(ev) {
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+        }
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+      });
+    }
+
     // Move a just-placed popup up until its box no longer overlaps others.
     function avoidOverlap(entry) {
       const el = entry.el;
@@ -446,10 +473,11 @@
       const ov = new ol.Overlay({ element: el, offset: [0, -14], stopEvent: true, autoPan: false });
       map.addOverlay(ov);
       ov.setPosition(coordinate);
-      const entry = { overlay: ov, el, pin, num };
+      const entry = { overlay: ov, el, pin, num, userMoved: false };
       cl.onclick = (e) => { e.preventDefault(); removePointPopup(entry); return false; };
       pointPopups.push(entry);
       avoidOverlap(entry);
+      makeDraggable(entry, t);   // drag by the title bar
       refreshClearPopupsBtn();
     }
 

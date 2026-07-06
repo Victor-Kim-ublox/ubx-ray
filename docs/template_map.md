@@ -109,6 +109,11 @@ Each popup is tied to its point:
 - `avoidOverlap()` nudges a just-placed popup **upward** until its bounding box
   no longer intersects any other open popup, so they never cover each other.
 
+Each popup is **draggable by its title bar** (`makeDraggable()`, pointer events
+with pointer capture) — dragging adjusts the overlay's pixel offset, so the
+popup can be repositioned freely while still tracking its point on zoom/pan.
+`stopEvent` keeps the map from panning during a drag.
+
 `addPointPopup()` creates a fresh `ol.Overlay` per click (`stopEvent:true`,
 `autoPan:false`); descriptions run through `sanitizeHtml()` first. Closing a
 popup removes both its overlay and its ring marker. The measurement result and
