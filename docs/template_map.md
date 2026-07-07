@@ -87,13 +87,39 @@ Sequentially reveals points based on their TimeStamp:
 
 Current point metadata (UTC time, coordinates, speed, etc.) is displayed on screen during playback.
 
-### Feature Click Tooltip
-Clicking a point shows the KML `<description>` content in a popup:
+### Feature Click Popups (multiple, stacked)
+Clicking a point spawns an **independent popup** anchored to that point's
+marker, showing the KML `<description>` content:
 - UTC, iTOW, FixType, Flags
 - Heading, HeadAcc
 - Speed (m/s, km/h), SpeedAcc
 - Lat, Lon, PosAcc2D
 - Alt, AltAcc
+
+Several popups can stay open at once (for comparison) — each click **adds** one
+rather than replacing the previous. Each popup closes via its own `×`; a
+**Close popups** toolbar button (shown only while any are open) clears them all.
+
+Each popup is tied to its point by a **numbered ring marker** (coloured, on
+`pinLayer` zIndex 720) dropped on the clicked point; the popup shows the **same
+coloured number badge** (`.pt-num`) plus a matching top border — so it is
+always clear which popup belongs to which point. Numbers are the smallest free
+integer (reused on close); colours cycle through `POPUP_COLORS`.
+
+New popups appear at a fixed offset just above their point (they may overlap if
+points are close). Each popup is **draggable by its title bar**
+(`makeDraggable()`, pointer events with pointer capture) — dragging adjusts the
+overlay's pixel offset, so the user repositions overlapping popups by hand while
+each still tracks its point on zoom/pan. `stopEvent` keeps the map from panning
+during a drag.
+
+`addPointPopup()` creates a fresh `ol.Overlay` per click (`stopEvent:true`,
+`autoPan:false`); descriptions run through `sanitizeHtml()` first. Closing a
+popup removes both its overlay and its ring marker.
+
+The measurement result and SEC-SIG click popups use the single shared `#popup`
+overlay, which is **also draggable** by its title (same `makeDraggable`); its
+offset resets to the default each time it is shown for a new feature.
 
 ---
 

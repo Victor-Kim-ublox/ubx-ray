@@ -99,8 +99,15 @@
       text-decoration: none; color: #aaa; font-weight: bold; font-size: 18px;
     }
     .ol-popup-closer:hover { color: #000; }
-    #popup-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; }
-    #popup-desc  { font-size: 13px; color: #333; line-height: 1.4; }
+    #popup-title, .pt-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; padding-right: 14px; }
+    #popup-title, .pt-title { user-select: none; -webkit-user-select: none; touch-action: none; }
+    #popup-desc,  .pt-desc  { font-size: 13px; color: #333; line-height: 1.4; }
+    /* Numbered badge linking a popup to its point marker */
+    .pt-num {
+      display: inline-block; min-width: 16px; height: 16px; line-height: 16px;
+      padding: 0 4px; text-align: center; border-radius: 8px;
+      color: #fff; font-size: 11px; font-weight: 700; margin-right: 6px; vertical-align: middle;
+    }
 
     .sec-legend {
       display: inline-flex;
@@ -182,6 +189,7 @@
       <div class="seg">
         <button id="measureBtn" class="btn" title="Measure distance between two points">Distance measure</button>
         <button id="clearBtn" class="btn" title="Clear current measurement">Clear</button>
+        <button id="clearPopupsBtn" class="btn" title="Close all point popups" style="display:none;">Close popups</button>
       </div>
 
       <div class="sep" id="secSegSep" style="display:none;"></div>
@@ -313,6 +321,9 @@
     const overlay = new ol.Overlay({ element: container, autoPan: { animation: { duration: 250 } }, offset: [0, -12] });
     map.addOverlay(overlay);
     closer.onclick = () => { overlay.setPosition(undefined); container.style.display = 'none'; return false; };
+    // Make the shared popup (measurement result + SEC-SIG) draggable by its
+    // title, same as the point popups. (makeDraggable is hoisted below.)
+    makeDraggable(overlay, titleEl);
 
     // Sanitize untrusted HTML (KML <description> comes from the uploaded file)
     // before it is assigned to innerHTML: drop script-capable elements, on*
@@ -349,23 +360,125 @@
       return { n, d: sanitizeHtml(d) };
     }
 
+    // ===== Multiple point popups =====
+    // Each Point click spawns its own popup overlay so several can stay open
+    // at once for comparison. A numbered ring marker is dropped on the clicked
+    // point and the popup shows the same coloured number, so it is always clear
+    // which popup belongs to which point. Popups nudge upward to avoid covering
+    // each other.
+    const pointPopups = [];  // { overlay, el, pin, num }
+    const clearPopupsBtn = document.getElementById('clearPopupsBtn');
+    const POPUP_COLORS = ['#e11d48','#2563eb','#16a34a','#9333ea','#ea580c','#0891b2','#ca8a04','#db2777'];
+
+    // Ring markers that tie a popup to its point.
+    const pinSrc = new ol.source.Vector();
+    const pinLayer = new ol.layer.Vector({ source: pinSrc, zIndex: 720 });
+    map.addLayer(pinLayer);
+
+    function pinStyle(num, color) {
+      return new ol.style.Style({
+        image: new ol.style.Circle({
+          radius: 10,
+          fill: new ol.style.Fill({ color: 'rgba(255,255,255,0.35)' }),
+          stroke: new ol.style.Stroke({ color: color, width: 3 })
+        }),
+        text: new ol.style.Text({
+          text: String(num), font: 'bold 12px sans-serif',
+          fill: new ol.style.Fill({ color: color })
+        })
+      });
+    }
+    function nextNum() {
+      const used = new Set(pointPopups.map(p => p.num));
+      let n = 1; while (used.has(n)) n++; return n;
+    }
+
+    function refreshClearPopupsBtn() {
+      clearPopupsBtn.style.display = pointPopups.length ? '' : 'none';
+    }
+    function removePointPopup(entry) {
+      map.removeOverlay(entry.overlay);
+      pinSrc.removeFeature(entry.pin);
+      const i = pointPopups.indexOf(entry);
+      if (i >= 0) pointPopups.splice(i, 1);
+      refreshClearPopupsBtn();
+    }
+    function clearPointPopups() {
+      while (pointPopups.length) removePointPopup(pointPopups[0]);
+    }
+    clearPopupsBtn.addEventListener('click', clearPointPopups);
+
+    // Let the user drag a popup by its title bar. Dragging adjusts the
+    // overlay's pixel offset (the popup stays tied to its anchor, so it still
+    // tracks the point on zoom/pan). stopEvent on the overlay keeps the map
+    // from panning while dragging. Works for point popups and the shared
+    // measurement / SEC-SIG popup alike.
+    function makeDraggable(ovl, handle) {
+      handle.style.cursor = 'move';
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const startX = e.clientX, startY = e.clientY;
+        const off = (ovl.getOffset() || [0, 0]).slice();
+        try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        function onMove(ev) {
+          ovl.setOffset([off[0] + (ev.clientX - startX), off[1] + (ev.clientY - startY)]);
+        }
+        function onUp(ev) {
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+        }
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+      });
+    }
+
+    function addPointPopup(coordinate, title, descHtml) {
+      const num = nextNum();
+      const color = POPUP_COLORS[(num - 1) % POPUP_COLORS.length];
+
+      // Ring marker on the clicked point.
+      const pin = new ol.Feature({ geometry: new ol.geom.Point(coordinate) });
+      pin.setStyle(pinStyle(num, color));
+      pinSrc.addFeature(pin);
+
+      const el = document.createElement('div');
+      el.className = 'ol-popup';
+      el.style.borderTop = '3px solid ' + color;
+      const cl = document.createElement('a');
+      cl.href = '#'; cl.className = 'ol-popup-closer'; cl.textContent = '×';
+      const t = document.createElement('div'); t.className = 'pt-title';
+      const badge = document.createElement('span');
+      badge.className = 'pt-num'; badge.style.background = color; badge.textContent = num;
+      t.appendChild(badge); t.appendChild(document.createTextNode(title));
+      const d = document.createElement('div'); d.className = 'pt-desc'; d.innerHTML = descHtml;
+      el.appendChild(cl); el.appendChild(t); el.appendChild(d);
+
+      const ov = new ol.Overlay({ element: el, offset: [0, -14], stopEvent: true, autoPan: false });
+      map.addOverlay(ov);
+      ov.setPosition(coordinate);
+      const entry = { overlay: ov, el, pin, num };
+      cl.onclick = (e) => { e.preventDefault(); removePointPopup(entry); return false; };
+      pointPopups.push(entry);
+      makeDraggable(ov, t);   // drag by the title bar to reposition
+      refreshClearPopupsBtn();
+    }
+
     let measureActive = false;
     map.on('singleclick', evt => {
       if (measureActive) return;
-      let hit = false;
       map.forEachFeatureAtPixel(evt.pixel, (f, layer) => {
         if (layer !== vectorLayer) return;
         const g = f.getGeometry();
         if (g && g.getType() === 'Point') {
           const info = getFeatureInfo(f);
-          titleEl.textContent = info.n;
-          descEl.innerHTML = info.d;
-          overlay.setPosition(evt.coordinate);
-          container.style.display = 'block';
-          hit = true; return true;
+          // Snap the popup to the point's own coordinate (not the click pixel)
+          // so stacked popups line up on their markers.
+          addPointPopup(g.getCoordinates(), info.n, info.d);
+          return true;
         }
       }, { hitTolerance: 5 });
-      if (!hit) { overlay.setPosition(undefined); container.style.display = 'none'; }
     });
 
     // ===== Measurement =====
@@ -405,6 +518,7 @@
         const len = ol.sphere.getLength(line, { projection: map.getView().getProjection() });
         titleEl.textContent = 'Distance';
         descEl.innerHTML = formatDist(len);
+        overlay.setOffset([0, -12]);   // reset any prior drag
         overlay.setPosition(line.getCoordinateAt(0.5));
         container.style.display = 'block';
         setMeasureActive(false);
@@ -705,6 +819,7 @@
         if (!secLayers.includes(layer)) return;
         titleEl.textContent = f.get('secTitle') || 'UBX-SEC-SIG';
         descEl.innerHTML   = f.get('secDesc')  || '';
+        overlay.setOffset([0, -12]);   // reset any prior drag
         overlay.setPosition(evt.coordinate);
         container.style.display = 'block';
         return true;
