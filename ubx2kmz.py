@@ -112,6 +112,7 @@ MAPM_PLACEMARK_TEMPLATE = (
     "      <description><![CDATA[\n"
     "        <b>UBX-AID-MAPM</b>{rel_note}<br/>\n"
     "        <b>iTOW:</b> {itow}<br/>\n"
+    "{arrived_line}"
     "        <b>Heading:</b> {heading_true:.1f}°<br/>\n"
     "        <b>HeadAcc:</b> {head_acc:.2f}°<br/>\n"
     "{pos_detail}"
@@ -174,14 +175,17 @@ def mapm_placemark(rec, lat, lon, alt, relative=False, ref_itow=None):
     heading_true = normalize_heading(rec["heading"])
     icon_heading = normalize_heading(heading_true + 180.0)
     if relative:
+        # iTOW of the NAV-PVT fix the delta was synced to, shown right under the
+        # message's own iTOW so the two time points are easy to compare.
+        arrived_line = f"        <b>arrived iTOW:</b> {ref_itow}<br/>\n"
         pos_detail = (
             f"        <b>&#916;Lat (raw):</b> {rec['lat']:+.7f}&deg;<br/>\n"
             f"        <b>&#916;Lon (raw):</b> {rec['lon']:+.7f}&deg;<br/>\n"
-            f"        <b>Ref fix iTOW:</b> {ref_itow}<br/>\n"
             f"        <b>Lat (computed):</b> {lat:.7f}<br/>\n"
             f"        <b>Lon (computed):</b> {lon:.7f}<br/>\n"
         )
     else:
+        arrived_line = ""
         pos_detail = (
             f"        <b>Lat:</b> {lat:.7f}<br/>\n"
             f"        <b>Lon:</b> {lon:.7f}<br/>\n"
@@ -192,6 +196,7 @@ def mapm_placemark(rec, lat, lon, alt, relative=False, ref_itow=None):
         icon_heading=icon_heading,
         heading_true=heading_true,
         lon=lon, lat=lat, alt=alt,
+        arrived_line=arrived_line,
         pos_detail=pos_detail,
         itow=rec["iTOW"],
         pos_acc=rec.get("pos_acc", 0.0),
