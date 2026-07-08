@@ -65,10 +65,11 @@ Each Placemark in the KML:
 **AID-MAPM markers** — the KML may also contain sky-blue
 (`FFEBCE87`) `<name>AID-MAPM</name>` arrow Placemarks (map-matching points
 parsed from UBX-AID-MAPM). They render on the same vector layer and open the
-same click popups. For `relativePos` points the popup shows the synced fix iTOW
-as `arrived iTOW` (right under the message `iTOW`), the raw delta
-(`ΔLat`/`ΔLon`), and the resulting `computed` absolute Lat/Lon; absolute points
-show a plain Lat/Lon. `loadData()`
+same click popups. Every AID-MAPM point shows the nearest NAV-PVT iTOW as
+`arrived iTOW` (right under the message `iTOW`) so the arrival time is clear. For
+`relativePos` points the popup additionally shows the raw delta (`ΔLat`/`ΔLon`)
+and the resulting `computed` absolute Lat/Lon; absolute points show a plain
+Lat/Lon. `loadData()`
 **excludes AID-MAPM Placemarks from playback** — they carry no `<TimeStamp>` and
 are markers rather than vehicle-track epochs, so they must not enter the ordered
 `rawPts`/`pts` playback set.

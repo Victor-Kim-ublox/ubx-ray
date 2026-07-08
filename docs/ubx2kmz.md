@@ -159,11 +159,13 @@ visually distinct from the fixType-coloured vehicle track.
   stored in `itow_to_fix` keyed by iTOW, so a MAPM frame is synced to its exact
   time point even when the matching fix appears *later* in the byte stream (the
   nearest iTOW is used as a fallback; a relativePos point is skipped only if no
-  fix exists at all). The popup labels such points `(relativePos)`; the synced
-  fix iTOW is shown as `arrived iTOW` directly under the message's own `iTOW`,
-  and the position block shows **both** the raw delta (`ΔLat`/`ΔLon`) and the
-  resulting `computed` absolute Lat/Lon so the two can be compared. Absolute
-  points show a plain Lat/Lon.
+  fix exists at all). **Every** AID-MAPM point (relative *and* absolute) shows
+  the nearest NAV-PVT iTOW as `arrived iTOW` directly under the message's own
+  `iTOW`, so it is clear when the message arrived relative to the navigation
+  stream. For `relativePos` points that same nearest fix is the anchor the delta
+  is added to, and the position block shows **both** the raw delta
+  (`ΔLat`/`ΔLon`) and the resulting `computed` absolute Lat/Lon; absolute points
+  show a plain Lat/Lon.
 - **`--mapm` mode (`build_kml_mapm_only`)** — emits *only* AID-MAPM Placemarks
   and has no NAV reference, so `relativePos` points are skipped there; only
   absolute (`latLonValid`, non-`relativePos`) points are output.

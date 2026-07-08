@@ -163,21 +163,24 @@ def parse_aid_mapm(payload: memoryview):
         "head_acc": head_acc,
     }
 
-def mapm_placemark(rec, lat, lon, alt, relative=False, ref_itow=None):
+def mapm_placemark(rec, lat, lon, alt, relative=False, arrived_itow=None):
     """Render one sky-blue AID-MAPM Placemark.
 
     `lat`/`lon`/`alt` are the resolved *absolute* coordinates used for the map
-    point. When `relative` is set, `rec["lat"]`/`rec["lon"]` hold the raw deltas
-    and `ref_itow` is the iTOW of the NAV-PVT fix they were added to; the popup
-    then shows **both** the raw delta and the computed absolute position so the
-    two can be compared. For absolute points it shows a plain Lat/Lon.
+    point. `arrived_itow` is the iTOW of the nearest NAV-PVT fix — shown for
+    *every* AID-MAPM point (relative or absolute) as `arrived iTOW`, right under
+    the message's own iTOW, so it is clear when the message arrived relative to
+    the navigation stream. When `relative` is set, `rec["lat"]`/`rec["lon"]`
+    hold the raw deltas that were added to that nearest fix; the popup then shows
+    **both** the raw delta and the computed absolute position. For absolute
+    points it shows a plain Lat/Lon.
     """
     heading_true = normalize_heading(rec["heading"])
     icon_heading = normalize_heading(heading_true + 180.0)
+    # Nearest PVT iTOW (arrival reference) for both relative and absolute points.
+    arrived_line = (f"        <b>arrived iTOW:</b> {arrived_itow}<br/>\n"
+                    if arrived_itow is not None else "")
     if relative:
-        # iTOW of the NAV-PVT fix the delta was synced to, shown right under the
-        # message's own iTOW so the two time points are easy to compare.
-        arrived_line = f"        <b>arrived iTOW:</b> {ref_itow}<br/>\n"
         pos_detail = (
             f"        <b>&#916;Lat (raw):</b> {rec['lat']:+.7f}&deg;<br/>\n"
             f"        <b>&#916;Lon (raw):</b> {rec['lon']:+.7f}&deg;<br/>\n"
@@ -185,7 +188,6 @@ def mapm_placemark(rec, lat, lon, alt, relative=False, ref_itow=None):
             f"        <b>Lon (computed):</b> {lon:.7f}<br/>\n"
         )
     else:
-        arrived_line = ""
         pos_detail = (
             f"        <b>Lat:</b> {lat:.7f}<br/>\n"
             f"        <b>Lon:</b> {lon:.7f}<br/>\n"
@@ -741,29 +743,36 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             graph_data["sec_freqs"].append(rec["centFreqs"])
 
     # Resolve buffered AID-MAPM points now that every NAV-PVT fix is known.
-    # relativePos deltas are added to the fix at the same iTOW (nearest iTOW as
-    # a fallback so a point is still placed if the exact epoch was not stored);
-    # absolute points are emitted as-is. Points that arrive before any fix
-    # (relativePos with no reference at all) are skipped.
+    # The nearest NAV-PVT iTOW is shown on every point as `arrived iTOW`, so it
+    # is clear when the message arrived relative to the navigation stream. For
+    # relativePos points that same nearest fix is also the anchor the delta is
+    # added to; if no fix exists at all such a point is skipped.
     fix_itows = sorted(itow_to_fix.keys())
+
+    def nearest_fix_itow(itow):
+        if not fix_itows:
+            return None
+        j = bisect.bisect_left(fix_itows, itow)
+        cand = []
+        if j < len(fix_itows):
+            cand.append(fix_itows[j])
+        if j > 0:
+            cand.append(fix_itows[j - 1])
+        return min(cand, key=lambda k: abs(k - itow))
+
     for rec in mapm_records:
+        arrived_itow = nearest_fix_itow(rec["iTOW"])
         if rec["relativePos"]:
-            if not fix_itows:
+            if arrived_itow is None:
                 continue  # no navigation fix to anchor the delta against
-            j = bisect.bisect_left(fix_itows, rec["iTOW"])
-            cand = []
-            if j < len(fix_itows):
-                cand.append(fix_itows[j])
-            if j > 0:
-                cand.append(fix_itows[j - 1])
-            ref_itow = min(cand, key=lambda k: abs(k - rec["iTOW"]))
-            ref_lat, ref_lon = itow_to_fix[ref_itow]
+            ref_lat, ref_lon = itow_to_fix[arrived_itow]
             m_lat = ref_lat + rec["lat"]
             m_lon = ref_lon + rec["lon"]
             buf.append(mapm_placemark(rec, m_lat, m_lon, rec["alt"],
-                                      relative=True, ref_itow=ref_itow))
+                                      relative=True, arrived_itow=arrived_itow))
         else:
-            buf.append(mapm_placemark(rec, rec["lat"], rec["lon"], rec["alt"]))
+            buf.append(mapm_placemark(rec, rec["lat"], rec["lon"], rec["alt"],
+                                      arrived_itow=arrived_itow))
         mapm_points += 1
 
     # [수정] 통계 정보 최종 저장
