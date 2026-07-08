@@ -152,12 +152,17 @@ AID-MAPM points are rendered as **sky-blue** arrow Placemarks
 scale 0.5, icon rotated `heading + 180°` like the NAV-PVT arrows) so they are
 visually distinct from the fixType-coloured vehicle track.
 
-- **Default path (`build_kml`)** — AID-MAPM frames are parsed inline alongside
-  NAV-PVT and appended to the same KML. Points with `latLonValid = 0` are
-  skipped. When `relativePos = 1`, `lat`/`lon` are **deltas** (same 1e-7 deg
-  units) to the **latest primary NAV-PVT fix** (`last_fix_lat`/`last_fix_lon`),
-  so they are added to that reference position; if no fix has been seen yet the
-  point is skipped (no anchor). The popup labels such points `(relativePos)`.
+- **Default path (`build_kml`)** — AID-MAPM frames with `latLonValid = 1` are
+  buffered during the scan and **resolved after** it, once every NAV-PVT fix is
+  known. When `relativePos = 1`, `lat`/`lon` are **deltas** (same 1e-7 deg
+  units) that are added to the NAV-PVT fix at the **same iTOW** — fixes are
+  stored in `itow_to_fix` keyed by iTOW, so a MAPM frame is synced to its exact
+  time point even when the matching fix appears *later* in the byte stream (the
+  nearest iTOW is used as a fallback; a relativePos point is skipped only if no
+  fix exists at all). The popup labels such points `(relativePos)` and shows
+  **both** the raw delta (`ΔLat`/`ΔLon`), the `Ref fix iTOW` used, and the
+  resulting `computed` absolute Lat/Lon so the two can be compared. Absolute
+  points show a plain Lat/Lon.
 - **`--mapm` mode (`build_kml_mapm_only`)** — emits *only* AID-MAPM Placemarks
   and has no NAV reference, so `relativePos` points are skipped there; only
   absolute (`latLonValid`, non-`relativePos`) points are output.

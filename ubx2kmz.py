@@ -10,6 +10,7 @@ UBX (NAV-PVT / NAV2-PVT) -> KMZ
 """
 
 import argparse
+import bisect
 import os
 import time
 import mmap
@@ -113,8 +114,7 @@ MAPM_PLACEMARK_TEMPLATE = (
     "        <b>iTOW:</b> {itow}<br/>\n"
     "        <b>Heading:</b> {heading_true:.1f}°<br/>\n"
     "        <b>HeadAcc:</b> {head_acc:.2f}°<br/>\n"
-    "        <b>Lat:</b> {lat:.7f}<br/>\n"
-    "        <b>Lon:</b> {lon:.7f}<br/>\n"
+    "{pos_detail}"
     "        <b>PosAcc2D:</b> {pos_acc:.2f} m<br/>\n"
     "        <b>Alt:</b> {alt:.3f} m<br/>\n"
     "        <b>AltAcc:</b> {alt_acc:.2f} m<br/>\n"
@@ -131,7 +131,8 @@ def parse_aid_mapm(payload: memoryview):
 
     flags bits: 0 latLonValid, 1 altValid, 2 headValid, 3 hmsl, 6 relativePos.
     When `relativePos` is set, lat/lon are **deltas** (same 1e-7 deg units) to the
-    latest navigation fix — the caller must add them to that fix's position.
+    NAV-PVT fix at the **same iTOW** — the caller must add them to that fix's
+    position.
     """
     if len(payload) < 28:
         return None
@@ -161,21 +162,37 @@ def parse_aid_mapm(payload: memoryview):
         "head_acc": head_acc,
     }
 
-def mapm_placemark(rec, lat, lon, alt, relative=False):
+def mapm_placemark(rec, lat, lon, alt, relative=False, ref_itow=None):
     """Render one sky-blue AID-MAPM Placemark.
 
-    `lat`/`lon`/`alt` are the resolved *absolute* coordinates (the caller has
-    already added the delta to the reference fix when `relative` is set).
-    `relative` only controls the descriptive note in the popup.
+    `lat`/`lon`/`alt` are the resolved *absolute* coordinates used for the map
+    point. When `relative` is set, `rec["lat"]`/`rec["lon"]` hold the raw deltas
+    and `ref_itow` is the iTOW of the NAV-PVT fix they were added to; the popup
+    then shows **both** the raw delta and the computed absolute position so the
+    two can be compared. For absolute points it shows a plain Lat/Lon.
     """
     heading_true = normalize_heading(rec["heading"])
     icon_heading = normalize_heading(heading_true + 180.0)
+    if relative:
+        pos_detail = (
+            f"        <b>&#916;Lat (raw):</b> {rec['lat']:+.7f}&deg;<br/>\n"
+            f"        <b>&#916;Lon (raw):</b> {rec['lon']:+.7f}&deg;<br/>\n"
+            f"        <b>Ref fix iTOW:</b> {ref_itow}<br/>\n"
+            f"        <b>Lat (computed):</b> {lat:.7f}<br/>\n"
+            f"        <b>Lon (computed):</b> {lon:.7f}<br/>\n"
+        )
+    else:
+        pos_detail = (
+            f"        <b>Lat:</b> {lat:.7f}<br/>\n"
+            f"        <b>Lon:</b> {lon:.7f}<br/>\n"
+        )
     return MAPM_PLACEMARK_TEMPLATE.format(
         color=MAPM_COLOR,
         rel_note=" (relativePos)" if relative else "",
         icon_heading=icon_heading,
         heading_true=heading_true,
         lon=lon, lat=lat, alt=alt,
+        pos_detail=pos_detail,
         itow=rec["iTOW"],
         pos_acc=rec.get("pos_acc", 0.0),
         alt_acc=rec.get("alt_acc", 0.0),
@@ -468,10 +485,12 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     itow_to_cno = {}
     itow_to_secsig = {}
     last_pvt_itow = None  # most recent PVT iTOW seen, used to timestamp SEC-SIG frames
-    # Most recent primary NAV-PVT fix position, used as the reference for
-    # AID-MAPM `relativePos` points (whose lat/lon are deltas to this fix).
-    last_fix_lat = None
-    last_fix_lon = None
+    # Primary NAV-PVT fix positions keyed by iTOW, used to resolve AID-MAPM
+    # `relativePos` deltas against the fix at the *same* time point. AID-MAPM
+    # frames are buffered and resolved after the scan, so a matching fix that
+    # appears later in the stream is still found.
+    itow_to_fix = {}       # iTOW -> (lat, lon)
+    mapm_records = []       # AID-MAPM recs (latLonValid) deferred for resolution
     mapm_points = 0
     # Time reference for INF messages: updated for ANY valid-time PVT epoch
     # (even no-fix), so INF frames get the closest available timestamp.
@@ -522,9 +541,10 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 # 5 (time only) carry no usable position and are skipped.
                 if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 2, 3, 4):
                     last_pvt_itow = rec["iTOW"]
-                    # Reference position for AID-MAPM relativePos deltas.
-                    last_fix_lat = rec["lat"]
-                    last_fix_lon = rec["lon"]
+                    # Reference position for AID-MAPM relativePos deltas, keyed
+                    # by iTOW so a MAPM frame is synced to the fix at the same
+                    # time point (recorded before Hz filtering).
+                    itow_to_fix[rec["iTOW"]] = (rec["lat"], rec["lon"])
                     # === [추가됨] Missing Epoch 계산 로직 ===
                     curr_itow = rec["iTOW"]
                     if last_itow is not None:
@@ -671,26 +691,13 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                             "text":  text,
                         })
 
-            # 5. AID-MAPM (map-matching points). Rendered as sky-blue arrows
-            # alongside the NAV-PVT track. When `relativePos` is set the lat/lon
-            # are deltas (same 1e-7 deg units) relative to the latest NAV-PVT
-            # fix, so they are added to that reference position.
+            # 5. AID-MAPM (map-matching points). Buffered here and resolved
+            # after the full scan so `relativePos` deltas can be synced to the
+            # NAV-PVT fix at the same iTOW even if that fix appears later.
             elif cls_ == AID_CLASS and id_ == MAPM_ID:
                 rec = parse_aid_mapm(payload)
                 if rec and rec["latLonValid"]:
-                    if rec["relativePos"]:
-                        if last_fix_lat is None:
-                            # No navigation fix yet to anchor the delta against.
-                            i = frame_end
-                            continue
-                        m_lat = last_fix_lat + rec["lat"]
-                        m_lon = last_fix_lon + rec["lon"]
-                    else:
-                        m_lat = rec["lat"]
-                        m_lon = rec["lon"]
-                    buf.append(mapm_placemark(rec, m_lat, m_lon, rec["alt"],
-                                              relative=rec["relativePos"]))
-                    mapm_points += 1
+                    mapm_records.append(rec)
 
             i = frame_end
 
@@ -727,6 +734,32 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             graph_data["jam_det_enabled"].append(1 if rec["jamDetEnabled"] else 0)
             graph_data["spf_det_enabled"].append(1 if rec["spfDetEnabled"] else 0)
             graph_data["sec_freqs"].append(rec["centFreqs"])
+
+    # Resolve buffered AID-MAPM points now that every NAV-PVT fix is known.
+    # relativePos deltas are added to the fix at the same iTOW (nearest iTOW as
+    # a fallback so a point is still placed if the exact epoch was not stored);
+    # absolute points are emitted as-is. Points that arrive before any fix
+    # (relativePos with no reference at all) are skipped.
+    fix_itows = sorted(itow_to_fix.keys())
+    for rec in mapm_records:
+        if rec["relativePos"]:
+            if not fix_itows:
+                continue  # no navigation fix to anchor the delta against
+            j = bisect.bisect_left(fix_itows, rec["iTOW"])
+            cand = []
+            if j < len(fix_itows):
+                cand.append(fix_itows[j])
+            if j > 0:
+                cand.append(fix_itows[j - 1])
+            ref_itow = min(cand, key=lambda k: abs(k - rec["iTOW"]))
+            ref_lat, ref_lon = itow_to_fix[ref_itow]
+            m_lat = ref_lat + rec["lat"]
+            m_lon = ref_lon + rec["lon"]
+            buf.append(mapm_placemark(rec, m_lat, m_lon, rec["alt"],
+                                      relative=True, ref_itow=ref_itow))
+        else:
+            buf.append(mapm_placemark(rec, rec["lat"], rec["lon"], rec["alt"]))
+        mapm_points += 1
 
     # [수정] 통계 정보 최종 저장
     graph_data["stats"]["epoch_total"] = valid_msgs
