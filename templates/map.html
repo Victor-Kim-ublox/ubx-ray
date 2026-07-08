@@ -664,6 +664,10 @@
       if (!rawPts.length) {
         const placemarks = doc.getElementsByTagNameNS(KMLNS, 'Placemark');
         for (const pm of placemarks) {
+          // AID-MAPM points are map-matching arrows, not part of the vehicle
+          // track — exclude them from playback so they don't disrupt ordering.
+          const nameNode = pm.getElementsByTagNameNS(KMLNS, 'name')[0];
+          if (nameNode && nameNode.textContent.trim() === 'AID-MAPM') continue;
           const point = pm.getElementsByTagNameNS(KMLNS, 'Point')[0];
           if (!point) continue;
           const coordNode = point.getElementsByTagNameNS(KMLNS, 'coordinates')[0];

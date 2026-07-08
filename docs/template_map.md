@@ -62,6 +62,14 @@ Each Placemark in the KML:
 - `<Style>/<IconStyle>/<color>` → fixType-based color (green/yellow/red)
 - `<description>` → popup tooltip content
 
+**AID-MAPM markers** — the KML may also contain sky-blue
+(`FFEBCE87`) `<name>AID-MAPM</name>` arrow Placemarks (map-matching points
+parsed from UBX-AID-MAPM). They render on the same vector layer and open the
+same click popups (heading, position, accuracy; `relativePos` points are noted
+in the popup), but `loadData()` **excludes them from playback** — they carry no
+`<TimeStamp>` and are markers rather than vehicle-track epochs, so they must not
+enter the ordered `rawPts`/`pts` playback set.
+
 ---
 
 ## Interaction Features
