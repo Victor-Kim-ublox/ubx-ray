@@ -167,13 +167,15 @@ def mapm_placemark(rec, lat, lon, alt, relative=False, arrived_itow=None):
     """Render one sky-blue AID-MAPM Placemark.
 
     `lat`/`lon`/`alt` are the resolved *absolute* coordinates used for the map
-    point. `arrived_itow` is the iTOW of the nearest NAV-PVT fix — shown for
-    *every* AID-MAPM point (relative or absolute) as `arrived iTOW`, right under
-    the message's own iTOW, so it is clear when the message arrived relative to
-    the navigation stream. When `relative` is set, `rec["lat"]`/`rec["lon"]`
-    hold the raw deltas that were added to that nearest fix; the popup then shows
-    **both** the raw delta and the computed absolute position. For absolute
-    points it shows a plain Lat/Lon.
+    point. `arrived_itow` is the iTOW of the primary NAV-PVT that *preceded* this
+    AID-MAPM in the stream — shown for *every* point (relative or absolute) as
+    `arrived iTOW`, right under the message's own iTOW, so it is clear which
+    NAV-PVT the message arrived after (its own itowMM is the map-matching
+    solution time, which lags the arrival point). When `relative` is set,
+    `rec["lat"]`/`rec["lon"]` hold the raw deltas that were added to the NAV-PVT
+    fix at the *same iTOW* as the message (not the arrival-time fix); the popup
+    then shows **both** the raw delta and the computed absolute position. For
+    absolute points it shows a plain Lat/Lon.
     """
     heading_true = normalize_heading(rec["heading"])
     icon_heading = normalize_heading(heading_true + 180.0)
@@ -492,12 +494,14 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     itow_to_cno = {}
     itow_to_secsig = {}
     last_pvt_itow = None  # most recent PVT iTOW seen, used to timestamp SEC-SIG frames
-    # Primary NAV-PVT fix positions keyed by iTOW, used to resolve AID-MAPM
-    # `relativePos` deltas against the fix at the *same* time point. AID-MAPM
-    # frames are buffered and resolved after the scan, so a matching fix that
-    # appears later in the stream is still found.
+    # Primary NAV-PVT fix positions keyed by iTOW: AID-MAPM relativePos deltas
+    # are added to the fix at the *same iTOW* as the MAPM message. Frames are
+    # buffered and resolved after the scan so a matching fix that appears later
+    # in the byte stream is still found. Each buffered record also carries
+    # `arrived_itow` — the primary PVT that preceded it in stream order —
+    # captured at scan time, since it reflects arrival, not solution time.
     itow_to_fix = {}       # iTOW -> (lat, lon)
-    mapm_records = []       # AID-MAPM recs (latLonValid) deferred for resolution
+    mapm_records = []       # (rec, arrived_itow) tuples deferred for resolution
     mapm_points = 0
     # Time reference for INF messages: updated for ANY valid-time PVT epoch
     # (even no-fix), so INF frames get the closest available timestamp.
@@ -548,9 +552,8 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 # 5 (time only) carry no usable position and are skipped.
                 if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 2, 3, 4):
                     last_pvt_itow = rec["iTOW"]
-                    # Reference position for AID-MAPM relativePos deltas, keyed
-                    # by iTOW so a MAPM frame is synced to the fix at the same
-                    # time point (recorded before Hz filtering).
+                    # Anchor positions for AID-MAPM relativePos deltas, keyed by
+                    # iTOW (recorded before Hz filtering so every fix is usable).
                     itow_to_fix[rec["iTOW"]] = (rec["lat"], rec["lon"])
                     # === [추가됨] Missing Epoch 계산 로직 ===
                     curr_itow = rec["iTOW"]
@@ -698,13 +701,16 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                             "text":  text,
                         })
 
-            # 5. AID-MAPM (map-matching points). Buffered here and resolved
-            # after the full scan so `relativePos` deltas can be synced to the
-            # NAV-PVT fix at the same iTOW even if that fix appears later.
+            # 5. AID-MAPM (map-matching points). Buffered and resolved after the
+            # scan so `relativePos` deltas can be anchored to the NAV-PVT fix at
+            # the *same iTOW* even when that fix appears later in the stream.
+            # `arrived iTOW` — the primary PVT that preceded this frame in
+            # stream order (its own itowMM is the map-matching *solution* time,
+            # which lags the actual arrival point) — must be captured NOW.
             elif cls_ == AID_CLASS and id_ == MAPM_ID:
                 rec = parse_aid_mapm(payload)
                 if rec and rec["latLonValid"]:
-                    mapm_records.append(rec)
+                    mapm_records.append((rec, inf_ref_itow))
 
             i = frame_end
 
@@ -743,29 +749,25 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             graph_data["sec_freqs"].append(rec["centFreqs"])
 
     # Resolve buffered AID-MAPM points now that every NAV-PVT fix is known.
-    # The nearest NAV-PVT iTOW is shown on every point as `arrived iTOW`, so it
-    # is clear when the message arrived relative to the navigation stream. For
-    # relativePos points that same nearest fix is also the anchor the delta is
-    # added to; if no fix exists at all such a point is skipped.
+    # Resolve buffered AID-MAPM points now that every NAV-PVT fix is known.
+    # relativePos deltas are added to the fix at the same iTOW as the MAPM
+    # message (nearest iTOW as a fallback so a point is still placed when that
+    # exact epoch is missing); a relativePos point with no fix at all is
+    # skipped. The popup's `arrived iTOW` uses the stream-order value captured
+    # during the scan, independent of the delta anchor.
     fix_itows = sorted(itow_to_fix.keys())
-
-    def nearest_fix_itow(itow):
-        if not fix_itows:
-            return None
-        j = bisect.bisect_left(fix_itows, itow)
-        cand = []
-        if j < len(fix_itows):
-            cand.append(fix_itows[j])
-        if j > 0:
-            cand.append(fix_itows[j - 1])
-        return min(cand, key=lambda k: abs(k - itow))
-
-    for rec in mapm_records:
-        arrived_itow = nearest_fix_itow(rec["iTOW"])
+    for rec, arrived_itow in mapm_records:
         if rec["relativePos"]:
-            if arrived_itow is None:
+            if not fix_itows:
                 continue  # no navigation fix to anchor the delta against
-            ref_lat, ref_lon = itow_to_fix[arrived_itow]
+            j = bisect.bisect_left(fix_itows, rec["iTOW"])
+            cand = []
+            if j < len(fix_itows):
+                cand.append(fix_itows[j])
+            if j > 0:
+                cand.append(fix_itows[j - 1])
+            ref_itow = min(cand, key=lambda k: abs(k - rec["iTOW"]))
+            ref_lat, ref_lon = itow_to_fix[ref_itow]
             m_lat = ref_lat + rec["lat"]
             m_lon = ref_lon + rec["lon"]
             buf.append(mapm_placemark(rec, m_lat, m_lon, rec["alt"],

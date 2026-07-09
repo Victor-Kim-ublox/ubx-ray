@@ -154,16 +154,20 @@ visually distinct from the fixType-coloured vehicle track.
 
 - **Default path (`build_kml`)** — AID-MAPM frames with `latLonValid = 1` are
   buffered during the scan and **resolved after** it, once every NAV-PVT fix is
-  known. When `relativePos = 1`, `lat`/`lon` are **deltas** (same 1e-7 deg
-  units) that are added to the NAV-PVT fix at the **same iTOW** — fixes are
-  stored in `itow_to_fix` keyed by iTOW, so a MAPM frame is synced to its exact
-  time point even when the matching fix appears *later* in the byte stream (the
-  nearest iTOW is used as a fallback; a relativePos point is skipped only if no
-  fix exists at all). **Every** AID-MAPM point (relative *and* absolute) shows
-  the nearest NAV-PVT iTOW as `arrived iTOW` directly under the message's own
-  `iTOW`, so it is clear when the message arrived relative to the navigation
-  stream. For `relativePos` points that same nearest fix is the anchor the delta
-  is added to, and the position block shows **both** the raw delta
+  known. Two independent time references are kept per point:
+  - **Delta anchor** — when `relativePos = 1`, `lat`/`lon` are **deltas** (same
+    1e-7 deg units) added to the NAV-PVT fix at the **same iTOW** as the MAPM
+    message (`itow_to_fix` map; nearest iTOW as a fallback, skipped only if no
+    fix exists at all). Deferred resolution means the matching fix is found even
+    when it appears *later* in the byte stream.
+  - **`arrived iTOW`** — the iTOW of the primary NAV-PVT that *preceded* the
+    MAPM frame in **stream order**, captured at scan time. The message's own
+    `itowMM` is the map-matching *solution* time, which lags the arrival point,
+    so this shows after which NAV-PVT the message actually arrived. Shown on
+    **every** point (relative and absolute) directly under the message's own
+    `iTOW`.
+
+  For `relativePos` points the position block shows **both** the raw delta
   (`ΔLat`/`ΔLon`) and the resulting `computed` absolute Lat/Lon; absolute points
   show a plain Lat/Lon.
 - **`--mapm` mode (`build_kml_mapm_only`)** — emits *only* AID-MAPM Placemarks
