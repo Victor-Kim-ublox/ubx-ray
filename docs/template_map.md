@@ -62,6 +62,19 @@ Each Placemark in the KML:
 - `<Style>/<IconStyle>/<color>` → fixType-based color (green/yellow/red)
 - `<description>` → popup tooltip content
 
+**AID-MAPM markers** — the KML may also contain sky-blue
+(`FFEBCE87`) `<name>AID-MAPM</name>` arrow Placemarks (map-matching points
+parsed from UBX-AID-MAPM). They render on the same vector layer and open the
+same click popups. Every AID-MAPM point shows the iTOW of the NAV-PVT that
+preceded it in the stream as `arrived iTOW` (right under the message `iTOW`) so
+it is clear after which NAV-PVT the message arrived. For `relativePos` points
+the delta is anchored to the NAV-PVT fix at the *same iTOW* as the message, and
+the popup additionally shows the raw delta (`ΔLat`/`ΔLon`) and the resulting
+`computed` absolute Lat/Lon; absolute points show a plain Lat/Lon. `loadData()`
+**excludes AID-MAPM Placemarks from playback** — they carry no `<TimeStamp>` and
+are markers rather than vehicle-track epochs, so they must not enter the ordered
+`rawPts`/`pts` playback set.
+
 ---
 
 ## Interaction Features

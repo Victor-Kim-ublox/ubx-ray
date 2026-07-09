@@ -18,7 +18,7 @@ python ubx2kmz.py <ubx_file> [options]
 | `--hz {1,2,5,10}` | Keep only epochs aligned to the given Hz (based on iTOW ms) |
 | `--alt-abs` | Apply KML `altitudeMode=absolute` + `extrude=1` |
 | `--ck` | Enable Fletcher checksum verification (default: off, speed priority) |
-| `--mapm` | Extract AID-MAPM points only (white arrows) |
+| `--mapm` | Extract AID-MAPM points only (sky-blue arrows, absolute-position only) |
 
 ---
 
@@ -29,7 +29,7 @@ python ubx2kmz.py <ubx_file> [options]
 | NAV-PVT | 0x01 | 0x07 | Position, velocity, and time (default) |
 | NAV2-PVT | 0x29 | 0x07 | NAV2 protocol, same payload format |
 | NAV-SAT | 0x01 | 0x35 | Per-SV CN0 used for the CN0 chart |
-| AID-MAPM | 0x0B | 0x05 | Map-matching points (white arrows, `--mapm`) |
+| AID-MAPM | 0x0B | 0x05 | Map-matching points (sky-blue arrows) — parsed alongside NAV-PVT in the default path, or standalone with `--mapm` |
 | SEC-SIG | 0x27 | 0x09 | Jamming / spoofing status (version 0x02) |
 | INF-* | 0x04 | 0x00–0x04 | Receiver text messages (ERROR/WARNING/NOTICE/TEST/DEBUG) |
 
@@ -137,10 +137,45 @@ When `--hz N` is specified:
 ## AID-MAPM Parsing (`parse_aid_mapm`)
 
 Payload is 28 bytes:
-- iTOW (0–3), headMM (6–7, ×1e-2 = degrees), lat (8–11, ×1e-7), lon (12–15, ×1e-7), alt (16–19, ×1e-3)
+- iTOW (0–3), flags (4–5, X2), headMM (6–7, ×1e-2 = degrees), lat (8–11, ×1e-7),
+  lon (12–15, ×1e-7), alt (16–19, ×1e-3)
 - pos_acc (20–21, ×0.1 m), alt_acc (22–23, ×0.1 m), head_acc (24–25, ×0.01°)
+- reserved0 (26–27)
 
-In `--mapm` mode, only AID-MAPM entries are output as white arrow Placemarks.
+`flags` bits decoded to booleans: `0` **latLonValid**, `1` **altValid**,
+`2` **headValid**, `3` **hmsl**, `6` **relativePos**.
+
+### Rendering (sky-blue arrows, `MAPM_COLOR = FFEBCE87`)
+
+AID-MAPM points are rendered as **sky-blue** arrow Placemarks
+(`mapm_placemark()` → `MAPM_PLACEMARK_TEMPLATE`, `<name>AID-MAPM</name>`,
+scale 0.5, icon rotated `heading + 180°` like the NAV-PVT arrows) so they are
+visually distinct from the fixType-coloured vehicle track.
+
+- **Default path (`build_kml`)** — AID-MAPM frames with `latLonValid = 1` are
+  buffered during the scan and **resolved after** it, once every NAV-PVT fix is
+  known. Two independent time references are kept per point:
+  - **Delta anchor** — when `relativePos = 1`, `lat`/`lon` are **deltas** (same
+    1e-7 deg units) added to the NAV-PVT fix at the **same iTOW** as the MAPM
+    message (`itow_to_fix` map; nearest iTOW as a fallback, skipped only if no
+    fix exists at all). Deferred resolution means the matching fix is found even
+    when it appears *later* in the byte stream.
+  - **`arrived iTOW`** — the iTOW of the primary NAV-PVT that *preceded* the
+    MAPM frame in **stream order**, captured at scan time. The message's own
+    `itowMM` is the map-matching *solution* time, which lags the arrival point,
+    so this shows after which NAV-PVT the message actually arrived. Shown on
+    **every** point (relative and absolute) directly under the message's own
+    `iTOW`.
+
+  For `relativePos` points the position block shows **both** the raw delta
+  (`ΔLat`/`ΔLon`) and the resulting `computed` absolute Lat/Lon; absolute points
+  show a plain Lat/Lon.
+- **`--mapm` mode (`build_kml_mapm_only`)** — emits *only* AID-MAPM Placemarks
+  and has no NAV reference, so `relativePos` points are skipped there; only
+  absolute (`latLonValid`, non-`relativePos`) points are output.
+
+`map.html` playback excludes `<name>AID-MAPM</name>` Placemarks (they are
+map-matching markers, not vehicle-track epochs).
 
 ---
 

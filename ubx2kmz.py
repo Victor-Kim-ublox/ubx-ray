@@ -10,6 +10,7 @@ UBX (NAV-PVT / NAV2-PVT) -> KMZ
 """
 
 import argparse
+import bisect
 import os
 import time
 import mmap
@@ -88,15 +89,19 @@ PLACEMARK_TEMPLATE = (
 )
 
 
-# === AID-MAPM support (white arrows) ===
+# === AID-MAPM support (sky-blue arrows) ===
 AID_CLASS = 0x0B
 MAPM_ID   = 0x05
+# Sky-blue (#87CEEB) in KML AABBGGRR order, so map-matching arrows stand out
+# from the fix-type coloured NAV-PVT arrows.
+MAPM_COLOR = "FFEBCE87"
 
 MAPM_PLACEMARK_TEMPLATE = (
     "    <Placemark>\n"
+    "      <name>AID-MAPM</name>\n"
     "      <Style>\n"
     "        <IconStyle>\n"
-    "          <color>FFFFFFFF</color>\n"
+    "          <color>{color}</color>\n"
     "          <colorMode>normal</colorMode>\n"
     "          <scale>0.5</scale>\n"
     "          <heading>{icon_heading:.1f}</heading>\n"
@@ -105,12 +110,12 @@ MAPM_PLACEMARK_TEMPLATE = (
     "        </IconStyle>\n"
     "      </Style>\n"
     "      <description><![CDATA[\n"
-    "        <b>UBX-AID-MAPM</b><br/>\n"
+    "        <b>UBX-AID-MAPM</b>{rel_note}<br/>\n"
     "        <b>iTOW:</b> {itow}<br/>\n"
+    "{arrived_line}"
     "        <b>Heading:</b> {heading_true:.1f}°<br/>\n"
     "        <b>HeadAcc:</b> {head_acc:.2f}°<br/>\n"
-    "        <b>Lat:</b> {lat:.7f}<br/>\n"
-    "        <b>Lon:</b> {lon:.7f}<br/>\n"
+    "{pos_detail}"
     "        <b>PosAcc2D:</b> {pos_acc:.2f} m<br/>\n"
     "        <b>Alt:</b> {alt:.3f} m<br/>\n"
     "        <b>AltAcc:</b> {alt_acc:.2f} m<br/>\n"
@@ -120,22 +125,37 @@ MAPM_PLACEMARK_TEMPLATE = (
 )
 
 def parse_aid_mapm(payload: memoryview):
-    """Parse UBX-AID-MAPM (length typically 28 bytes)."""
+    """Parse UBX-AID-MAPM (length 28 bytes).
+
+    Layout: itowMM(U4,0), flags(X2,4), headMM(U2,6), latMM(I4,8), lonMM(I4,12),
+    altMM(I4,16), posHAccMM(U2,20), altAccMM(U2,22), headAccMM(U2,24), reserved0(2,26).
+
+    flags bits: 0 latLonValid, 1 altValid, 2 headValid, 3 hmsl, 6 relativePos.
+    When `relativePos` is set, lat/lon are **deltas** (same 1e-7 deg units) to the
+    NAV-PVT fix at the **same iTOW** — the caller must add them to that fix's
+    position.
+    """
     if len(payload) < 28:
         return None
-    itow = int.from_bytes(payload[0:4], 'little', signed=False)
+    itow  = int.from_bytes(payload[0:4], 'little', signed=False)
+    flags = int.from_bytes(payload[4:6], 'little', signed=False)
     headMM = int.from_bytes(payload[6:8], 'little', signed=False)
     lat = int.from_bytes(payload[8:12], 'little', signed=True)
     lon = int.from_bytes(payload[12:16], 'little', signed=True)
     alt = int.from_bytes(payload[16:20], 'little', signed=True)
-    # Accuracy fields for AID-MAPM
     pos_acc = int.from_bytes(payload[20:22], 'little', signed=False) * 1e-1
     alt_acc = int.from_bytes(payload[22:24], 'little', signed=False) * 1e-1
     head_acc = int.from_bytes(payload[24:26], 'little', signed=False) * 1e-2
     return {
         "iTOW": itow,
+        "flags": flags,
+        "latLonValid": bool(flags & 0x01),
+        "altValid":    bool(flags & 0x02),
+        "headValid":   bool(flags & 0x04),
+        "hmsl":        bool(flags & 0x08),
+        "relativePos": bool(flags & 0x40),   # bit 6
         "heading": (headMM * 1e-2) % 360.0,
-        "lat": lat * 1e-7,
+        "lat": lat * 1e-7,   # absolute deg, or delta deg when relativePos
         "lon": lon * 1e-7,
         "alt": alt * 1e-3,
         "pos_acc": pos_acc,
@@ -143,8 +163,58 @@ def parse_aid_mapm(payload: memoryview):
         "head_acc": head_acc,
     }
 
+def mapm_placemark(rec, lat, lon, alt, relative=False, arrived_itow=None):
+    """Render one sky-blue AID-MAPM Placemark.
+
+    `lat`/`lon`/`alt` are the resolved *absolute* coordinates used for the map
+    point. `arrived_itow` is the iTOW of the primary NAV-PVT that *preceded* this
+    AID-MAPM in the stream — shown for *every* point (relative or absolute) as
+    `arrived iTOW`, right under the message's own iTOW, so it is clear which
+    NAV-PVT the message arrived after (its own itowMM is the map-matching
+    solution time, which lags the arrival point). When `relative` is set,
+    `rec["lat"]`/`rec["lon"]` hold the raw deltas that were added to the NAV-PVT
+    fix at the *same iTOW* as the message (not the arrival-time fix); the popup
+    then shows **both** the raw delta and the computed absolute position. For
+    absolute points it shows a plain Lat/Lon.
+    """
+    heading_true = normalize_heading(rec["heading"])
+    icon_heading = normalize_heading(heading_true + 180.0)
+    # Nearest PVT iTOW (arrival reference) for both relative and absolute points.
+    arrived_line = (f"        <b>arrived iTOW:</b> {arrived_itow}<br/>\n"
+                    if arrived_itow is not None else "")
+    if relative:
+        pos_detail = (
+            f"        <b>&#916;Lat (raw):</b> {rec['lat']:+.7f}&deg;<br/>\n"
+            f"        <b>&#916;Lon (raw):</b> {rec['lon']:+.7f}&deg;<br/>\n"
+            f"        <b>Lat (computed):</b> {lat:.7f}<br/>\n"
+            f"        <b>Lon (computed):</b> {lon:.7f}<br/>\n"
+        )
+    else:
+        pos_detail = (
+            f"        <b>Lat:</b> {lat:.7f}<br/>\n"
+            f"        <b>Lon:</b> {lon:.7f}<br/>\n"
+        )
+    return MAPM_PLACEMARK_TEMPLATE.format(
+        color=MAPM_COLOR,
+        rel_note=" (relativePos)" if relative else "",
+        icon_heading=icon_heading,
+        heading_true=heading_true,
+        lon=lon, lat=lat, alt=alt,
+        arrived_line=arrived_line,
+        pos_detail=pos_detail,
+        itow=rec["iTOW"],
+        pos_acc=rec.get("pos_acc", 0.0),
+        alt_acc=rec.get("alt_acc", 0.0),
+        head_acc=rec.get("head_acc", 0.0),
+    )
+
 def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = False):
-    """Scan UBX and emit KML with ONLY AID-MAPM placemarks (white arrows)."""
+    """Scan UBX and emit KML with ONLY AID-MAPM placemarks (sky-blue arrows).
+
+    Absolute-position points only. `relativePos` points carry deltas to the
+    latest navigation fix, which this NAV-less mode has no reference for, so
+    they are skipped here (they are resolved in the main `build_kml` path).
+    """
     buf = []
     total_frames = 0
     mapm_points = 0
@@ -180,29 +250,8 @@ def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = 
 
             if cls_ == AID_CLASS and id_ == MAPM_ID:
                 rec = parse_aid_mapm(payload)
-                if rec:
-                    heading_true = normalize_heading(rec["heading"])
-                    icon_heading = normalize_heading(heading_true + 180.0)
-                    if alt_abs:
-                        point_block = (
-                            f"      <Point>\n"
-                            f"        <extrude>1</extrude>\n"
-                            f"        <altitudeMode>absolute</altitudeMode>\n"
-                            f"        <coordinates>{rec['lon']:.7f},{rec['lat']:.7f},{rec['alt']:.3f}</coordinates>\n"
-                            f"      </Point>\n"
-                        )
-                    else:
-                        point_block = (
-                            f"      <Point><coordinates>{rec['lon']:.7f},{rec['lat']:.7f},{rec['alt']:.3f}</coordinates></Point>\n"
-                        )
-                    buf.append(MAPM_PLACEMARK_TEMPLATE.format(
-                        icon_heading=icon_heading,
-                        heading_true=heading_true,
-                        lon=rec["lon"], lat=rec["lat"], alt=rec["alt"],
-                        itow=rec["iTOW"],
-                        pos_acc=rec.get("pos_acc", 0.0), alt_acc=rec.get("alt_acc", 0.0), head_acc=rec.get("head_acc", 0.0),
-                        point_block=point_block
-                    ))
+                if rec and rec["latLonValid"] and not rec["relativePos"]:
+                    buf.append(mapm_placemark(rec, rec["lat"], rec["lon"], rec["alt"]))
                     mapm_points += 1
 
             i = frame_end
@@ -445,6 +494,15 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     itow_to_cno = {}
     itow_to_secsig = {}
     last_pvt_itow = None  # most recent PVT iTOW seen, used to timestamp SEC-SIG frames
+    # Primary NAV-PVT fix positions keyed by iTOW: AID-MAPM relativePos deltas
+    # are added to the fix at the *same iTOW* as the MAPM message. Frames are
+    # buffered and resolved after the scan so a matching fix that appears later
+    # in the byte stream is still found. Each buffered record also carries
+    # `arrived_itow` — the primary PVT that preceded it in stream order —
+    # captured at scan time, since it reflects arrival, not solution time.
+    itow_to_fix = {}       # iTOW -> (lat, lon)
+    mapm_records = []       # (rec, arrived_itow) tuples deferred for resolution
+    mapm_points = 0
     # Time reference for INF messages: updated for ANY valid-time PVT epoch
     # (even no-fix), so INF frames get the closest available timestamp.
     inf_ref_itow = None
@@ -494,6 +552,9 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 # 5 (time only) carry no usable position and are skipped.
                 if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 2, 3, 4):
                     last_pvt_itow = rec["iTOW"]
+                    # Anchor positions for AID-MAPM relativePos deltas, keyed by
+                    # iTOW (recorded before Hz filtering so every fix is usable).
+                    itow_to_fix[rec["iTOW"]] = (rec["lat"], rec["lon"])
                     # === [추가됨] Missing Epoch 계산 로직 ===
                     curr_itow = rec["iTOW"]
                     if last_itow is not None:
@@ -640,6 +701,17 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                             "text":  text,
                         })
 
+            # 5. AID-MAPM (map-matching points). Buffered and resolved after the
+            # scan so `relativePos` deltas can be anchored to the NAV-PVT fix at
+            # the *same iTOW* even when that fix appears later in the stream.
+            # `arrived iTOW` — the primary PVT that preceded this frame in
+            # stream order (its own itowMM is the map-matching *solution* time,
+            # which lags the actual arrival point) — must be captured NOW.
+            elif cls_ == AID_CLASS and id_ == MAPM_ID:
+                rec = parse_aid_mapm(payload)
+                if rec and rec["latLonValid"]:
+                    mapm_records.append((rec, inf_ref_itow))
+
             i = frame_end
 
     # Merge PVT time and NAV-SAT CN0. Only the Top-5 line is rendered on the
@@ -676,12 +748,41 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             graph_data["spf_det_enabled"].append(1 if rec["spfDetEnabled"] else 0)
             graph_data["sec_freqs"].append(rec["centFreqs"])
 
+    # Resolve buffered AID-MAPM points now that every NAV-PVT fix is known.
+    # Resolve buffered AID-MAPM points now that every NAV-PVT fix is known.
+    # relativePos deltas are added to the fix at the same iTOW as the MAPM
+    # message (nearest iTOW as a fallback so a point is still placed when that
+    # exact epoch is missing); a relativePos point with no fix at all is
+    # skipped. The popup's `arrived iTOW` uses the stream-order value captured
+    # during the scan, independent of the delta anchor.
+    fix_itows = sorted(itow_to_fix.keys())
+    for rec, arrived_itow in mapm_records:
+        if rec["relativePos"]:
+            if not fix_itows:
+                continue  # no navigation fix to anchor the delta against
+            j = bisect.bisect_left(fix_itows, rec["iTOW"])
+            cand = []
+            if j < len(fix_itows):
+                cand.append(fix_itows[j])
+            if j > 0:
+                cand.append(fix_itows[j - 1])
+            ref_itow = min(cand, key=lambda k: abs(k - rec["iTOW"]))
+            ref_lat, ref_lon = itow_to_fix[ref_itow]
+            m_lat = ref_lat + rec["lat"]
+            m_lon = ref_lon + rec["lon"]
+            buf.append(mapm_placemark(rec, m_lat, m_lon, rec["alt"],
+                                      relative=True, arrived_itow=arrived_itow))
+        else:
+            buf.append(mapm_placemark(rec, rec["lat"], rec["lon"], rec["alt"],
+                                      arrived_itow=arrived_itow))
+        mapm_points += 1
+
     # [수정] 통계 정보 최종 저장
     graph_data["stats"]["epoch_total"] = valid_msgs
     graph_data["stats"]["epoch_missing"] = missing_epochs
 
     buf.append(FOOTER)
-    print(f"{now_str()} | Finished doc.kml (Total: {valid_msgs}, Missing: {missing_epochs}, kept: {kept if hz else 'All'})")
+    print(f"{now_str()} | Finished doc.kml (Total: {valid_msgs}, Missing: {missing_epochs}, kept: {kept if hz else 'All'}, MAPM: {mapm_points})")
 
     kml_text = ''.join(buf)
     return kml_text, graph_data
