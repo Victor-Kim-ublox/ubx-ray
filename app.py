@@ -679,11 +679,11 @@ async def analyze_nmea(
         if result['status'] == 'error':
             return HTMLResponse(f"<h3>Analysis Error: {result['message']}</h3>", status_code=400)
 
-        # 3. Render Report
+        # 3. Render Report — the template consumes the analyzer result object
+        # directly (result.statistics.*, result.graph_data | tojson).
         return templates.TemplateResponse("report_nmea.html", {
             "request": request,
-            "stats": result['statistics'],
-            "graph_data": json.dumps(result['graph_data'])
+            "result": result,
         })
 
     except Exception as e:

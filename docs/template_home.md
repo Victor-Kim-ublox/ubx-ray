@@ -1,10 +1,10 @@
 # templates/home.html
 
 ## Overview
-The **main home screen** of ubX-ray. Provides four analysis tabs
-(Single / Multi / KML Comparison / NMEA) in a single-page SPA-style interface.
-Only Single, Multi, and KML Comparison have tab buttons in the nav; the NMEA
-pane is reachable via `?tab=nmea`.
+The **main home screen** of ubX-ray. Provides five analysis panes
+(Single / Multi / KML Comparison / NMEA / Reference vs DUT) in a single-page
+SPA-style interface. Four have tab buttons in the nav (Single, Multi, KML
+Comparison, Reference vs DUT); the NMEA pane is reachable via `?tab=nmea`.
 
 ---
 
@@ -69,6 +69,17 @@ Upload two NMEA files (Reference + Test Device) for position error analysis.
 - Slot labels: Reference NMEA (required) / Test Device NMEA (required)
 - Drag-and-drop dropzones for each (`.nmea/.txt/.log`)
 - Upload & Analyze button → `POST /analyze_nmea` (response HTML replaces current page)
+
+### Tab 5: Reference vs DUT (`#tab-refdut`) — placeholder
+Placeholder UI for comparing a Reference receiver log against a DUT `.ubx`
+log. **Not implemented yet** — the reference log format is still undecided, so
+no backend route exists.
+
+- A "Work in progress" notice explains the pane is a placeholder.
+- Slot labels: Reference Log (*format TBD*, accepts any file) / DUT UBX
+  (required, `.ubx/.bin`). Both dropzones are wired via `wireDropzone` so the
+  chosen filename displays, but nothing is uploaded.
+- `Analyze (coming soon)` button is permanently `disabled`.
 
 ---
 

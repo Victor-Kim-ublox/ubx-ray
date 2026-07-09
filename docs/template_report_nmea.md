@@ -14,10 +14,14 @@ Rendered directly after `POST /analyze_nmea` (server returns HTML; no redirect)
 
 | Variable | Type | Description |
 |---|---|---|
-| `stats` | dict | Statistics dictionary returned by `nmea_comparison.py` |
-| `graph_data` | str | JSON string (`{"labels": [...], "values": [...]}`) |
+| `result` | dict | Full analyzer result from `nmea_comparison.py`: `status` (`"success"`), `statistics` (dict below), `graph_data` (dict `{"labels": [...], "values": [...]}`, rendered via `| tojson`) |
 
-### `stats` Dictionary Structure
+The route passes the analyzer result object **as-is** (`result`); the template
+reads `result.statistics.*` and `result.graph_data`. (An earlier version passed
+flattened `stats`/`graph_data` variables, which never matched the template and
+made `/analyze_nmea` 500 — fixed by passing `result` directly.)
+
+### `result.statistics` Dictionary Structure
 
 | Key | Description |
 |---|---|

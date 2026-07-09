@@ -215,6 +215,7 @@
         <button class="tab-btn active" id="tabBtnSingle" onclick="openTab('single', this)">Single .ubx Analysis</button>
         <button class="tab-btn" id="tabBtnMulti" onclick="openTab('multi', this)">Multi .ubx Analysis</button>
         <button class="tab-btn" id="tabBtnKml" onclick="openTab('kml', this)">KML Comparison</button>
+        <button class="tab-btn" id="tabBtnRefDut" onclick="openTab('refdut', this)">Reference vs DUT</button>
       </div>
 
       <!-- Tab 1: Single UBX Analysis -->
@@ -428,6 +429,47 @@
 
         <div class="footer">
           <div class="hint">Compares position accuracy between Reference and Test device.</div>
+        </div>
+      </div>
+
+      <!-- Tab 5: Reference vs DUT (placeholder — not implemented yet) -->
+      <div id="tab-refdut" class="tab-pane">
+        <div class="notice row">
+          <strong>Work in progress:</strong> Compares a Reference receiver log against a DUT
+          <code>.ubx</code> log. The reference log format is not decided yet, so this tab is a
+          placeholder — analysis is not available.
+        </div>
+
+        <div class="row" style="display:flex; gap:14px; flex-wrap:wrap;">
+          <!-- Reference Input (format TBD) -->
+          <div class="slot" style="flex:1; min-width:250px;">
+            <div class="slot-label">Reference Log <span class="slot-tag optional-tag">format TBD</span></div>
+            <label id="dropRdRef" class="drop" for="rdRefInput">
+              <h3>Drop reference log here</h3>
+              <div class="hint">format not decided yet — any file accepted for now</div>
+              <div class="file-name" id="rdRefName"></div>
+            </label>
+            <input id="rdRefInput" class="hidden-input" type="file" name="ref_file">
+          </div>
+
+          <!-- DUT Input -->
+          <div class="slot" style="flex:1; min-width:250px;">
+            <div class="slot-label">DUT UBX <span class="slot-tag required-tag">required</span></div>
+            <label id="dropRdDut" class="drop" for="rdDutInput">
+              <h3>Drop UBX/BIN file here</h3>
+              <div class="hint">or click to browse · .ubx / .bin</div>
+              <div class="file-name" id="rdDutName"></div>
+            </label>
+            <input id="rdDutInput" class="hidden-input" type="file" name="dut_file" accept=".ubx,.bin">
+          </div>
+        </div>
+
+        <div class="actions row">
+          <button id="refDutBtn" class="btn" type="button" disabled title="Not implemented yet">Analyze (coming soon)</button>
+        </div>
+
+        <div class="footer">
+          <div class="hint">Position-accuracy comparison of a DUT .ubx log against a reference receiver — implementation pending.</div>
         </div>
       </div>
 
@@ -850,6 +892,10 @@
       document.getElementById("compareForm").addEventListener("submit", startComparison);
       wireDropzone("dropRef", "refInput", "refName");
       wireDropzone("dropTest", "testInput", "testName");
+
+      // Tab 5 — Reference vs DUT (placeholder: dropzones work, analysis pending)
+      wireDropzone("dropRdRef", "rdRefInput", "rdRefName");
+      wireDropzone("dropRdDut", "rdDutInput", "rdDutName");
 
       // URL param tab activation
       const params = new URLSearchParams(window.location.search);
