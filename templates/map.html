@@ -505,7 +505,16 @@
       if (on) { picked = []; measureSrc.clear(); container.style.display = 'none'; }
     };
     measureBtn.onclick = () => setMeasureActive(!measureActive);
-    clearBtn.onclick = () => { picked = []; measureSrc.clear(); };
+    clearBtn.onclick = () => {
+      picked = [];
+      measureSrc.clear();
+      // Also close the measurement result popup. The #popup overlay is shared
+      // with SEC-SIG, so only hide it when it is showing a Distance result.
+      if (titleEl.textContent === 'Distance') {
+        overlay.setPosition(undefined);
+        container.style.display = 'none';
+      }
+    };
 
     function formatDist(m) { return m >= 1000 ? (m/1000).toFixed(3)+' km' : Math.round(m)+' m'; }
     map.on('singleclick', evt => {
