@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 
 UBX_SYNC1 = 0xB5
 UBX_SYNC2 = 0x62
+UBX_SYNC  = b"\xB5\x62"  # sync pattern for C-speed mmap.find() scanning
 NAV_CLASS  = 0x01
 NAV2_CLASS = 0x29
 PVT_ID     = 0x07
@@ -56,37 +57,47 @@ HEADER = """<?xml version="1.0" encoding="UTF-8"?>
 """
 FOOTER = "  </Document>\n</kml>\n"
 
-PLACEMARK_TEMPLATE = (
-    "    <Placemark>\n"
-    "      <TimeStamp><when>{ts}</when></TimeStamp>\n"
-    "      <Style>\n"
-    "        <IconStyle>\n"
-    "          <color>{color}</color>\n"
-    "          <colorMode>normal</colorMode>\n"
-    "          <scale>0.5</scale>\n"
-    "          <heading>{icon_heading:.1f}</heading>\n"
-    "          <Icon><href>{href}</href></Icon>\n"
-    "          <hotSpot x=\"0.5\" y=\"0.5\" xunits=\"fraction\" yunits=\"fraction\"/>\n"
-    "        </IconStyle>\n"
-    "      </Style>\n"
-    "      <description><![CDATA[\n"
-    "        <b>UTC:</b> {ts}<br/>\n"
-    "        <b>iTOW:</b> {itow}<br/>\n"
-    "        <b>FixType:</b> {fix}<br/>\n"
-    "        <b>Fix flags:</b> {flags_hex} (gnssFixOK={gnssFixOK})<br/>\n"
-    "        <b>Heading:</b> {heading_true:.1f}° ({heading_src})<br/>\n"
-    "        <b>HeadAcc:</b> {head_acc:.2f}°<br/>\n"
-    "        <b>Speed:</b> {speed_m_s:.2f} m/s ({speed_kmh:.1f} km/h)<br/>\n"
-    "        <b>SpeedAcc:</b> {speed_acc:.2f} m/s ({speed_acc_kmh:.1f} km/h)<br/>\n"
-    "        <b>Lat:</b> {lat:.7f}<br/>\n"
-    "        <b>Lon:</b> {lon:.7f}<br/>\n"
-    "        <b>PosAcc2D:</b> {pos_acc:.2f} m<br/>\n"
-    "        <b>Alt:</b> {alt:.3f} m<br/>\n"
-    "        <b>AltAcc:</b> {alt_acc:.2f} m<br/>\n"
-    "      ]]></description>\n"
-    "{point_block}"
-    "    </Placemark>\n"
-)
+def pvt_placemark(ts, href, icon_heading, heading_true, heading_src,
+                  lon, lat, alt, fix, itow, speed_m_s, speed_kmh, color,
+                  pos_acc, alt_acc, speed_acc, speed_acc_kmh, head_acc,
+                  point_block, gnssFixOK, flags_hex):
+    """Render one NAV-PVT track Placemark.
+
+    A single f-string (was a module-level `str.format` template): .format
+    re-parses the template on every call, and this runs once per kept epoch —
+    the f-string variant is compiled once and measurably faster.
+    """
+    return (
+        "    <Placemark>\n"
+        f"      <TimeStamp><when>{ts}</when></TimeStamp>\n"
+        "      <Style>\n"
+        "        <IconStyle>\n"
+        f"          <color>{color}</color>\n"
+        "          <colorMode>normal</colorMode>\n"
+        "          <scale>0.5</scale>\n"
+        f"          <heading>{icon_heading:.1f}</heading>\n"
+        f"          <Icon><href>{href}</href></Icon>\n"
+        "          <hotSpot x=\"0.5\" y=\"0.5\" xunits=\"fraction\" yunits=\"fraction\"/>\n"
+        "        </IconStyle>\n"
+        "      </Style>\n"
+        "      <description><![CDATA[\n"
+        f"        <b>UTC:</b> {ts}<br/>\n"
+        f"        <b>iTOW:</b> {itow}<br/>\n"
+        f"        <b>FixType:</b> {fix}<br/>\n"
+        f"        <b>Fix flags:</b> {flags_hex} (gnssFixOK={gnssFixOK})<br/>\n"
+        f"        <b>Heading:</b> {heading_true:.1f}° ({heading_src})<br/>\n"
+        f"        <b>HeadAcc:</b> {head_acc:.2f}°<br/>\n"
+        f"        <b>Speed:</b> {speed_m_s:.2f} m/s ({speed_kmh:.1f} km/h)<br/>\n"
+        f"        <b>SpeedAcc:</b> {speed_acc:.2f} m/s ({speed_acc_kmh:.1f} km/h)<br/>\n"
+        f"        <b>Lat:</b> {lat:.7f}<br/>\n"
+        f"        <b>Lon:</b> {lon:.7f}<br/>\n"
+        f"        <b>PosAcc2D:</b> {pos_acc:.2f} m<br/>\n"
+        f"        <b>Alt:</b> {alt:.3f} m<br/>\n"
+        f"        <b>AltAcc:</b> {alt_acc:.2f} m<br/>\n"
+        "      ]]></description>\n"
+        f"{point_block}"
+        "    </Placemark>\n"
+    )
 
 
 # === AID-MAPM support (sky-blue arrows) ===
@@ -225,11 +236,10 @@ def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = 
         mv = memoryview(mm)
         n = len(mv)
         i = 0
-        while i + 8 <= n:
-            if mv[i] != UBX_SYNC1 or mv[i+1] != UBX_SYNC2:
-                i += 1
-                continue
-            if i + 6 > n:
+        while True:
+            # C-speed sync search (see build_kml for rationale).
+            i = mm.find(UBX_SYNC, i)
+            if i < 0 or i + 8 > n:
                 break
             cls_ = mv[i+2]
             id_  = mv[i+3]
@@ -271,41 +281,32 @@ def fletcher_ck(data: memoryview):
         b = (b + a) & 0xFF
     return a, b
 
+# Precompiled unpackers for NAV-PVT (payload is always 92 or 96 bytes, so all
+# fixed offsets below are guaranteed to exist). Precompiling avoids re-parsing
+# the format string on every frame — parse_nav_pvt runs once per epoch and is
+# one of the hottest paths in the scan.
+_PVT_HEAD = struct.Struct("<IHBBBBBBIiBBBBiiiiII")  # 0..48: iTOW..hAcc,vAcc
+_PVT_DYN  = struct.Struct("<iiII")                  # 60..76: gSpeed,headMot,sAcc,headAcc
+_PVT_HEADVEH = struct.Struct("<i")                  # 84: headVeh
+
 def parse_nav_pvt(payload: memoryview):
     L = len(payload)
     if L not in VALID_LEN_SET:
         return None
-    head = struct.unpack_from("<I H B B B B B B I i B B B B i i i i", payload, 0)
-    iTOW, year, month, day, hour, minute, sec, valid, tAcc, nano, fixType, flags, flags2, numSV, \
-        lon, lat, height, hMSL = head
+    iTOW, year, month, day, hour, minute, sec, valid, tAcc, nano, fixType, flags, \
+        flags2, numSV, lon, lat, height, hMSL, hAcc_mm, vAcc_mm = \
+        _PVT_HEAD.unpack_from(payload, 0)
     validDate = (valid & 0x01) != 0
     validTime = (valid & 0x02) != 0
-    gSpeed = 0
-    headMot = 0
-    try:
-        gSpeed, headMot = struct.unpack_from("<i i", payload, 60)
-    except struct.error:
-        pass
-    headVeh = None
-    for off in (84, 88):
-        if off + 4 <= L:
-            try:
-                val = struct.unpack_from("<i", payload, off)[0]
-                headVeh = val
-                break
-            except struct.error:
-                pass
+    gSpeed, headMot, sAcc_mm, headAcc_raw = _PVT_DYN.unpack_from(payload, 60)
+    headVeh = _PVT_HEADVEH.unpack_from(payload, 84)[0]
     speed_m_s = gSpeed / 1000.0  # mm/s -> m/s
     speed_kmh = speed_m_s * 3.6
-    # Accuracy fields
-    try:
-        hAcc = int.from_bytes(payload[40:44], 'little', signed=False) * 1e-3
-        vAcc = int.from_bytes(payload[44:48], 'little', signed=False) * 1e-3
-        sAcc = int.from_bytes(payload[68:72], 'little', signed=False) * 1e-3
-        sAcc_kmh = sAcc * 3.6
-        headAcc = int.from_bytes(payload[72:76], 'little', signed=False) * 1e-5
-    except Exception:
-        hAcc = vAcc = sAcc = headAcc = 0.0
+    hAcc = hAcc_mm * 1e-3
+    vAcc = vAcc_mm * 1e-3
+    sAcc = sAcc_mm * 1e-3
+    sAcc_kmh = sAcc * 3.6
+    headAcc = headAcc_raw * 1e-5
 
     return {
         "iTOW": iTOW,
@@ -428,11 +429,25 @@ def normalize_heading(deg: float) -> float:
 
 def pvt_utc_str(rec) -> str:
     """UTC timestamp for a NAV-PVT record with two decimal places on the
-    seconds (uses the signed `nano` offset). Format: YYYY-MM-DDTHH:MM:SS.ccZ."""
+    seconds (uses the signed `nano` offset). Format: YYYY-MM-DDTHH:MM:SS.ccZ.
+
+    Fast path: for the overwhelmingly common case (0 <= nano, no roll-over to
+    the next second) the string is built with pure integer arithmetic — the
+    datetime+strftime construction it replaces was one of the hottest spots in
+    the per-epoch profile. Negative nano (borrow into the previous second) and
+    near-1s values fall back to datetime, which handles the carry across
+    minute/day boundaries.
+    """
+    nano = rec.get('nano', 0)
+    if 0 <= nano < 999_999_500:
+        # Centiseconds, matching timedelta's round-to-microsecond behaviour.
+        cs = (nano + 500) // 10_000_000
+        return (f"{rec['year']:04d}-{rec['month']:02d}-{rec['day']:02d}"
+                f"T{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}.{cs:02d}Z")
     try:
         t = datetime(rec['year'], rec['month'], rec['day'],
                      rec['hour'], rec['min'], rec['sec']) \
-            + timedelta(seconds=rec.get('nano', 0) * 1e-9)
+            + timedelta(seconds=nano * 1e-9)
         return t.strftime("%Y-%m-%dT%H:%M:%S") + f".{t.microsecond // 10000:02d}Z"
     except ValueError:
         return (f"{rec['year']:04d}-{rec['month']:02d}-{rec['day']:02d}"
@@ -504,9 +519,13 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     mapm_records = []       # (rec, arrived_itow) tuples deferred for resolution
     mapm_points = 0
     # Time reference for INF messages: updated for ANY valid-time PVT epoch
-    # (even no-fix), so INF frames get the closest available timestamp.
+    # (even no-fix), so INF frames get the closest available timestamp. The
+    # UTC string is rendered lazily — only when an INF frame actually arrives —
+    # since formatting it eagerly for every epoch was pure waste on the
+    # (typical) logs that carry few or no INF messages.
     inf_ref_itow = None
-    inf_ref_utc  = None
+    inf_ref_rec  = None   # PVT record backing the lazy UTC string
+    inf_ref_utc  = None   # rendered-on-demand cache for inf_ref_rec
 
     target_class = NAV2_CLASS if use_nav2 else NAV_CLASS
     alt_class    = NAV_CLASS if use_nav2 else NAV2_CLASS  # same payload layout
@@ -518,11 +537,14 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         mv = memoryview(mm)
         n = len(mv)
         i = 0
-        while i + 8 < n:
-            if mv[i] != UBX_SYNC1 or mv[i+1] != UBX_SYNC2:
-                i += 1
-                continue
-            if i + 6 >= n: break
+        while True:
+            # Locate the next sync pattern with mmap.find (C speed) instead of
+            # advancing one byte at a time in Python — non-UBX content between
+            # frames (interleaved NMEA text, headers, corrupt runs) is skipped
+            # orders of magnitude faster.
+            i = mm.find(UBX_SYNC, i)
+            if i < 0 or i + 8 > n:
+                break
             cls_ = mv[i+2]
             id_  = mv[i+3]
             length = mv[i+4] | (mv[i+5] << 8)
@@ -547,7 +569,8 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                 # period still get the nearest timestamp).
                 if rec and rec["validDate"] and rec["validTime"]:
                     inf_ref_itow = rec["iTOW"]
-                    inf_ref_utc  = pvt_utc_str(rec)
+                    inf_ref_rec  = rec
+                    inf_ref_utc  = None  # re-rendered on demand for the new epoch
                 # fixType: 1=DR only, 2=2D, 3=3D, 4=GNSS+DR. 0 (no fix) and
                 # 5 (time only) carry no usable position and are skipped.
                 if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 2, 3, 4):
@@ -644,7 +667,7 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     else:
                         point_block = f"      <Point><coordinates>{rec['lon']:.7f},{rec['lat']:.7f},{rec['hMSL']:.3f}</coordinates></Point>\n"
 
-                    buf.append(PLACEMARK_TEMPLATE.format(
+                    buf.append(pvt_placemark(
                         ts=ts, href=href,
                         icon_heading=icon_heading, heading_true=heading_true, heading_src=heading_src,
                         lon=rec["lon"], lat=rec["lat"], alt=rec["hMSL"],
@@ -694,6 +717,8 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     # a real INF payload is printable text.
                     printable = sum(1 for c in text if 32 <= ord(c) < 127)
                     if text and printable >= 0.8 * len(text):
+                        if inf_ref_utc is None and inf_ref_rec is not None:
+                            inf_ref_utc = pvt_utc_str(inf_ref_rec)
                         graph_data["inf_messages"].append({
                             "itow":  inf_ref_itow,
                             "utc":   inf_ref_utc,

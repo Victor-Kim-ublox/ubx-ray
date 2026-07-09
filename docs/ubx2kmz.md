@@ -261,5 +261,21 @@ Auto-generated based on the input filename stem:
 ## Performance Considerations
 
 - Uses `mmap` + `memoryview` for memory-efficient processing of large files
+- **Sync scanning via `mmap.find()`** — the next `B5 62` pattern is located by
+  the C-implemented `find`, not a per-byte Python loop. Non-UBX content between
+  frames (interleaved NMEA sentences, text headers, corrupt runs) is skipped at
+  native speed, and resync after a checksum failure is equally cheap.
+- **Precompiled `struct.Struct` unpackers** (`_PVT_HEAD`, `_PVT_DYN`,
+  `_PVT_HEADVEH`) — NAV-PVT fields are read with two `unpack_from` calls
+  instead of re-parsing format strings / repeated `int.from_bytes` per frame.
+- **f-string Placemark rendering** (`pvt_placemark`) — replaces a
+  `str.format` template that re-parsed ~1 KB of template text per epoch.
+- **Lazy INF time reference** — the UTC string for `inf_ref_*` is rendered only
+  when an INF frame actually arrives, not for every PVT epoch; `pvt_utc_str`
+  itself uses a pure-integer fast path (no `datetime`/`strftime`) except for the
+  rare negative-`nano` / roll-over cases.
+- Measured on a 1 h synthetic log (10 Hz PVT + 1 Hz NAV-SAT, 5 MB): clean
+  5.2 → 7.6 MB/s, NMEA-interleaved 6.5 → 12.0 MB/s, `--ck` 4.1 → 5.6 MB/s,
+  with byte-identical KML/graph output.
 - With `--ck` disabled, frame boundaries are located using only sync bytes + class/id + length — no CRC computation, very fast
 - Progress log output every `PROGRESS_EVERY=1000` frames
