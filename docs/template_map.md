@@ -26,7 +26,7 @@ A **KMZ-based map viewer** for single UBX file analysis results. Renders KML poi
 - **Toolbar** (flex) — grouped left-to-right by function:
   1. **View controls** — `Map` / `Satellite` base map toggle, and **Fit** which re-frames the map to the current track extent (padding 20 px, max zoom 17, 250 ms animation). Fit shares its `fitToTrack()` implementation with the initial auto-fit that runs when the KML finishes loading.
   2. **Playback** — `▶ Play` / `⏸ Pause`, speed selector (1× / 2× / 5× / 10×), timeline slider, UTC time readout, `Follow` (keep marker centered).
-  3. **Distance measurement** — `Distance measure` (click two points for a Haversine read-out), `Clear` (remove the current line).
+  3. **Distance measurement** — `Distance measure` (click two points for a Haversine read-out), `Clear` (removes the current line **and** the Distance result popup; the shared `#popup` is only hidden when it is showing a Distance result, so an open SEC-SIG popup is left untouched).
   4. **Jam/Spoof overlay** (shown only when SEC-SIG data exists) — toggle button plus inline legend for `Jam`, `Spf ind.`, `Spf aff.`
   5. **Links** — `📋 Report` → `/report/{rid}`, `⬇ Download KMZ`.
 
