@@ -105,6 +105,9 @@ Checks query string on page load:
 - `wireMultiDropzone(dropId, inputId, nameId)`: for Multi tab (also handles border color + opacity)
 - Handles dragover / dragleave / drop events
 - Injects dragged file into `input.files` via DataTransfer API
+- On selection, the filename slot shows **name plus file size**
+  (`showPickedFile()`: "log.ubx · 37.2 MB", GB above 1000 MB) on every tab's
+  dropzone, so the upload size is visible before starting
 - **Client-side size check** — both wirers call `validatePickedFile(dz, fi, fn, file)` as soon as a file is dropped or selected. If `file.size > MAX_UPLOAD_BYTES` the input is cleared, the dropzone gets the `.oversized` class (red dashed border + red background), and the filename slot shows `"⚠ N.N MB — exceeds 1024 MB limit"`. The limit comes from `max_upload_mb` (injected by the `/` route from `MAX_UPLOAD_MB`, defaults to 1024).
 - Each dropzone hint string includes the capacity (`"up to 1024 MB"`) so users see the limit before they pick a file.
 

@@ -923,6 +923,12 @@
     // Validate a freshly-picked file against MAX_UPLOAD_BYTES. If it fails,
     // clear the input, mark the dropzone as invalid, and surface a red
     // message in the filename slot. Returns true when the file is accepted.
+    /** Filename slot content for a picked file: name plus its size, so the
+     *  user sees how big the upload will be before starting it. */
+    function showPickedFile(fn, file) {
+      fn.innerHTML = `${escHtml(file.name)} <span style="color:var(--muted);">· ${fmtSize(file.size)}</span>`;
+    }
+
     function validatePickedFile(dz, fi, fn, file) {
       if (!file) return true;
       if (file.size > MAX_UPLOAD_BYTES) {
@@ -951,12 +957,12 @@
         const f = files[0];
         if (!validatePickedFile(dz, fi, fn, f)) return;
         const dt = new DataTransfer(); dt.items.add(f); fi.files = dt.files;
-        fn.textContent = f.name;
+        showPickedFile(fn, f);
       });
       fi.addEventListener("change", () => {
         if (!fi.files.length) { fn.textContent = ""; dz.classList.remove("oversized"); return; }
         if (!validatePickedFile(dz, fi, fn, fi.files[0])) return;
-        fn.textContent = fi.files[0].name;
+        showPickedFile(fn, fi.files[0]);
       });
     }
 
@@ -974,13 +980,13 @@
         const f = files[0];
         if (!validatePickedFile(dz, fi, fn, f)) return;
         const dt = new DataTransfer(); dt.items.add(f); fi.files = dt.files;
-        fn.textContent = f.name;
+        showPickedFile(fn, f);
         dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1';
       });
       fi.addEventListener("change", () => {
         if (!fi.files.length) { fn.textContent = ""; dz.classList.remove("oversized"); return; }
         if (!validatePickedFile(dz, fi, fn, fi.files[0])) return;
-        fn.textContent = fi.files[0].name;
+        showPickedFile(fn, fi.files[0]);
         dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1';
       });
     }
