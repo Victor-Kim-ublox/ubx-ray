@@ -88,6 +88,7 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 |---|---|---|
 | `GET` | `/compare4` | Multi upload page (compare4.html) |
 | `POST` | `/compare4/upload` | Upload 1–4 UBX files → queue each → redirect to `/compare4/report/{r1}/{r2}/{r3}/{r4}` |
+| `POST` | `/compare4/upload/complete` | Assemble chunked multi-comparison uploads (`upload_id1..4`) → queue each → same redirect (see Chunked Upload) |
 | `POST` | `/compare4/kml/upload` | Upload 1–4 KML/KMZ tracks (no conversion) → store as `done` → redirect to `/compare4/overlay/{...}` |
 | `GET` | `/compare4/report/{r1}/{r2}/{r3}/{r4}` | Analysis report (compare4_report.html) |
 | `GET` | `/compare4/view/{r1}/{r2}/{r3}/{r4}` | Split map view (compare4_view.html); hides the Report button for KML groups |
@@ -133,9 +134,14 @@ cleanup loop after `PART_MAX_AGE_SEC` (24 h). `cln_orphans` skips the
 `uploads/parts/` directory (its name contains no underscore, so the rid-prefix
 scan ignores it).
 
-Multi-file comparison uploads (`/compare4/upload`) still use a single request
-and remain subject to the tunnel's 100 MB cap; use the LAN address for large
-multi-file comparisons.
+**Multi-file comparison** uses the same mechanism when the **combined**
+payload of the 1–4 slots exceeds the threshold: each file is streamed to its
+own `/upload/chunk` session (each session's first chunk consumes one
+rate-limit slot), then `POST /compare4/upload/complete` assembles every slot
+— fields `upload_id1..4` / `filename1..4` (empty slots stay `_`) plus the
+conversion options — and runs the shared per-file registration
+(`_register_compare_member`) and group tagging (`_compare_group_redirect`)
+used by `/compare4/upload`.
 
 ---
 

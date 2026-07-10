@@ -947,6 +947,67 @@ def compare4_page(request: Request):
         {"request": request, "max_upload_mb": MAX_UPLOAD_MB},
     )
 
+def _parse_compare_opts(hz: str, nav2: bool, alt_abs: bool, ck: bool, mapm: bool) -> dict:
+    hz_val: Optional[int] = None
+    s = (hz or "").strip()
+    if s.isdigit():
+        v = int(s)
+        if v in ALLOWED_HZ:
+            hz_val = v
+    return {
+        "hz": hz_val,
+        "nav2": bool(nav2),
+        "alt_abs": bool(alt_abs),
+        "ck": bool(ck),
+        "html": False,
+        "mapm": bool(mapm),
+    }
+
+async def _register_compare_member(save_path: str, clean_name: str, rid: str,
+                                   user_id: str, opts: dict, label: str):
+    """Validate + register + enqueue one compare4 member file (shared by the
+    direct and chunked multi-upload paths). Returns an error response, or
+    None on success."""
+    if not looks_like_ubx(save_path):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(save_path)
+        return PlainTextResponse(f"{label} is not a valid UBX binary", status_code=400)
+
+    # mmap scan off the event loop (same reason as the single-upload path).
+    summary = await run_in_threadpool(quick_ubx_summary, save_path)
+
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO results (id, user_id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
+                                 kmz_path, opts_json, status, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL)
+        """, (
+            rid, user_id, clean_name, datetime.utcnow().isoformat(),
+            summary["epoch_total"], summary["epoch_missing"], summary["crc_errors"],
+            None, json.dumps(opts),
+        ))
+        conn.commit()
+
+    spawn_bg(enqueue_convert(save_path, rid, **opts))
+    logger.info(f"[compare4] queued {rid} ({clean_name}) for user {user_id}")
+    return None
+
+def _compare_group_redirect(rids):
+    """Tag all real slots as 'multi', record the group path, redirect."""
+    compare_group = f"{rids[0]}/{rids[1]}/{rids[2]}/{rids[3]}"
+    with get_db() as conn:
+        for rid in rids:
+            if rid != "_":
+                conn.execute(
+                    "UPDATE results SET upload_type='multi', compare_group=? WHERE id=?",
+                    (compare_group, rid),
+                )
+        conn.commit()
+    return RedirectResponse(
+        url=f"/compare4/report/{compare_group}",
+        status_code=303,
+    )
+
 @app.post("/compare4/upload")
 async def compare4_upload(
     request: Request,
@@ -966,21 +1027,7 @@ async def compare4_upload(
         return PlainTextResponse("Too many uploads. Please wait before uploading again.",
                                  status_code=429)
 
-    hz_val: Optional[int] = None
-    s = (hz or "").strip()
-    if s.isdigit():
-        v = int(s)
-        if v in ALLOWED_HZ:
-            hz_val = v
-
-    opts = {
-        "hz": hz_val,
-        "nav2": bool(nav2),
-        "alt_abs": bool(alt_abs),
-        "ck": bool(ck),
-        "html": False,
-        "mapm": bool(mapm),
-    }
+    opts = _parse_compare_opts(hz, nav2, alt_abs, ck, mapm)
 
     SENTINEL = "_"
     rids = []
@@ -1019,48 +1066,77 @@ async def compare4_upload(
                     )
                 f.write(chunk)
 
-        # Validate UBX content (scan the first 64 KB for sync bytes)
-        if not looks_like_ubx(save_path):
+        err = await _register_compare_member(save_path, clean_name, rid, user_id,
+                                             opts, f"File {idx_f+1}")
+        if err is not None:
+            return err
+        rids.append(rid)
+
+    return _compare_group_redirect(rids)
+
+@app.post("/compare4/upload/complete")
+async def compare4_upload_complete(
+    request: Request,
+    upload_id1: str = Form(""),
+    upload_id2: str = Form(""),
+    upload_id3: str = Form(""),
+    upload_id4: str = Form(""),
+    filename1: str = Form(""),
+    filename2: str = Form(""),
+    filename3: str = Form(""),
+    filename4: str = Form(""),
+    hz: str = Form(""),
+    nav2: bool = Form(False),
+    alt_abs: bool = Form(False),
+    ck: bool = Form(False),
+    mapm: bool = Form(False),
+):
+    """Assemble chunked multi-comparison uploads (see Chunked Upload in
+    docs/app.md). Each slot's file was streamed to a .part session via
+    /upload/chunk; empty slots stay '_' like in /compare4/upload. No extra
+    rate-limit check — each session's first chunk already consumed a slot."""
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+    opts = _parse_compare_opts(hz, nav2, alt_abs, ck, mapm)
+
+    upload_ids = [upload_id1, upload_id2, upload_id3, upload_id4]
+    filenames  = [filename1, filename2, filename3, filename4]
+    if not any(u.strip() for u in upload_ids):
+        return PlainTextResponse("No upload sessions given", status_code=400)
+
+    rids = []
+    for idx_f, (upload_id, filename) in enumerate(zip(upload_ids, filenames)):
+        upload_id = (upload_id or "").strip()
+        if not upload_id:
+            rids.append("_")
+            continue
+        if not _valid_upload_id(upload_id):
+            return PlainTextResponse(f"File {idx_f+1}: invalid upload id", status_code=400)
+        part_path = _part_path(user_id, upload_id)
+        if not os.path.exists(part_path):
+            return PlainTextResponse(f"File {idx_f+1}: unknown or expired upload session",
+                                     status_code=400)
+
+        clean_name = os.path.basename(filename or "") or f"upload{idx_f+1}.ubx"
+        ext = Path(clean_name).suffix.lower()
+        if ext not in ALLOWED_UPLOAD_EXTS:
             with contextlib.suppress(FileNotFoundError):
-                os.remove(save_path)
+                os.remove(part_path)
             return PlainTextResponse(
-                f"File {idx_f+1} is not a valid UBX binary", status_code=400
+                f"File {idx_f+1} unsupported type: {ext or '(none)'}; allowed: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}",
+                status_code=400,
             )
 
-        # mmap scan off the event loop (same reason as the single-upload path).
-        summary = await run_in_threadpool(quick_ubx_summary, save_path)
+        rid = uuid.uuid4().hex[:8]
+        save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+        os.replace(part_path, save_path)
 
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO results (id, user_id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
-                                     kmz_path, opts_json, status, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL)
-            """, (
-                rid, user_id, clean_name, datetime.utcnow().isoformat(),
-                summary["epoch_total"], summary["epoch_missing"], summary["crc_errors"],
-                None, json.dumps(opts),
-            ))
-            conn.commit()
-
-        spawn_bg(enqueue_convert(save_path, rid, **opts))
+        err = await _register_compare_member(save_path, clean_name, rid, user_id,
+                                             opts, f"File {idx_f+1}")
+        if err is not None:
+            return err
         rids.append(rid)
-        logger.info(f"[compare4] queued {rid} ({clean_name}) for user {user_id}")
 
-    # Tag all real slots as 'multi' and record the full group path
-    compare_group = f"{rids[0]}/{rids[1]}/{rids[2]}/{rids[3]}"
-    with get_db() as conn:
-        for rid in rids:
-            if rid != "_":
-                conn.execute(
-                    "UPDATE results SET upload_type='multi', compare_group=? WHERE id=?",
-                    (compare_group, rid),
-                )
-        conn.commit()
-
-    return RedirectResponse(
-        url=f"/compare4/report/{compare_group}",
-        status_code=303,
-    )
+    return _compare_group_redirect(rids)
 
 @app.post("/compare4/kml/upload")
 async def compare4_kml_upload(

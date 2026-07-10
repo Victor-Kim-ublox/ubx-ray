@@ -128,7 +128,11 @@ in the phase line — previously any 4xx surfaced as a generic
 (e.g. a Cloudflare 413) to their readable text before display.
 
 The Multi tab reuses `pollUntilDone`; its per-file status rows append the same
-real percentage while a file is converting ("Processing… 63%").
+real percentage while a file is converting ("Processing… 63%"). When the
+**combined** payload of the selected slots exceeds `CHUNK_THRESHOLD_BYTES`,
+each file is streamed via `sendFileChunks()` under its own session id and
+`POST /compare4/upload/complete` assembles the group — the upload bar and the
+size readout span all files.
 
 If the server restarts mid-conversion, the backend re-enqueues interrupted
 jobs on startup (see `docs/app.md`), so the poll loop resumes/terminates

@@ -519,11 +519,14 @@
     const CHUNK_THRESHOLD_BYTES = 95 * 1024 * 1024;
     const CHUNK_SIZE_BYTES = 64 * 1024 * 1024;
 
-    /** Upload a large file as sequential chunks, then finalize. `formEl`
-     *  supplies the conversion options; returns the report redirect URL. */
-    async function uploadInChunks(file, formEl, onProgress) {
-      const uploadId = (crypto.randomUUID && crypto.randomUUID()) ||
+    function newUploadId() {
+      return (crypto.randomUUID && crypto.randomUUID()) ||
         (Date.now().toString(16) + '-' + Math.random().toString(16).slice(2));
+    }
+
+    /** Stream one file to /upload/chunk as sequential chunks under the given
+     *  session id. `onBytes(sentBytes)` reports cumulative bytes of THIS file. */
+    async function sendFileChunks(file, uploadId, onBytes) {
       const total = Math.ceil(file.size / CHUNK_SIZE_BYTES);
       let sent = 0;
       for (let i = 0; i < total; i++) {
@@ -532,12 +535,18 @@
         fd.append('upload_id', uploadId);
         fd.append('index', i);
         fd.append('chunk', blob, file.name);
-        await uploadWithProgress(fd, '/upload/chunk',
-          p => onProgress((sent + p * blob.size) / file.size,
-                          sent + p * blob.size, file.size));
+        await uploadWithProgress(fd, '/upload/chunk', p => onBytes(sent + p * blob.size));
         sent += blob.size;
-        onProgress(sent / file.size, sent, file.size);
+        onBytes(sent);
       }
+    }
+
+    /** Upload a large file as sequential chunks, then finalize. `formEl`
+     *  supplies the conversion options; returns the report redirect URL. */
+    async function uploadInChunks(file, formEl, onProgress) {
+      const uploadId = newUploadId();
+      await sendFileChunks(file, uploadId,
+        b => onProgress(b / file.size, b, file.size));
       const fd = new FormData(formEl);   // carries hz / nav2 / alt_abs / ck / mapm
       fd.delete('file');
       fd.append('upload_id', uploadId);
@@ -784,17 +793,49 @@
         </div>`).join('');
 
       try {
-        // Phase 1: file transfer (0 → 35%)
-        const redirectUrl = await uploadWithProgress(
-          new FormData(document.getElementById("multiForm")),
-          '/compare4/upload',
-          (pct, loaded, total) => {
-            setBar("multiBar", pct * 0.35);
-            const sz = (typeof loaded === 'number' && typeof total === 'number')
-              ? ` (${fmtSize(loaded)} / ${fmtSize(total)})` : '';
-            setPhase("multiPhase", `📤 Uploading ${count} file${count > 1 ? 's' : ''}... ${Math.round(pct * 100)}%${sz}`);
+        // Phase 1: file transfer (0 → 35%). All four slots travel in one
+        // request body, so when the COMBINED payload exceeds the Cloudflare
+        // request-body cap each file is streamed as chunks (own session id)
+        // and /compare4/upload/complete assembles the group.
+        const slotFiles = Array.from({length: 4}, (_, i) => {
+          const el = document.getElementById(`mFile${i + 1}`);
+          return (el && el.files.length) ? el.files[0] : null;
+        });
+        const totalBytes = slotFiles.reduce((s, f) => s + (f ? f.size : 0), 0);
+        const onUploadPct = (pct, loaded, total) => {
+          setBar("multiBar", pct * 0.35);
+          const sz = (typeof loaded === 'number' && typeof total === 'number')
+            ? ` (${fmtSize(loaded)} / ${fmtSize(total)})` : '';
+          setPhase("multiPhase", `📤 Uploading ${count} file${count > 1 ? 's' : ''}... ${Math.round(pct * 100)}%${sz}`);
+        };
+
+        let redirectUrl;
+        if (totalBytes > CHUNK_THRESHOLD_BYTES) {
+          let sentBase = 0;
+          const uploadIds = [];
+          for (let i = 0; i < 4; i++) {
+            const f = slotFiles[i];
+            if (!f) { uploadIds.push(null); continue; }
+            const id = newUploadId();
+            await sendFileChunks(f, id,
+              b => onUploadPct((sentBase + b) / totalBytes, sentBase + b, totalBytes));
+            sentBase += f.size;
+            uploadIds.push(id);
           }
-        );
+          const fd = new FormData(document.getElementById("multiForm"));
+          ['file1', 'file2', 'file3', 'file4'].forEach(k => fd.delete(k));
+          uploadIds.forEach((id, i) => {
+            if (id) {
+              fd.append(`upload_id${i + 1}`, id);
+              fd.append(`filename${i + 1}`, slotFiles[i].name);
+            }
+          });
+          redirectUrl = await uploadWithProgress(fd, '/compare4/upload/complete', () => {});
+        } else {
+          redirectUrl = await uploadWithProgress(
+            new FormData(document.getElementById("multiForm")),
+            '/compare4/upload', onUploadPct);
+        }
 
         setBar("multiBar", 0.35);
         setPhase("multiPhase", "⚙️ Processing files...");
