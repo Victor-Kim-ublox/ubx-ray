@@ -497,7 +497,7 @@
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url);
         xhr.upload.addEventListener('progress', e => {
-          if (e.lengthComputable) onProgress(e.loaded / e.total);
+          if (e.lengthComputable) onProgress(e.loaded / e.total, e.loaded, e.total);
         });
         xhr.addEventListener('load', () => {
           // XHR follows the 303 redirect transparently, so a successful upload
@@ -533,15 +533,22 @@
         fd.append('index', i);
         fd.append('chunk', blob, file.name);
         await uploadWithProgress(fd, '/upload/chunk',
-          p => onProgress((sent + p * blob.size) / file.size));
+          p => onProgress((sent + p * blob.size) / file.size,
+                          sent + p * blob.size, file.size));
         sent += blob.size;
-        onProgress(sent / file.size);
+        onProgress(sent / file.size, sent, file.size);
       }
       const fd = new FormData(formEl);   // carries hz / nav2 / alt_abs / ck / mapm
       fd.delete('file');
       fd.append('upload_id', uploadId);
       fd.append('filename', file.name);
       return await uploadWithProgress(fd, '/upload/complete', () => {});
+    }
+
+    /** "412.5 MB" / "1.02 GB" for the upload phase line. */
+    function fmtSize(bytes) {
+      const mb = bytes / (1024 * 1024);
+      return mb >= 1000 ? (mb / 1024).toFixed(2) + ' GB' : mb.toFixed(1) + ' MB';
     }
 
     /** Error text for the phase line: proxies (e.g. Cloudflare) answer with
@@ -636,9 +643,14 @@
         // request-body cap go through the chunked path; smaller ones use the
         // original single-request upload.
         const file = fi.files[0];
-        const onUploadPct = pct => {
+        const onUploadPct = (pct, loaded, total) => {
           setBar("singleBar", pct * 0.4);
-          setPhase("singlePhase", `📤 Uploading... ${Math.round(pct * 100)}%`);
+          // Transferred size next to the percentage; XHR totals include a bit
+          // of multipart overhead, so fall back to file.size-scaled values.
+          const done = (typeof loaded === 'number') ? loaded : pct * file.size;
+          const all  = (typeof total  === 'number') ? total  : file.size;
+          setPhase("singlePhase",
+            `📤 Uploading... ${Math.round(pct * 100)}% (${fmtSize(done)} / ${fmtSize(all)})`);
         };
         const redirectUrl = (file.size > CHUNK_THRESHOLD_BYTES)
           ? await uploadInChunks(file, document.getElementById("uploadForm"), onUploadPct)
@@ -776,9 +788,11 @@
         const redirectUrl = await uploadWithProgress(
           new FormData(document.getElementById("multiForm")),
           '/compare4/upload',
-          pct => {
+          (pct, loaded, total) => {
             setBar("multiBar", pct * 0.35);
-            setPhase("multiPhase", `📤 Uploading ${count} file${count > 1 ? 's' : ''}... ${Math.round(pct * 100)}%`);
+            const sz = (typeof loaded === 'number' && typeof total === 'number')
+              ? ` (${fmtSize(loaded)} / ${fmtSize(total)})` : '';
+            setPhase("multiPhase", `📤 Uploading ${count} file${count > 1 ? 's' : ''}... ${Math.round(pct * 100)}%${sz}`);
           }
         );
 
