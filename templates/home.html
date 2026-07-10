@@ -500,8 +500,12 @@
           if (e.lengthComputable) onProgress(e.loaded / e.total);
         });
         xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 500) resolve(xhr.responseURL);
-          else reject(new Error(`Server error ${xhr.status}: ${xhr.statusText}`));
+          // XHR follows the 303 redirect transparently, so a successful upload
+          // lands on the report page with a 2xx status. A 4xx here is a real
+          // rejection (rate limit, invalid file, too large) whose body carries
+          // the server's message — surface it instead of a generic error.
+          if (xhr.status >= 200 && xhr.status < 400) resolve(xhr.responseURL);
+          else reject(new Error(xhr.responseText || `Server error ${xhr.status}: ${xhr.statusText}`));
         });
         xhr.addEventListener('error', () => reject(new Error('Network error')));
         xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
@@ -509,13 +513,15 @@
       });
     }
 
-    /** Poll /api/status/{rid} every second, calling onStatus(status, error) each tick.
+    /** Poll /api/status/{rid} every second, calling onStatus(status, error,
+     *  filename, progress) each tick — `progress` is the converter's scan
+     *  percentage (0-100), present only while status='running'.
      *  Resolves when status='done', rejects on status='error'. */
     async function pollUntilDone(rid, onStatus) {
       while (true) {
         const res  = await fetch(`/api/status/${rid}`);
         const data = await res.json();
-        onStatus(data.status, data.error, data.filename);
+        onStatus(data.status, data.error, data.filename, data.progress);
         if (data.status === 'done')  return data;
         if (data.status === 'error') throw new Error(data.error || 'Processing failed');
         await new Promise(r => setTimeout(r, 1000));
@@ -603,15 +609,21 @@
         setStep("step-queue", "active");
         setPhase("singlePhase", "⏳ Queued...");
 
-        // Phase 2: processing (40 → 95%)
-        await pollUntilDone(rid, (status) => {
+        // Phase 2: processing (40 → 95%). While running, the converter's real
+        // scan percentage drives the bar; before the first progress sample
+        // arrives the bar holds at the start of the processing window.
+        await pollUntilDone(rid, (status, _err, _name, progress) => {
           if (status === 'queued') {
-            setBar("singleBar", 0.5);
+            setBar("singleBar", 0.45);
             setPhase("singlePhase", "⏳ Queued...");
             setStep("step-queue", "active");
           } else if (status === 'running') {
-            setBar("singleBar", 0.75);
-            setPhase("singlePhase", "⚙️ Processing...");
+            const p = (typeof progress === 'number') ? progress : 0;
+            setBar("singleBar", 0.5 + 0.45 * (p / 100));
+            setPhase("singlePhase",
+              (typeof progress === 'number')
+                ? `⚙️ Processing... ${Math.round(p)}%`
+                : "⚙️ Processing...");
             setStep("step-queue", "done");
             setStep("step-run", "active");
           }
@@ -742,11 +754,12 @@
             if (el) el.textContent = '—';
             return Promise.resolve();
           }
-          return pollUntilDone(rid, (status, error) => {
+          return pollUntilDone(rid, (status, error, _name, progress) => {
             const el = document.getElementById(`mfst${i}`);
             if (!el) return;
             if      (status === 'queued')  el.textContent = '⏳ Queued';
-            else if (status === 'running') el.innerHTML   = '<span class="spin-sm"></span> Processing…';
+            else if (status === 'running') el.innerHTML   = '<span class="spin-sm"></span> Processing…' +
+              ((typeof progress === 'number') ? ` ${Math.round(progress)}%` : '');
             else if (status === 'error')   el.textContent = '❌ ' + (error || 'Error');
           }).then(() => {
             const el = document.getElementById(`mfst${i}`);

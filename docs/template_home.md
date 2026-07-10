@@ -108,8 +108,30 @@ Checks query string on page load:
 - **Client-side size check** — both wirers call `validatePickedFile(dz, fi, fn, file)` as soon as a file is dropped or selected. If `file.size > MAX_UPLOAD_BYTES` the input is cleared, the dropzone gets the `.oversized` class (red dashed border + red background), and the filename slot shows `"⚠ N.N MB — exceeds 1024 MB limit"`. The limit comes from `max_upload_mb` (injected by the `/` route from `MAX_UPLOAD_MB`, defaults to 1024).
 - Each dropzone hint string includes the capacity (`"up to 1024 MB"`) so users see the limit before they pick a file.
 
-### Single Upload (`startUpload`)
-Async upload via fetch API. On response, redirects to `redirect_url` if present; otherwise reloads. Disables button and shows spinner during upload.
+### Single Upload (`startUpload`) & Progress UI
+XHR upload (`uploadWithProgress`) followed by 1 s status polling
+(`pollUntilDone`), driving the `prog-box` bar + step chips:
+
+| Bar range | Phase | Source |
+|---|---|---|
+| 0 → 40% | 📤 Uploading… N% | XHR `upload.progress` events (real transfer progress) |
+| 45% | ⏳ Queued… | `/api/status` = `queued` |
+| 50 → 95% | ⚙️ Processing… N% | `/api/status` = `running`; `progress` field = the converter's **real scan percentage** (read from the `.progress` sidecar `ubx2kmz --progress-file` writes ~every 0.5 s). Before the first sample the bar holds at 50% |
+| 100% | ✅ Done | `done` → redirect to the report |
+
+**Upload error surfacing** — `uploadWithProgress` resolves only for final
+status < 400 (XHR follows the 303 redirect, so success lands on the report
+page). For 4xx rejections the server's actual message body (rate-limit,
+"Invalid file format: not a UBX binary", file-too-large) is thrown and shown
+in the phase line — previously any 4xx surfaced as a generic
+"Unexpected server response".
+
+The Multi tab reuses `pollUntilDone`; its per-file status rows append the same
+real percentage while a file is converting ("Processing… 63%").
+
+If the server restarts mid-conversion, the backend re-enqueues interrupted
+jobs on startup (see `docs/app.md`), so the poll loop resumes/terminates
+instead of spinning forever.
 
 ### NMEA Upload (`startComparison`)
 POSTs via fetch, then writes the response HTML directly into the current page using `document.write()`.

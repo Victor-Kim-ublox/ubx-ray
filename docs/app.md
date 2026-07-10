@@ -95,7 +95,7 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/status/{rid}` | Poll conversion status (`status`, `has_kmz`, `error`, `filename`) |
+| `GET` | `/api/status/{rid}` | Poll conversion status (`status`, `has_kmz`, `error`, `filename`; plus `progress` 0–100 while `status='running'`, read from the converter's `.progress` sidecar) |
 | `GET` | `/api/graph/{rid}` | Return graph JSON (used for chart rendering in compare4_report) |
 
 ### NMEA Comparison
@@ -126,6 +126,20 @@ High-speed scan of the UBX binary via mmap, counting **NAV-PVT frame occurrences
 
 ### `run_ubx2kmz(filepath, rid, **opts)`
 Runs `ubx2kmz.py` as a subprocess. After completion, copies the auto-generated KMZ file to `outputs/{rid}/result.kmz`, reads stats (epoch_total, epoch_missing) from the co-located `_graph.json`, and updates the database. On timeout (default 1800s) or exception, sets DB status to `error`.
+
+Passes `--progress-file {upload}.progress` so the converter reports its scan
+percentage (~0.5 s interval) while running; `/api/status/{rid}` reads that
+sidecar and returns it as `progress` (0–100, only while `status='running'`),
+which drives the real progress bar on the home screen. The sidecar is removed
+in a `finally` block whether the conversion succeeds or fails.
+
+### `_recover_interrupted_jobs()` (startup hook)
+A server restart kills in-flight conversions but used to leave their DB rows
+stuck in `queued`/`running` forever (the UIs then poll indefinitely). On
+startup, every such row is **re-enqueued** when its upload file still exists
+(the stored `opts_json` restores the conversion options); rows whose file is
+gone (or direct-KML rows) are marked `status='error'` /
+`"interrupted by server restart"` so pollers terminate cleanly.
 
 ### `enqueue_convert(filepath, rid, **opts)`
 Async conversion queue wrapper. Uses `asyncio.Semaphore(MAX_CONVERT)` to cap concurrent conversions at half the number of CPU cores.

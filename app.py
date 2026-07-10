@@ -80,6 +80,37 @@ def _start_cleanup_worker():
         f"per-user={CLN_MAX_RESULTS_PER_USER}, quota={CLN_MAX_TOTAL_BYTES/1024**3:.1f}GB"
     )
 
+# Recover conversions interrupted by a server restart. A crash/restart kills
+# the ubx2kmz subprocess but leaves the DB row in 'queued'/'running' — without
+# recovery the row is stuck forever and every progress UI polls indefinitely.
+# The uploaded file is still on disk, so re-enqueue when possible; otherwise
+# mark the row as errored so the UI terminates cleanly.
+@app.on_event("startup")
+async def _recover_interrupted_jobs():
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, filename, opts_json FROM results "
+            "WHERE status IN ('queued', 'running')"
+        ).fetchall()
+    for rid, filename, opts_json in rows:
+        try:
+            opts = json.loads(opts_json or "{}")
+        except (ValueError, TypeError):
+            opts = {}
+        filepath = os.path.join(UPLOAD_DIR, f"{rid}_{filename}")
+        if os.path.exists(filepath) and not opts.get("kml"):
+            allowed = {k: opts.get(k) for k in
+                       ("hz", "nav2", "alt_abs", "ck", "html", "mapm")}
+            logger.info(f"[recover] re-enqueueing interrupted conversion {rid} ({filename})")
+            spawn_bg(enqueue_convert(filepath, rid, **allowed))
+        else:
+            logger.warning(f"[recover] marking interrupted conversion {rid} as error "
+                           f"(upload file missing)")
+            with get_db() as conn:
+                conn.execute("UPDATE results SET status='error', error=? WHERE id=?",
+                             ("interrupted by server restart", rid))
+                conn.commit()
+
 templates = Jinja2Templates(directory=TEMPL_DIR)
 
 DB_PATH = os.path.join(DATA_DIR, "ubxray.sqlite3")
@@ -402,6 +433,11 @@ def run_ubx2kmz(
     # argparse exit(2) so the conversion fails with a confusing error.
     if mapm:
         args += ["--mapm"]
+    # Sidecar file the converter updates with its scan percentage (~0.5 s
+    # interval). /api/status reads it while the job is running so the UI can
+    # render a real progress bar. Removed in the finally block below.
+    progress_path = in_path + ".progress"
+    args += ["--progress-file", progress_path]
 
     logger.info("Running ubx2kmz: " + " ".join(args))
     try:
@@ -477,6 +513,9 @@ def run_ubx2kmz(
             conn.execute("UPDATE results SET status='error', error=? WHERE id=?", (str(e), rid))
             conn.commit()
         logger.exception(f"[❌] ubx2kmz failed: {e}")
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(progress_path)
 
 # =========================
 # Async queue wrapper (limit concurrency)
@@ -1112,12 +1151,23 @@ def api_status(request: Request, rid: str, authorization: Optional[str] = Header
         ).fetchone()
     if not row:
         return {"status": "not_found"}
-    return {
+    resp = {
         "status": row[0],
         "has_kmz": bool(row[1] and os.path.exists(row[1])),
         "error": row[2],
         "filename": row[3],
     }
+    # While the converter runs it updates a sidecar file with its scan
+    # percentage (see run_ubx2kmz). Surface it so the UI can show a real
+    # progress bar; ignore read/parse races (file mid-write or just removed).
+    if row[0] == "running":
+        progress_path = os.path.join(UPLOAD_DIR, f"{rid}_{row[3]}.progress")
+        try:
+            with open(progress_path) as pf:
+                resp["progress"] = min(100.0, max(0.0, float(pf.read())))
+        except (OSError, ValueError):
+            pass
+    return resp
 
 @app.get("/api/graph/{rid}")
 def api_graph(request: Request, rid: str, authorization: Optional[str] = Header(None)):

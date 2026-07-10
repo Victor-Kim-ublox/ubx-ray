@@ -49,7 +49,8 @@ SPF_STATE_INDICATED = 2
 SPF_STATE_AFFIRMED  = 3
 
 VALID_LEN_SET = {92, 96}
-PROGRESS_EVERY = 1000
+# Minimum interval between progress-file updates (see --progress-file).
+PROGRESS_INTERVAL_SEC = 0.5
 
 HEADER = """<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
@@ -219,7 +220,8 @@ def mapm_placemark(rec, lat, lon, alt, relative=False, arrived_itow=None):
         head_acc=rec.get("head_acc", 0.0),
     )
 
-def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = False):
+def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = False,
+                        progress_path: str = None):
     """Scan UBX and emit KML with ONLY AID-MAPM placemarks (sky-blue arrows).
 
     Absolute-position points only. `relativePos` points carry deltas to the
@@ -236,11 +238,18 @@ def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = 
         mv = memoryview(mm)
         n = len(mv)
         i = 0
+        next_progress_t = 0.0
         while True:
             # C-speed sync search (see build_kml for rationale).
             i = mm.find(UBX_SYNC, i)
             if i < 0 or i + 8 > n:
                 break
+
+            if progress_path is not None:
+                t = time.monotonic()
+                if t >= next_progress_t:
+                    next_progress_t = t + PROGRESS_INTERVAL_SEC
+                    write_progress(progress_path, i * 100.0 / n)
             cls_ = mv[i+2]
             id_  = mv[i+3]
             length = mv[i+4] | (mv[i+5] << 8)
@@ -267,11 +276,25 @@ def build_kml_mapm_only(ubx_path: str, alt_abs: bool = False, verify_ck: bool = 
             i = frame_end
 
     buf.append(FOOTER)
+    if progress_path is not None:
+        write_progress(progress_path, 100.0)
     print(f"{now_str()} | Finished doc.kml (frames scanned: {total_frames}, MAPM points: {mapm_points})")
     return ''.join(buf)
 
 def now_str():
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+def write_progress(path: str, pct: float) -> None:
+    """Best-effort write of the scan progress (percent, one decimal) to a
+    sidecar file. app.py's /api/status reads it while the conversion is
+    running so the UI can show a real progress bar instead of an
+    indeterminate 'Processing...' state. Failures are ignored — progress
+    reporting must never break the conversion itself."""
+    try:
+        with open(path, "w") as pf:
+            pf.write(f"{pct:.1f}")
+    except OSError:
+        pass
 
 def fletcher_ck(data: memoryview):
     a = 0
@@ -454,7 +477,8 @@ def pvt_utc_str(rec) -> str:
                 f"T{rec['hour']:02d}:{rec['min']:02d}:{rec['sec']:02d}.00Z")
 
 def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
-              alt_abs: bool = False, verify_ck: bool = False):
+              alt_abs: bool = False, verify_ck: bool = False,
+              progress_path: str = None):
     buf = []
     total_msgs = 0
     valid_msgs = 0
@@ -537,6 +561,9 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         mv = memoryview(mm)
         n = len(mv)
         i = 0
+        # Progress reporting: byte position over file size, throttled to one
+        # sidecar write per PROGRESS_INTERVAL_SEC.
+        next_progress_t = 0.0
         while True:
             # Locate the next sync pattern with mmap.find (C speed) instead of
             # advancing one byte at a time in Python — non-UBX content between
@@ -545,6 +572,12 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             i = mm.find(UBX_SYNC, i)
             if i < 0 or i + 8 > n:
                 break
+
+            if progress_path is not None:
+                t = time.monotonic()
+                if t >= next_progress_t:
+                    next_progress_t = t + PROGRESS_INTERVAL_SEC
+                    write_progress(progress_path, i * 100.0 / n)
             cls_ = mv[i+2]
             id_  = mv[i+3]
             length = mv[i+4] | (mv[i+5] << 8)
@@ -807,6 +840,8 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     graph_data["stats"]["epoch_missing"] = missing_epochs
 
     buf.append(FOOTER)
+    if progress_path is not None:
+        write_progress(progress_path, 100.0)
     print(f"{now_str()} | Finished doc.kml (Total: {valid_msgs}, Missing: {missing_epochs}, kept: {kept if hz else 'All'}, MAPM: {mapm_points})")
 
     kml_text = ''.join(buf)
@@ -819,12 +854,14 @@ def write_kmz(kml_text: str, kmz_path: str) -> None:
     print(f"{now_str()} | KMZ saved -> {kmz_path}")
 
 def run(ubx_path: str, hz: int = None, use_nav2: bool = False,
-        alt_abs: bool = False, verify_ck: bool = False, mapm: bool = False):
+        alt_abs: bool = False, verify_ck: bool = False, mapm: bool = False,
+        progress_file: str = None):
     base, _ = os.path.splitext(ubx_path)
     if mapm:
         kmz_path = base + "_mapm.kmz"
         print(f"{now_str()} | MAPM-only mode: writing {kmz_path}")
-        kml_text = build_kml_mapm_only(ubx_path, alt_abs=alt_abs, verify_ck=verify_ck)
+        kml_text = build_kml_mapm_only(ubx_path, alt_abs=alt_abs, verify_ck=verify_ck,
+                                       progress_path=progress_file)
         write_kmz(kml_text, kmz_path)
         return
 
@@ -844,7 +881,8 @@ def run(ubx_path: str, hz: int = None, use_nav2: bool = False,
     # build_kml에서 graph_data도 함께 받아옴 (HTML 관련 인자 제거)
     kml_text, graph_data = build_kml(
         ubx_path, hz=hz, use_nav2=use_nav2,
-        alt_abs=alt_abs, verify_ck=verify_ck
+        alt_abs=alt_abs, verify_ck=verify_ck,
+        progress_path=progress_file
     )
 
     write_kmz(kml_text, kmz_path)
@@ -867,10 +905,14 @@ def main():
                     help="Enable UBX checksum verification (default: off)")
     ap.add_argument("--mapm", action="store_true",
                     help="Parse only UBX-AID-MAPM and overlay white arrows in KMZ; ignores NAV/NAV2")
+    ap.add_argument("--progress-file", metavar="PATH", default=None,
+                    help="Write scan progress (percent) to this file, updated "
+                         "at most every 0.5 s. Used by the web UI progress bar.")
     args = ap.parse_args()
-    
+
     run(args.ubx, hz=args.hz, use_nav2=args.nav2,
-        alt_abs=args.alt_abs, verify_ck=args.ck, mapm=args.mapm)
+        alt_abs=args.alt_abs, verify_ck=args.ck, mapm=args.mapm,
+        progress_file=args.progress_file)
 
 if __name__ == "__main__":
     main()
