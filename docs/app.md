@@ -74,6 +74,8 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 |---|---|---|
 | `GET` | `/` | Home screen (home.html) |
 | `POST` | `/upload` | Upload UBX file → register in DB → add to conversion queue → redirect to `/report/{rid}` |
+| `POST` | `/upload/chunk` | Append one chunk of a large upload to a per-session `.part` file (see Chunked Upload) |
+| `POST` | `/upload/complete` | Assemble a chunked upload and run the normal upload pipeline → redirect to `/report/{rid}` |
 | `GET` | `/report/{rid}` | Single file analysis report (report.html) |
 | `GET` | `/map/{rid}` | KMZ-based map viewer (map.html) |
 | `GET` | `/kml/{rid}` | Extract and return doc.kml from KMZ |
@@ -103,6 +105,37 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/analyze_nmea` | Upload 2 NMEA files → analyze → render report_nmea.html |
+
+---
+
+## Chunked Upload
+
+Cloudflare's free plan caps a single request body at ~100 MB, so uploads
+through the ubx-ray.com tunnel fail with a **Cloudflare 413** for larger logs
+(the app's own limit is `MAX_UPLOAD_MB` = 1024). The home screen therefore
+splits files above ~95 MB into 64 MB chunks:
+
+1. `POST /upload/chunk` (sequential, one at a time) — fields `upload_id`
+   (client-generated UUID, validated path-safe), `index`, `chunk` (blob).
+   Chunks are appended to `uploads/parts/{user_id}_{upload_id}.part`; the
+   part file is keyed by the caller's cookie `user_id`, so sessions cannot
+   cross users. `index == 0` consumes **one** rate-limit slot (not one per
+   chunk) and resets any stale part with the same id; the cumulative size is
+   enforced against `MAX_UPLOAD_BYTES` during append.
+2. `POST /upload/complete` — fields `upload_id`, `filename`, plus the same
+   conversion options as `/upload`. Validates the extension, moves the part to
+   `uploads/{rid}_{name}` via `os.replace`, then calls `_finalize_upload()` —
+   the shared tail of `/upload` (UBX sniff → quick summary → DB insert →
+   enqueue → 303 to `/report/{rid}`).
+
+Abandoned `.part` files (client navigated away mid-upload) are swept by the
+cleanup loop after `PART_MAX_AGE_SEC` (24 h). `cln_orphans` skips the
+`uploads/parts/` directory (its name contains no underscore, so the rid-prefix
+scan ignores it).
+
+Multi-file comparison uploads (`/compare4/upload`) still use a single request
+and remain subject to the tunnel's 100 MB cap; use the LAN address for large
+multi-file comparisons.
 
 ---
 

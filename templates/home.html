@@ -513,6 +513,48 @@
       });
     }
 
+    // Cloudflare's free plan caps a single request body at ~100 MB, so files
+    // above this threshold are sent as sequential sub-limit chunks and
+    // reassembled server-side (see /upload/chunk + /upload/complete).
+    const CHUNK_THRESHOLD_BYTES = 95 * 1024 * 1024;
+    const CHUNK_SIZE_BYTES = 64 * 1024 * 1024;
+
+    /** Upload a large file as sequential chunks, then finalize. `formEl`
+     *  supplies the conversion options; returns the report redirect URL. */
+    async function uploadInChunks(file, formEl, onProgress) {
+      const uploadId = (crypto.randomUUID && crypto.randomUUID()) ||
+        (Date.now().toString(16) + '-' + Math.random().toString(16).slice(2));
+      const total = Math.ceil(file.size / CHUNK_SIZE_BYTES);
+      let sent = 0;
+      for (let i = 0; i < total; i++) {
+        const blob = file.slice(i * CHUNK_SIZE_BYTES, Math.min((i + 1) * CHUNK_SIZE_BYTES, file.size));
+        const fd = new FormData();
+        fd.append('upload_id', uploadId);
+        fd.append('index', i);
+        fd.append('chunk', blob, file.name);
+        await uploadWithProgress(fd, '/upload/chunk',
+          p => onProgress((sent + p * blob.size) / file.size));
+        sent += blob.size;
+        onProgress(sent / file.size);
+      }
+      const fd = new FormData(formEl);   // carries hz / nav2 / alt_abs / ck / mapm
+      fd.delete('file');
+      fd.append('upload_id', uploadId);
+      fd.append('filename', file.name);
+      return await uploadWithProgress(fd, '/upload/complete', () => {});
+    }
+
+    /** Error text for the phase line: proxies (e.g. Cloudflare) answer with
+     *  full HTML error pages — reduce those to their readable text. */
+    function humanizeError(msg) {
+      msg = String(msg || '');
+      if (/<\w+[^>]*>/.test(msg)) {
+        const doc = new DOMParser().parseFromString(msg, 'text/html');
+        msg = (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+      }
+      return msg.length > 300 ? msg.slice(0, 300) + '…' : msg;
+    }
+
     /** Poll /api/status/{rid} every second, calling onStatus(status, error,
      *  filename, progress) each tick — `progress` is the converter's scan
      *  percentage (0-100), present only while status='running'.
@@ -590,15 +632,18 @@
       setStep("step-upload", "active");
 
       try {
-        // Phase 1: file transfer (0 → 40%)
-        const redirectUrl = await uploadWithProgress(
-          new FormData(document.getElementById("uploadForm")),
-          '/upload',
-          pct => {
-            setBar("singleBar", pct * 0.4);
-            setPhase("singlePhase", `📤 Uploading... ${Math.round(pct * 100)}%`);
-          }
-        );
+        // Phase 1: file transfer (0 → 40%). Files above the Cloudflare
+        // request-body cap go through the chunked path; smaller ones use the
+        // original single-request upload.
+        const file = fi.files[0];
+        const onUploadPct = pct => {
+          setBar("singleBar", pct * 0.4);
+          setPhase("singlePhase", `📤 Uploading... ${Math.round(pct * 100)}%`);
+        };
+        const redirectUrl = (file.size > CHUNK_THRESHOLD_BYTES)
+          ? await uploadInChunks(file, document.getElementById("uploadForm"), onUploadPct)
+          : await uploadWithProgress(
+              new FormData(document.getElementById("uploadForm")), '/upload', onUploadPct);
 
         const ridMatch = redirectUrl.match(/\/report\/([a-f0-9]+)/);
         if (!ridMatch) throw new Error("Unexpected server response");
@@ -637,7 +682,7 @@
         window.location.href = redirectUrl;
 
       } catch (err) {
-        setPhase("singlePhase", "❌ " + (err?.message || String(err)));
+        setPhase("singlePhase", "❌ " + humanizeError(err?.message || err));
         await new Promise(r => setTimeout(r, 2500));
         prog.style.display = "none";
         document.getElementById("singleBtnRow").style.display = "flex";
@@ -776,7 +821,7 @@
         window.location.href = redirectUrl;
 
       } catch (err) {
-        setPhase("multiPhase", "❌ " + (err?.message || String(err)));
+        setPhase("multiPhase", "❌ " + humanizeError(err?.message || err));
         await new Promise(r => setTimeout(r, 2500));
         prog.style.display = "none";
         document.getElementById("multiBtnRow").style.display = "flex";

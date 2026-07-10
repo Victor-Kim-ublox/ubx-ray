@@ -630,6 +630,15 @@ async def upload(
                     status_code=413,
                 )
             f.write(chunk)
+    return await _finalize_upload(save_path, clean_name, user_id, rid,
+                                  hz, nav2, alt_abs, ck, html, mapm)
+
+async def _finalize_upload(save_path: str, clean_name: str, user_id: str, rid: str,
+                           hz: str, nav2: bool, alt_abs: bool, ck: bool,
+                           html: bool, mapm: bool):
+    """Shared tail of the direct (`/upload`) and chunked (`/upload/complete`)
+    upload paths: validate UBX content, quick-summarize, register the DB row,
+    and enqueue the conversion. Returns the 303 redirect to the report page."""
     # Validate UBX content (scan the first 64 KB for sync bytes) before processing
     if not looks_like_ubx(save_path):
         with contextlib.suppress(FileNotFoundError):
@@ -673,6 +682,102 @@ async def upload(
     spawn_bg(enqueue_convert(save_path, rid, **opts))
 
     return RedirectResponse(url=f"/report/{rid}", status_code=303)
+
+# =========================
+# Chunked upload
+# =========================
+# Cloudflare's free plan caps a single request body at ~100 MB, so uploads
+# through the ubx-ray.com tunnel fail with a Cloudflare 413 for larger logs.
+# The client splits big files into sub-limit chunks that are POSTed
+# sequentially to /upload/chunk (appended to a per-session .part file) and
+# then assembled by /upload/complete, which runs the normal upload pipeline.
+PARTS_DIR = os.path.join(UPLOAD_DIR, "parts")
+os.makedirs(PARTS_DIR, exist_ok=True)
+PART_MAX_AGE_SEC = 24 * 3600  # stale .part files are swept by the cleanup loop
+
+def _valid_upload_id(s: str) -> bool:
+    """Client-generated session ids: UUID-ish, path-safe."""
+    return bool(s) and len(s) <= 64 and all(c.isalnum() or c == '-' for c in s)
+
+def _part_path(user_id: str, upload_id: str) -> str:
+    # Keyed by user_id so one user cannot append to another user's session.
+    return os.path.join(PARTS_DIR, f"{user_id}_{upload_id}.part")
+
+@app.post("/upload/chunk")
+async def upload_chunk(
+    request: Request,
+    chunk: UploadFile = File(...),
+    upload_id: str = Form(...),
+    index: int = Form(...),
+):
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+    if not _valid_upload_id(upload_id):
+        return PlainTextResponse("Invalid upload id", status_code=400)
+    part_path = _part_path(user_id, upload_id)
+
+    if index == 0:
+        # One chunked upload consumes one rate-limit slot (not one per chunk).
+        if not _check_rate_limit(user_id):
+            return PlainTextResponse("Too many uploads. Please wait before uploading again.",
+                                     status_code=429)
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(part_path)
+    elif not os.path.exists(part_path):
+        return PlainTextResponse("Unknown or expired upload session", status_code=400)
+
+    size = os.path.getsize(part_path) if os.path.exists(part_path) else 0
+    with open(part_path, "ab") as f:
+        while True:
+            data = await chunk.read(1024 * 1024)
+            if not data:
+                break
+            size += len(data)
+            if size > MAX_UPLOAD_BYTES:
+                f.close()
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(part_path)
+                return PlainTextResponse(
+                    f"File too large. Only files under {MAX_UPLOAD_MB} MB are allowed.",
+                    status_code=413,
+                )
+            f.write(data)
+    return {"received": index, "bytes": size}
+
+@app.post("/upload/complete")
+async def upload_complete(
+    request: Request,
+    upload_id: str = Form(...),
+    filename: str = Form(...),
+    hz: str = Form(""),
+    nav2: bool = Form(False),
+    alt_abs: bool = Form(False),
+    ck: bool = Form(False),
+    html: bool = Form(False),
+    mapm: bool = Form(False),
+):
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+    if not _valid_upload_id(upload_id):
+        return PlainTextResponse("Invalid upload id", status_code=400)
+    part_path = _part_path(user_id, upload_id)
+    if not os.path.exists(part_path):
+        return PlainTextResponse("Unknown or expired upload session", status_code=400)
+
+    clean_name = os.path.basename(filename or "") or "upload.ubx"
+    ext = Path(clean_name).suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXTS:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(part_path)
+        return PlainTextResponse(
+            f"Unsupported file type: {ext or '(none)'}; allowed: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}",
+            status_code=400,
+        )
+
+    rid = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[-8:]
+    save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+    os.replace(part_path, save_path)
+
+    return await _finalize_upload(save_path, clean_name, user_id, rid,
+                                  hz, nav2, alt_abs, ck, html, mapm)
 
 # =========================
 # NEW ROUTE: NMEA Analysis
@@ -1430,8 +1535,23 @@ def cln_orphans(get_db, upload_dir: str, output_dir: str):
             cur.execute(f"UPDATE results SET kmz_path=NULL WHERE id IN ({q})", missing)
             conn.commit()
 
+def cln_stale_parts(upload_dir: str):
+    """Remove abandoned chunked-upload .part files (client navigated away or
+    crashed mid-upload) older than PART_MAX_AGE_SEC."""
+    parts = Path(upload_dir) / "parts"
+    if not parts.exists():
+        return
+    cutoff = time.time() - PART_MAX_AGE_SEC
+    for p in parts.glob("*.part"):
+        try:
+            if p.stat().st_mtime < cutoff:
+                p.unlink()
+                logger.info(f"[cleanup] removed stale upload part {p.name}")
+        except OSError:
+            pass
+
 def cln_run_once(get_db, upload_dir: str, output_dir: str, db_path: str):
-    # 순서: TTL → 최신N개 → 용량상한 → 고아 → VACUUM
+    # 순서: TTL → 최신N개 → 용량상한 → 고아 → 미완성 청크 → VACUUM
     try: cln_expired(get_db, upload_dir, output_dir)
     except Exception as e: logger.warning(f"[cleanup] TTL error: {e}")
     try: cln_keep_latest_per_user(get_db, upload_dir, output_dir)
@@ -1440,6 +1560,8 @@ def cln_run_once(get_db, upload_dir: str, output_dir: str, db_path: str):
     except Exception as e: logger.warning(f"[cleanup] quota error: {e}")
     try: cln_orphans(get_db, upload_dir, output_dir)
     except Exception as e: logger.warning(f"[cleanup] orphans error: {e}")
+    try: cln_stale_parts(upload_dir)
+    except Exception as e: logger.warning(f"[cleanup] stale-parts error: {e}")
     # VACUUM (가끔 해도 무방)
     try:
         with sqlite3.connect(db_path) as c:

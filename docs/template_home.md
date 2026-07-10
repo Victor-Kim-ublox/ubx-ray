@@ -114,7 +114,7 @@ XHR upload (`uploadWithProgress`) followed by 1 s status polling
 
 | Bar range | Phase | Source |
 |---|---|---|
-| 0 → 40% | 📤 Uploading… N% | XHR `upload.progress` events (real transfer progress) |
+| 0 → 40% | 📤 Uploading… N% | XHR `upload.progress` events (real transfer progress). Files > `CHUNK_THRESHOLD_BYTES` (95 MB) are sent via `uploadInChunks()` — sequential 64 MB `POST /upload/chunk` requests + `POST /upload/complete` — to stay under Cloudflare's ~100 MB request-body cap on the tunnel; progress spans all chunks. Smaller files use the original single-request `/upload` |
 | 45% | ⏳ Queued… | `/api/status` = `queued` |
 | 50 → 95% | ⚙️ Processing… N% | `/api/status` = `running`; `progress` field = the converter's **real scan percentage** (read from the `.progress` sidecar `ubx2kmz --progress-file` writes ~every 0.5 s). Before the first sample the bar holds at 50% |
 | 100% | ✅ Done | `done` → redirect to the report |
@@ -124,7 +124,8 @@ status < 400 (XHR follows the 303 redirect, so success lands on the report
 page). For 4xx rejections the server's actual message body (rate-limit,
 "Invalid file format: not a UBX binary", file-too-large) is thrown and shown
 in the phase line — previously any 4xx surfaced as a generic
-"Unexpected server response".
+"Unexpected server response". `humanizeError()` reduces HTML error pages
+(e.g. a Cloudflare 413) to their readable text before display.
 
 The Multi tab reuses `pollUntilDone`; its per-file status rows append the same
 real percentage while a file is converting ("Processing… 63%").
