@@ -80,6 +80,37 @@ def _start_cleanup_worker():
         f"per-user={CLN_MAX_RESULTS_PER_USER}, quota={CLN_MAX_TOTAL_BYTES/1024**3:.1f}GB"
     )
 
+# Recover conversions interrupted by a server restart. A crash/restart kills
+# the ubx2kmz subprocess but leaves the DB row in 'queued'/'running' — without
+# recovery the row is stuck forever and every progress UI polls indefinitely.
+# The uploaded file is still on disk, so re-enqueue when possible; otherwise
+# mark the row as errored so the UI terminates cleanly.
+@app.on_event("startup")
+async def _recover_interrupted_jobs():
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, filename, opts_json FROM results "
+            "WHERE status IN ('queued', 'running')"
+        ).fetchall()
+    for rid, filename, opts_json in rows:
+        try:
+            opts = json.loads(opts_json or "{}")
+        except (ValueError, TypeError):
+            opts = {}
+        filepath = os.path.join(UPLOAD_DIR, f"{rid}_{filename}")
+        if os.path.exists(filepath) and not opts.get("kml"):
+            allowed = {k: opts.get(k) for k in
+                       ("hz", "nav2", "alt_abs", "ck", "html", "mapm")}
+            logger.info(f"[recover] re-enqueueing interrupted conversion {rid} ({filename})")
+            spawn_bg(enqueue_convert(filepath, rid, **allowed))
+        else:
+            logger.warning(f"[recover] marking interrupted conversion {rid} as error "
+                           f"(upload file missing)")
+            with get_db() as conn:
+                conn.execute("UPDATE results SET status='error', error=? WHERE id=?",
+                             ("interrupted by server restart", rid))
+                conn.commit()
+
 templates = Jinja2Templates(directory=TEMPL_DIR)
 
 DB_PATH = os.path.join(DATA_DIR, "ubxray.sqlite3")
@@ -402,6 +433,11 @@ def run_ubx2kmz(
     # argparse exit(2) so the conversion fails with a confusing error.
     if mapm:
         args += ["--mapm"]
+    # Sidecar file the converter updates with its scan percentage (~0.5 s
+    # interval). /api/status reads it while the job is running so the UI can
+    # render a real progress bar. Removed in the finally block below.
+    progress_path = in_path + ".progress"
+    args += ["--progress-file", progress_path]
 
     logger.info("Running ubx2kmz: " + " ".join(args))
     try:
@@ -477,6 +513,9 @@ def run_ubx2kmz(
             conn.execute("UPDATE results SET status='error', error=? WHERE id=?", (str(e), rid))
             conn.commit()
         logger.exception(f"[❌] ubx2kmz failed: {e}")
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(progress_path)
 
 # =========================
 # Async queue wrapper (limit concurrency)
@@ -591,6 +630,15 @@ async def upload(
                     status_code=413,
                 )
             f.write(chunk)
+    return await _finalize_upload(save_path, clean_name, user_id, rid,
+                                  hz, nav2, alt_abs, ck, html, mapm)
+
+async def _finalize_upload(save_path: str, clean_name: str, user_id: str, rid: str,
+                           hz: str, nav2: bool, alt_abs: bool, ck: bool,
+                           html: bool, mapm: bool):
+    """Shared tail of the direct (`/upload`) and chunked (`/upload/complete`)
+    upload paths: validate UBX content, quick-summarize, register the DB row,
+    and enqueue the conversion. Returns the 303 redirect to the report page."""
     # Validate UBX content (scan the first 64 KB for sync bytes) before processing
     if not looks_like_ubx(save_path):
         with contextlib.suppress(FileNotFoundError):
@@ -634,6 +682,102 @@ async def upload(
     spawn_bg(enqueue_convert(save_path, rid, **opts))
 
     return RedirectResponse(url=f"/report/{rid}", status_code=303)
+
+# =========================
+# Chunked upload
+# =========================
+# Cloudflare's free plan caps a single request body at ~100 MB, so uploads
+# through the ubx-ray.com tunnel fail with a Cloudflare 413 for larger logs.
+# The client splits big files into sub-limit chunks that are POSTed
+# sequentially to /upload/chunk (appended to a per-session .part file) and
+# then assembled by /upload/complete, which runs the normal upload pipeline.
+PARTS_DIR = os.path.join(UPLOAD_DIR, "parts")
+os.makedirs(PARTS_DIR, exist_ok=True)
+PART_MAX_AGE_SEC = 24 * 3600  # stale .part files are swept by the cleanup loop
+
+def _valid_upload_id(s: str) -> bool:
+    """Client-generated session ids: UUID-ish, path-safe."""
+    return bool(s) and len(s) <= 64 and all(c.isalnum() or c == '-' for c in s)
+
+def _part_path(user_id: str, upload_id: str) -> str:
+    # Keyed by user_id so one user cannot append to another user's session.
+    return os.path.join(PARTS_DIR, f"{user_id}_{upload_id}.part")
+
+@app.post("/upload/chunk")
+async def upload_chunk(
+    request: Request,
+    chunk: UploadFile = File(...),
+    upload_id: str = Form(...),
+    index: int = Form(...),
+):
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+    if not _valid_upload_id(upload_id):
+        return PlainTextResponse("Invalid upload id", status_code=400)
+    part_path = _part_path(user_id, upload_id)
+
+    if index == 0:
+        # One chunked upload consumes one rate-limit slot (not one per chunk).
+        if not _check_rate_limit(user_id):
+            return PlainTextResponse("Too many uploads. Please wait before uploading again.",
+                                     status_code=429)
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(part_path)
+    elif not os.path.exists(part_path):
+        return PlainTextResponse("Unknown or expired upload session", status_code=400)
+
+    size = os.path.getsize(part_path) if os.path.exists(part_path) else 0
+    with open(part_path, "ab") as f:
+        while True:
+            data = await chunk.read(1024 * 1024)
+            if not data:
+                break
+            size += len(data)
+            if size > MAX_UPLOAD_BYTES:
+                f.close()
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(part_path)
+                return PlainTextResponse(
+                    f"File too large. Only files under {MAX_UPLOAD_MB} MB are allowed.",
+                    status_code=413,
+                )
+            f.write(data)
+    return {"received": index, "bytes": size}
+
+@app.post("/upload/complete")
+async def upload_complete(
+    request: Request,
+    upload_id: str = Form(...),
+    filename: str = Form(...),
+    hz: str = Form(""),
+    nav2: bool = Form(False),
+    alt_abs: bool = Form(False),
+    ck: bool = Form(False),
+    html: bool = Form(False),
+    mapm: bool = Form(False),
+):
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+    if not _valid_upload_id(upload_id):
+        return PlainTextResponse("Invalid upload id", status_code=400)
+    part_path = _part_path(user_id, upload_id)
+    if not os.path.exists(part_path):
+        return PlainTextResponse("Unknown or expired upload session", status_code=400)
+
+    clean_name = os.path.basename(filename or "") or "upload.ubx"
+    ext = Path(clean_name).suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXTS:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(part_path)
+        return PlainTextResponse(
+            f"Unsupported file type: {ext or '(none)'}; allowed: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}",
+            status_code=400,
+        )
+
+    rid = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[-8:]
+    save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+    os.replace(part_path, save_path)
+
+    return await _finalize_upload(save_path, clean_name, user_id, rid,
+                                  hz, nav2, alt_abs, ck, html, mapm)
 
 # =========================
 # NEW ROUTE: NMEA Analysis
@@ -803,6 +947,67 @@ def compare4_page(request: Request):
         {"request": request, "max_upload_mb": MAX_UPLOAD_MB},
     )
 
+def _parse_compare_opts(hz: str, nav2: bool, alt_abs: bool, ck: bool, mapm: bool) -> dict:
+    hz_val: Optional[int] = None
+    s = (hz or "").strip()
+    if s.isdigit():
+        v = int(s)
+        if v in ALLOWED_HZ:
+            hz_val = v
+    return {
+        "hz": hz_val,
+        "nav2": bool(nav2),
+        "alt_abs": bool(alt_abs),
+        "ck": bool(ck),
+        "html": False,
+        "mapm": bool(mapm),
+    }
+
+async def _register_compare_member(save_path: str, clean_name: str, rid: str,
+                                   user_id: str, opts: dict, label: str):
+    """Validate + register + enqueue one compare4 member file (shared by the
+    direct and chunked multi-upload paths). Returns an error response, or
+    None on success."""
+    if not looks_like_ubx(save_path):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(save_path)
+        return PlainTextResponse(f"{label} is not a valid UBX binary", status_code=400)
+
+    # mmap scan off the event loop (same reason as the single-upload path).
+    summary = await run_in_threadpool(quick_ubx_summary, save_path)
+
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO results (id, user_id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
+                                 kmz_path, opts_json, status, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL)
+        """, (
+            rid, user_id, clean_name, datetime.utcnow().isoformat(),
+            summary["epoch_total"], summary["epoch_missing"], summary["crc_errors"],
+            None, json.dumps(opts),
+        ))
+        conn.commit()
+
+    spawn_bg(enqueue_convert(save_path, rid, **opts))
+    logger.info(f"[compare4] queued {rid} ({clean_name}) for user {user_id}")
+    return None
+
+def _compare_group_redirect(rids):
+    """Tag all real slots as 'multi', record the group path, redirect."""
+    compare_group = f"{rids[0]}/{rids[1]}/{rids[2]}/{rids[3]}"
+    with get_db() as conn:
+        for rid in rids:
+            if rid != "_":
+                conn.execute(
+                    "UPDATE results SET upload_type='multi', compare_group=? WHERE id=?",
+                    (compare_group, rid),
+                )
+        conn.commit()
+    return RedirectResponse(
+        url=f"/compare4/report/{compare_group}",
+        status_code=303,
+    )
+
 @app.post("/compare4/upload")
 async def compare4_upload(
     request: Request,
@@ -822,21 +1027,7 @@ async def compare4_upload(
         return PlainTextResponse("Too many uploads. Please wait before uploading again.",
                                  status_code=429)
 
-    hz_val: Optional[int] = None
-    s = (hz or "").strip()
-    if s.isdigit():
-        v = int(s)
-        if v in ALLOWED_HZ:
-            hz_val = v
-
-    opts = {
-        "hz": hz_val,
-        "nav2": bool(nav2),
-        "alt_abs": bool(alt_abs),
-        "ck": bool(ck),
-        "html": False,
-        "mapm": bool(mapm),
-    }
+    opts = _parse_compare_opts(hz, nav2, alt_abs, ck, mapm)
 
     SENTINEL = "_"
     rids = []
@@ -875,48 +1066,77 @@ async def compare4_upload(
                     )
                 f.write(chunk)
 
-        # Validate UBX content (scan the first 64 KB for sync bytes)
-        if not looks_like_ubx(save_path):
+        err = await _register_compare_member(save_path, clean_name, rid, user_id,
+                                             opts, f"File {idx_f+1}")
+        if err is not None:
+            return err
+        rids.append(rid)
+
+    return _compare_group_redirect(rids)
+
+@app.post("/compare4/upload/complete")
+async def compare4_upload_complete(
+    request: Request,
+    upload_id1: str = Form(""),
+    upload_id2: str = Form(""),
+    upload_id3: str = Form(""),
+    upload_id4: str = Form(""),
+    filename1: str = Form(""),
+    filename2: str = Form(""),
+    filename3: str = Form(""),
+    filename4: str = Form(""),
+    hz: str = Form(""),
+    nav2: bool = Form(False),
+    alt_abs: bool = Form(False),
+    ck: bool = Form(False),
+    mapm: bool = Form(False),
+):
+    """Assemble chunked multi-comparison uploads (see Chunked Upload in
+    docs/app.md). Each slot's file was streamed to a .part session via
+    /upload/chunk; empty slots stay '_' like in /compare4/upload. No extra
+    rate-limit check — each session's first chunk already consumed a slot."""
+    user_id = getattr(request.state, "user_id", None) or uuid.uuid4().hex
+    opts = _parse_compare_opts(hz, nav2, alt_abs, ck, mapm)
+
+    upload_ids = [upload_id1, upload_id2, upload_id3, upload_id4]
+    filenames  = [filename1, filename2, filename3, filename4]
+    if not any(u.strip() for u in upload_ids):
+        return PlainTextResponse("No upload sessions given", status_code=400)
+
+    rids = []
+    for idx_f, (upload_id, filename) in enumerate(zip(upload_ids, filenames)):
+        upload_id = (upload_id or "").strip()
+        if not upload_id:
+            rids.append("_")
+            continue
+        if not _valid_upload_id(upload_id):
+            return PlainTextResponse(f"File {idx_f+1}: invalid upload id", status_code=400)
+        part_path = _part_path(user_id, upload_id)
+        if not os.path.exists(part_path):
+            return PlainTextResponse(f"File {idx_f+1}: unknown or expired upload session",
+                                     status_code=400)
+
+        clean_name = os.path.basename(filename or "") or f"upload{idx_f+1}.ubx"
+        ext = Path(clean_name).suffix.lower()
+        if ext not in ALLOWED_UPLOAD_EXTS:
             with contextlib.suppress(FileNotFoundError):
-                os.remove(save_path)
+                os.remove(part_path)
             return PlainTextResponse(
-                f"File {idx_f+1} is not a valid UBX binary", status_code=400
+                f"File {idx_f+1} unsupported type: {ext or '(none)'}; allowed: {', '.join(sorted(ALLOWED_UPLOAD_EXTS))}",
+                status_code=400,
             )
 
-        # mmap scan off the event loop (same reason as the single-upload path).
-        summary = await run_in_threadpool(quick_ubx_summary, save_path)
+        rid = uuid.uuid4().hex[:8]
+        save_path = os.path.join(UPLOAD_DIR, f"{rid}_{clean_name}")
+        os.replace(part_path, save_path)
 
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO results (id, user_id, filename, uploaded_at, epoch_total, epoch_missing, crc_errors,
-                                     kmz_path, opts_json, status, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL)
-            """, (
-                rid, user_id, clean_name, datetime.utcnow().isoformat(),
-                summary["epoch_total"], summary["epoch_missing"], summary["crc_errors"],
-                None, json.dumps(opts),
-            ))
-            conn.commit()
-
-        spawn_bg(enqueue_convert(save_path, rid, **opts))
+        err = await _register_compare_member(save_path, clean_name, rid, user_id,
+                                             opts, f"File {idx_f+1}")
+        if err is not None:
+            return err
         rids.append(rid)
-        logger.info(f"[compare4] queued {rid} ({clean_name}) for user {user_id}")
 
-    # Tag all real slots as 'multi' and record the full group path
-    compare_group = f"{rids[0]}/{rids[1]}/{rids[2]}/{rids[3]}"
-    with get_db() as conn:
-        for rid in rids:
-            if rid != "_":
-                conn.execute(
-                    "UPDATE results SET upload_type='multi', compare_group=? WHERE id=?",
-                    (compare_group, rid),
-                )
-        conn.commit()
-
-    return RedirectResponse(
-        url=f"/compare4/report/{compare_group}",
-        status_code=303,
-    )
+    return _compare_group_redirect(rids)
 
 @app.post("/compare4/kml/upload")
 async def compare4_kml_upload(
@@ -1112,12 +1332,23 @@ def api_status(request: Request, rid: str, authorization: Optional[str] = Header
         ).fetchone()
     if not row:
         return {"status": "not_found"}
-    return {
+    resp = {
         "status": row[0],
         "has_kmz": bool(row[1] and os.path.exists(row[1])),
         "error": row[2],
         "filename": row[3],
     }
+    # While the converter runs it updates a sidecar file with its scan
+    # percentage (see run_ubx2kmz). Surface it so the UI can show a real
+    # progress bar; ignore read/parse races (file mid-write or just removed).
+    if row[0] == "running":
+        progress_path = os.path.join(UPLOAD_DIR, f"{rid}_{row[3]}.progress")
+        try:
+            with open(progress_path) as pf:
+                resp["progress"] = min(100.0, max(0.0, float(pf.read())))
+        except (OSError, ValueError):
+            pass
+    return resp
 
 @app.get("/api/graph/{rid}")
 def api_graph(request: Request, rid: str, authorization: Optional[str] = Header(None)):
@@ -1380,8 +1611,23 @@ def cln_orphans(get_db, upload_dir: str, output_dir: str):
             cur.execute(f"UPDATE results SET kmz_path=NULL WHERE id IN ({q})", missing)
             conn.commit()
 
+def cln_stale_parts(upload_dir: str):
+    """Remove abandoned chunked-upload .part files (client navigated away or
+    crashed mid-upload) older than PART_MAX_AGE_SEC."""
+    parts = Path(upload_dir) / "parts"
+    if not parts.exists():
+        return
+    cutoff = time.time() - PART_MAX_AGE_SEC
+    for p in parts.glob("*.part"):
+        try:
+            if p.stat().st_mtime < cutoff:
+                p.unlink()
+                logger.info(f"[cleanup] removed stale upload part {p.name}")
+        except OSError:
+            pass
+
 def cln_run_once(get_db, upload_dir: str, output_dir: str, db_path: str):
-    # 순서: TTL → 최신N개 → 용량상한 → 고아 → VACUUM
+    # 순서: TTL → 최신N개 → 용량상한 → 고아 → 미완성 청크 → VACUUM
     try: cln_expired(get_db, upload_dir, output_dir)
     except Exception as e: logger.warning(f"[cleanup] TTL error: {e}")
     try: cln_keep_latest_per_user(get_db, upload_dir, output_dir)
@@ -1390,6 +1636,8 @@ def cln_run_once(get_db, upload_dir: str, output_dir: str, db_path: str):
     except Exception as e: logger.warning(f"[cleanup] quota error: {e}")
     try: cln_orphans(get_db, upload_dir, output_dir)
     except Exception as e: logger.warning(f"[cleanup] orphans error: {e}")
+    try: cln_stale_parts(upload_dir)
+    except Exception as e: logger.warning(f"[cleanup] stale-parts error: {e}")
     # VACUUM (가끔 해도 무방)
     try:
         with sqlite3.connect(db_path) as c:

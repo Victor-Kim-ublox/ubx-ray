@@ -497,11 +497,15 @@
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url);
         xhr.upload.addEventListener('progress', e => {
-          if (e.lengthComputable) onProgress(e.loaded / e.total);
+          if (e.lengthComputable) onProgress(e.loaded / e.total, e.loaded, e.total);
         });
         xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 500) resolve(xhr.responseURL);
-          else reject(new Error(`Server error ${xhr.status}: ${xhr.statusText}`));
+          // XHR follows the 303 redirect transparently, so a successful upload
+          // lands on the report page with a 2xx status. A 4xx here is a real
+          // rejection (rate limit, invalid file, too large) whose body carries
+          // the server's message — surface it instead of a generic error.
+          if (xhr.status >= 200 && xhr.status < 400) resolve(xhr.responseURL);
+          else reject(new Error(xhr.responseText || `Server error ${xhr.status}: ${xhr.statusText}`));
         });
         xhr.addEventListener('error', () => reject(new Error('Network error')));
         xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
@@ -509,13 +513,73 @@
       });
     }
 
-    /** Poll /api/status/{rid} every second, calling onStatus(status, error) each tick.
+    // Cloudflare's free plan caps a single request body at ~100 MB, so files
+    // above this threshold are sent as sequential sub-limit chunks and
+    // reassembled server-side (see /upload/chunk + /upload/complete).
+    const CHUNK_THRESHOLD_BYTES = 95 * 1024 * 1024;
+    const CHUNK_SIZE_BYTES = 64 * 1024 * 1024;
+
+    function newUploadId() {
+      return (crypto.randomUUID && crypto.randomUUID()) ||
+        (Date.now().toString(16) + '-' + Math.random().toString(16).slice(2));
+    }
+
+    /** Stream one file to /upload/chunk as sequential chunks under the given
+     *  session id. `onBytes(sentBytes)` reports cumulative bytes of THIS file. */
+    async function sendFileChunks(file, uploadId, onBytes) {
+      const total = Math.ceil(file.size / CHUNK_SIZE_BYTES);
+      let sent = 0;
+      for (let i = 0; i < total; i++) {
+        const blob = file.slice(i * CHUNK_SIZE_BYTES, Math.min((i + 1) * CHUNK_SIZE_BYTES, file.size));
+        const fd = new FormData();
+        fd.append('upload_id', uploadId);
+        fd.append('index', i);
+        fd.append('chunk', blob, file.name);
+        await uploadWithProgress(fd, '/upload/chunk', p => onBytes(sent + p * blob.size));
+        sent += blob.size;
+        onBytes(sent);
+      }
+    }
+
+    /** Upload a large file as sequential chunks, then finalize. `formEl`
+     *  supplies the conversion options; returns the report redirect URL. */
+    async function uploadInChunks(file, formEl, onProgress) {
+      const uploadId = newUploadId();
+      await sendFileChunks(file, uploadId,
+        b => onProgress(b / file.size, b, file.size));
+      const fd = new FormData(formEl);   // carries hz / nav2 / alt_abs / ck / mapm
+      fd.delete('file');
+      fd.append('upload_id', uploadId);
+      fd.append('filename', file.name);
+      return await uploadWithProgress(fd, '/upload/complete', () => {});
+    }
+
+    /** "412.5 MB" / "1.02 GB" for the upload phase line. */
+    function fmtSize(bytes) {
+      const mb = bytes / (1024 * 1024);
+      return mb >= 1000 ? (mb / 1024).toFixed(2) + ' GB' : mb.toFixed(1) + ' MB';
+    }
+
+    /** Error text for the phase line: proxies (e.g. Cloudflare) answer with
+     *  full HTML error pages — reduce those to their readable text. */
+    function humanizeError(msg) {
+      msg = String(msg || '');
+      if (/<\w+[^>]*>/.test(msg)) {
+        const doc = new DOMParser().parseFromString(msg, 'text/html');
+        msg = (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+      }
+      return msg.length > 300 ? msg.slice(0, 300) + '…' : msg;
+    }
+
+    /** Poll /api/status/{rid} every second, calling onStatus(status, error,
+     *  filename, progress) each tick — `progress` is the converter's scan
+     *  percentage (0-100), present only while status='running'.
      *  Resolves when status='done', rejects on status='error'. */
     async function pollUntilDone(rid, onStatus) {
       while (true) {
         const res  = await fetch(`/api/status/${rid}`);
         const data = await res.json();
-        onStatus(data.status, data.error, data.filename);
+        onStatus(data.status, data.error, data.filename, data.progress);
         if (data.status === 'done')  return data;
         if (data.status === 'error') throw new Error(data.error || 'Processing failed');
         await new Promise(r => setTimeout(r, 1000));
@@ -584,15 +648,23 @@
       setStep("step-upload", "active");
 
       try {
-        // Phase 1: file transfer (0 → 40%)
-        const redirectUrl = await uploadWithProgress(
-          new FormData(document.getElementById("uploadForm")),
-          '/upload',
-          pct => {
-            setBar("singleBar", pct * 0.4);
-            setPhase("singlePhase", `📤 Uploading... ${Math.round(pct * 100)}%`);
-          }
-        );
+        // Phase 1: file transfer (0 → 40%). Files above the Cloudflare
+        // request-body cap go through the chunked path; smaller ones use the
+        // original single-request upload.
+        const file = fi.files[0];
+        const onUploadPct = (pct, loaded, total) => {
+          setBar("singleBar", pct * 0.4);
+          // Transferred size next to the percentage; XHR totals include a bit
+          // of multipart overhead, so fall back to file.size-scaled values.
+          const done = (typeof loaded === 'number') ? loaded : pct * file.size;
+          const all  = (typeof total  === 'number') ? total  : file.size;
+          setPhase("singlePhase",
+            `📤 Uploading... ${Math.round(pct * 100)}% (${fmtSize(done)} / ${fmtSize(all)})`);
+        };
+        const redirectUrl = (file.size > CHUNK_THRESHOLD_BYTES)
+          ? await uploadInChunks(file, document.getElementById("uploadForm"), onUploadPct)
+          : await uploadWithProgress(
+              new FormData(document.getElementById("uploadForm")), '/upload', onUploadPct);
 
         const ridMatch = redirectUrl.match(/\/report\/([a-f0-9]+)/);
         if (!ridMatch) throw new Error("Unexpected server response");
@@ -603,15 +675,21 @@
         setStep("step-queue", "active");
         setPhase("singlePhase", "⏳ Queued...");
 
-        // Phase 2: processing (40 → 95%)
-        await pollUntilDone(rid, (status) => {
+        // Phase 2: processing (40 → 95%). While running, the converter's real
+        // scan percentage drives the bar; before the first progress sample
+        // arrives the bar holds at the start of the processing window.
+        await pollUntilDone(rid, (status, _err, _name, progress) => {
           if (status === 'queued') {
-            setBar("singleBar", 0.5);
+            setBar("singleBar", 0.45);
             setPhase("singlePhase", "⏳ Queued...");
             setStep("step-queue", "active");
           } else if (status === 'running') {
-            setBar("singleBar", 0.75);
-            setPhase("singlePhase", "⚙️ Processing...");
+            const p = (typeof progress === 'number') ? progress : 0;
+            setBar("singleBar", 0.5 + 0.45 * (p / 100));
+            setPhase("singlePhase",
+              (typeof progress === 'number')
+                ? `⚙️ Processing... ${Math.round(p)}%`
+                : "⚙️ Processing...");
             setStep("step-queue", "done");
             setStep("step-run", "active");
           }
@@ -625,7 +703,7 @@
         window.location.href = redirectUrl;
 
       } catch (err) {
-        setPhase("singlePhase", "❌ " + (err?.message || String(err)));
+        setPhase("singlePhase", "❌ " + humanizeError(err?.message || err));
         await new Promise(r => setTimeout(r, 2500));
         prog.style.display = "none";
         document.getElementById("singleBtnRow").style.display = "flex";
@@ -715,15 +793,49 @@
         </div>`).join('');
 
       try {
-        // Phase 1: file transfer (0 → 35%)
-        const redirectUrl = await uploadWithProgress(
-          new FormData(document.getElementById("multiForm")),
-          '/compare4/upload',
-          pct => {
-            setBar("multiBar", pct * 0.35);
-            setPhase("multiPhase", `📤 Uploading ${count} file${count > 1 ? 's' : ''}... ${Math.round(pct * 100)}%`);
+        // Phase 1: file transfer (0 → 35%). All four slots travel in one
+        // request body, so when the COMBINED payload exceeds the Cloudflare
+        // request-body cap each file is streamed as chunks (own session id)
+        // and /compare4/upload/complete assembles the group.
+        const slotFiles = Array.from({length: 4}, (_, i) => {
+          const el = document.getElementById(`mFile${i + 1}`);
+          return (el && el.files.length) ? el.files[0] : null;
+        });
+        const totalBytes = slotFiles.reduce((s, f) => s + (f ? f.size : 0), 0);
+        const onUploadPct = (pct, loaded, total) => {
+          setBar("multiBar", pct * 0.35);
+          const sz = (typeof loaded === 'number' && typeof total === 'number')
+            ? ` (${fmtSize(loaded)} / ${fmtSize(total)})` : '';
+          setPhase("multiPhase", `📤 Uploading ${count} file${count > 1 ? 's' : ''}... ${Math.round(pct * 100)}%${sz}`);
+        };
+
+        let redirectUrl;
+        if (totalBytes > CHUNK_THRESHOLD_BYTES) {
+          let sentBase = 0;
+          const uploadIds = [];
+          for (let i = 0; i < 4; i++) {
+            const f = slotFiles[i];
+            if (!f) { uploadIds.push(null); continue; }
+            const id = newUploadId();
+            await sendFileChunks(f, id,
+              b => onUploadPct((sentBase + b) / totalBytes, sentBase + b, totalBytes));
+            sentBase += f.size;
+            uploadIds.push(id);
           }
-        );
+          const fd = new FormData(document.getElementById("multiForm"));
+          ['file1', 'file2', 'file3', 'file4'].forEach(k => fd.delete(k));
+          uploadIds.forEach((id, i) => {
+            if (id) {
+              fd.append(`upload_id${i + 1}`, id);
+              fd.append(`filename${i + 1}`, slotFiles[i].name);
+            }
+          });
+          redirectUrl = await uploadWithProgress(fd, '/compare4/upload/complete', () => {});
+        } else {
+          redirectUrl = await uploadWithProgress(
+            new FormData(document.getElementById("multiForm")),
+            '/compare4/upload', onUploadPct);
+        }
 
         setBar("multiBar", 0.35);
         setPhase("multiPhase", "⚙️ Processing files...");
@@ -742,11 +854,12 @@
             if (el) el.textContent = '—';
             return Promise.resolve();
           }
-          return pollUntilDone(rid, (status, error) => {
+          return pollUntilDone(rid, (status, error, _name, progress) => {
             const el = document.getElementById(`mfst${i}`);
             if (!el) return;
             if      (status === 'queued')  el.textContent = '⏳ Queued';
-            else if (status === 'running') el.innerHTML   = '<span class="spin-sm"></span> Processing…';
+            else if (status === 'running') el.innerHTML   = '<span class="spin-sm"></span> Processing…' +
+              ((typeof progress === 'number') ? ` ${Math.round(progress)}%` : '');
             else if (status === 'error')   el.textContent = '❌ ' + (error || 'Error');
           }).then(() => {
             const el = document.getElementById(`mfst${i}`);
@@ -763,7 +876,7 @@
         window.location.href = redirectUrl;
 
       } catch (err) {
-        setPhase("multiPhase", "❌ " + (err?.message || String(err)));
+        setPhase("multiPhase", "❌ " + humanizeError(err?.message || err));
         await new Promise(r => setTimeout(r, 2500));
         prog.style.display = "none";
         document.getElementById("multiBtnRow").style.display = "flex";
@@ -810,6 +923,12 @@
     // Validate a freshly-picked file against MAX_UPLOAD_BYTES. If it fails,
     // clear the input, mark the dropzone as invalid, and surface a red
     // message in the filename slot. Returns true when the file is accepted.
+    /** Filename slot content for a picked file: name plus its size, so the
+     *  user sees how big the upload will be before starting it. */
+    function showPickedFile(fn, file) {
+      fn.innerHTML = `${escHtml(file.name)} <span style="color:var(--muted);">· ${fmtSize(file.size)}</span>`;
+    }
+
     function validatePickedFile(dz, fi, fn, file) {
       if (!file) return true;
       if (file.size > MAX_UPLOAD_BYTES) {
@@ -838,12 +957,12 @@
         const f = files[0];
         if (!validatePickedFile(dz, fi, fn, f)) return;
         const dt = new DataTransfer(); dt.items.add(f); fi.files = dt.files;
-        fn.textContent = f.name;
+        showPickedFile(fn, f);
       });
       fi.addEventListener("change", () => {
         if (!fi.files.length) { fn.textContent = ""; dz.classList.remove("oversized"); return; }
         if (!validatePickedFile(dz, fi, fn, fi.files[0])) return;
-        fn.textContent = fi.files[0].name;
+        showPickedFile(fn, fi.files[0]);
       });
     }
 
@@ -861,13 +980,13 @@
         const f = files[0];
         if (!validatePickedFile(dz, fi, fn, f)) return;
         const dt = new DataTransfer(); dt.items.add(f); fi.files = dt.files;
-        fn.textContent = f.name;
+        showPickedFile(fn, f);
         dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1';
       });
       fi.addEventListener("change", () => {
         if (!fi.files.length) { fn.textContent = ""; dz.classList.remove("oversized"); return; }
         if (!validatePickedFile(dz, fi, fn, fi.files[0])) return;
-        fn.textContent = fi.files[0].name;
+        showPickedFile(fn, fi.files[0]);
         dz.style.borderColor = '#FF6E59'; dz.style.opacity = '1';
       });
     }

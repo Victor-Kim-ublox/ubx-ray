@@ -74,6 +74,8 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 |---|---|---|
 | `GET` | `/` | Home screen (home.html) |
 | `POST` | `/upload` | Upload UBX file → register in DB → add to conversion queue → redirect to `/report/{rid}` |
+| `POST` | `/upload/chunk` | Append one chunk of a large upload to a per-session `.part` file (see Chunked Upload) |
+| `POST` | `/upload/complete` | Assemble a chunked upload and run the normal upload pipeline → redirect to `/report/{rid}` |
 | `GET` | `/report/{rid}` | Single file analysis report (report.html) |
 | `GET` | `/map/{rid}` | KMZ-based map viewer (map.html) |
 | `GET` | `/kml/{rid}` | Extract and return doc.kml from KMZ |
@@ -86,6 +88,7 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 |---|---|---|
 | `GET` | `/compare4` | Multi upload page (compare4.html) |
 | `POST` | `/compare4/upload` | Upload 1–4 UBX files → queue each → redirect to `/compare4/report/{r1}/{r2}/{r3}/{r4}` |
+| `POST` | `/compare4/upload/complete` | Assemble chunked multi-comparison uploads (`upload_id1..4`) → queue each → same redirect (see Chunked Upload) |
 | `POST` | `/compare4/kml/upload` | Upload 1–4 KML/KMZ tracks (no conversion) → store as `done` → redirect to `/compare4/overlay/{...}` |
 | `GET` | `/compare4/report/{r1}/{r2}/{r3}/{r4}` | Analysis report (compare4_report.html) |
 | `GET` | `/compare4/view/{r1}/{r2}/{r3}/{r4}` | Split map view (compare4_view.html); hides the Report button for KML groups |
@@ -95,7 +98,7 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/status/{rid}` | Poll conversion status (`status`, `has_kmz`, `error`, `filename`) |
+| `GET` | `/api/status/{rid}` | Poll conversion status (`status`, `has_kmz`, `error`, `filename`; plus `progress` 0–100 while `status='running'`, read from the converter's `.progress` sidecar) |
 | `GET` | `/api/graph/{rid}` | Return graph JSON (used for chart rendering in compare4_report) |
 
 ### NMEA Comparison
@@ -103,6 +106,42 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/analyze_nmea` | Upload 2 NMEA files → analyze → render report_nmea.html |
+
+---
+
+## Chunked Upload
+
+Cloudflare's free plan caps a single request body at ~100 MB, so uploads
+through the ubx-ray.com tunnel fail with a **Cloudflare 413** for larger logs
+(the app's own limit is `MAX_UPLOAD_MB` = 1024). The home screen therefore
+splits files above ~95 MB into 64 MB chunks:
+
+1. `POST /upload/chunk` (sequential, one at a time) — fields `upload_id`
+   (client-generated UUID, validated path-safe), `index`, `chunk` (blob).
+   Chunks are appended to `uploads/parts/{user_id}_{upload_id}.part`; the
+   part file is keyed by the caller's cookie `user_id`, so sessions cannot
+   cross users. `index == 0` consumes **one** rate-limit slot (not one per
+   chunk) and resets any stale part with the same id; the cumulative size is
+   enforced against `MAX_UPLOAD_BYTES` during append.
+2. `POST /upload/complete` — fields `upload_id`, `filename`, plus the same
+   conversion options as `/upload`. Validates the extension, moves the part to
+   `uploads/{rid}_{name}` via `os.replace`, then calls `_finalize_upload()` —
+   the shared tail of `/upload` (UBX sniff → quick summary → DB insert →
+   enqueue → 303 to `/report/{rid}`).
+
+Abandoned `.part` files (client navigated away mid-upload) are swept by the
+cleanup loop after `PART_MAX_AGE_SEC` (24 h). `cln_orphans` skips the
+`uploads/parts/` directory (its name contains no underscore, so the rid-prefix
+scan ignores it).
+
+**Multi-file comparison** uses the same mechanism when the **combined**
+payload of the 1–4 slots exceeds the threshold: each file is streamed to its
+own `/upload/chunk` session (each session's first chunk consumes one
+rate-limit slot), then `POST /compare4/upload/complete` assembles every slot
+— fields `upload_id1..4` / `filename1..4` (empty slots stay `_`) plus the
+conversion options — and runs the shared per-file registration
+(`_register_compare_member`) and group tagging (`_compare_group_redirect`)
+used by `/compare4/upload`.
 
 ---
 
@@ -126,6 +165,20 @@ High-speed scan of the UBX binary via mmap, counting **NAV-PVT frame occurrences
 
 ### `run_ubx2kmz(filepath, rid, **opts)`
 Runs `ubx2kmz.py` as a subprocess. After completion, copies the auto-generated KMZ file to `outputs/{rid}/result.kmz`, reads stats (epoch_total, epoch_missing) from the co-located `_graph.json`, and updates the database. On timeout (default 1800s) or exception, sets DB status to `error`.
+
+Passes `--progress-file {upload}.progress` so the converter reports its scan
+percentage (~0.5 s interval) while running; `/api/status/{rid}` reads that
+sidecar and returns it as `progress` (0–100, only while `status='running'`),
+which drives the real progress bar on the home screen. The sidecar is removed
+in a `finally` block whether the conversion succeeds or fails.
+
+### `_recover_interrupted_jobs()` (startup hook)
+A server restart kills in-flight conversions but used to leave their DB rows
+stuck in `queued`/`running` forever (the UIs then poll indefinitely). On
+startup, every such row is **re-enqueued** when its upload file still exists
+(the stored `opts_json` restores the conversion options); rows whose file is
+gone (or direct-KML rows) are marked `status='error'` /
+`"interrupted by server restart"` so pollers terminate cleanly.
 
 ### `enqueue_convert(filepath, rid, **opts)`
 Async conversion queue wrapper. Uses `asyncio.Semaphore(MAX_CONVERT)` to cap concurrent conversions at half the number of CPU cores.

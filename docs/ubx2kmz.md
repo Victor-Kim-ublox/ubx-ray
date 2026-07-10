@@ -19,6 +19,7 @@ python ubx2kmz.py <ubx_file> [options]
 | `--alt-abs` | Apply KML `altitudeMode=absolute` + `extrude=1` |
 | `--ck` | Enable Fletcher checksum verification (default: off, speed priority) |
 | `--mapm` | Extract AID-MAPM points only (sky-blue arrows, absolute-position only) |
+| `--progress-file PATH` | Write scan progress (percent of bytes scanned, one decimal) to `PATH`, throttled to one write per 0.5 s (`PROGRESS_INTERVAL_SEC`); ends with `100.0`. Best-effort — write failures never abort the conversion. `app.py` points this at `{upload}.progress` and `/api/status` serves it to the web progress bar |
 
 ---
 

@@ -105,11 +105,41 @@ Checks query string on page load:
 - `wireMultiDropzone(dropId, inputId, nameId)`: for Multi tab (also handles border color + opacity)
 - Handles dragover / dragleave / drop events
 - Injects dragged file into `input.files` via DataTransfer API
+- On selection, the filename slot shows **name plus file size**
+  (`showPickedFile()`: "log.ubx · 37.2 MB", GB above 1000 MB) on every tab's
+  dropzone, so the upload size is visible before starting
 - **Client-side size check** — both wirers call `validatePickedFile(dz, fi, fn, file)` as soon as a file is dropped or selected. If `file.size > MAX_UPLOAD_BYTES` the input is cleared, the dropzone gets the `.oversized` class (red dashed border + red background), and the filename slot shows `"⚠ N.N MB — exceeds 1024 MB limit"`. The limit comes from `max_upload_mb` (injected by the `/` route from `MAX_UPLOAD_MB`, defaults to 1024).
 - Each dropzone hint string includes the capacity (`"up to 1024 MB"`) so users see the limit before they pick a file.
 
-### Single Upload (`startUpload`)
-Async upload via fetch API. On response, redirects to `redirect_url` if present; otherwise reloads. Disables button and shows spinner during upload.
+### Single Upload (`startUpload`) & Progress UI
+XHR upload (`uploadWithProgress`) followed by 1 s status polling
+(`pollUntilDone`), driving the `prog-box` bar + step chips:
+
+| Bar range | Phase | Source |
+|---|---|---|
+| 0 → 40% | 📤 Uploading… N% (12.5 MB / 28.6 MB) | XHR `upload.progress` events (real transfer progress); transferred/total sizes via `fmtSize()` (MB, GB above 1000 MB). Files > `CHUNK_THRESHOLD_BYTES` (95 MB) are sent via `uploadInChunks()` — sequential 64 MB `POST /upload/chunk` requests + `POST /upload/complete` — to stay under Cloudflare's ~100 MB request-body cap on the tunnel; progress and sizes span all chunks. Smaller files use the original single-request `/upload`. The Multi tab's upload phase shows the same size readout for the combined payload |
+| 45% | ⏳ Queued… | `/api/status` = `queued` |
+| 50 → 95% | ⚙️ Processing… N% | `/api/status` = `running`; `progress` field = the converter's **real scan percentage** (read from the `.progress` sidecar `ubx2kmz --progress-file` writes ~every 0.5 s). Before the first sample the bar holds at 50% |
+| 100% | ✅ Done | `done` → redirect to the report |
+
+**Upload error surfacing** — `uploadWithProgress` resolves only for final
+status < 400 (XHR follows the 303 redirect, so success lands on the report
+page). For 4xx rejections the server's actual message body (rate-limit,
+"Invalid file format: not a UBX binary", file-too-large) is thrown and shown
+in the phase line — previously any 4xx surfaced as a generic
+"Unexpected server response". `humanizeError()` reduces HTML error pages
+(e.g. a Cloudflare 413) to their readable text before display.
+
+The Multi tab reuses `pollUntilDone`; its per-file status rows append the same
+real percentage while a file is converting ("Processing… 63%"). When the
+**combined** payload of the selected slots exceeds `CHUNK_THRESHOLD_BYTES`,
+each file is streamed via `sendFileChunks()` under its own session id and
+`POST /compare4/upload/complete` assembles the group — the upload bar and the
+size readout span all files.
+
+If the server restarts mid-conversion, the backend re-enqueues interrupted
+jobs on startup (see `docs/app.md`), so the poll loop resumes/terminates
+instead of spinning forever.
 
 ### NMEA Upload (`startComparison`)
 POSTs via fetch, then writes the response HTML directly into the current page using `document.write()`.
