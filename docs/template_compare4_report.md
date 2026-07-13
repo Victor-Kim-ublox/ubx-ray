@@ -43,14 +43,16 @@ Interactive charts powered by Chart.js (zoom/pan supported):
 
 | Section | Chart | X-axis | Y-axis | Description |
 |---|---|---|---|---|
-| ② | 2D Accuracy Overlay | Time | m | Horizontal accuracy time series, one line per file |
-| ③ | Fix Type Distribution | File | % | Stacked bar of fix-type ratios per file. Legend comes from Chart.js only (bottom, click to toggle) — the static swatch list below the chart duplicated it and was removed |
-| ④ | Accuracy CDF | Error (m) | % | Cumulative error distribution |
-| ⑤ | Speed / Altitude / Satellites | Time | km/h · m · count | Three stacked time-series charts, synced x-axes |
-| ⑥ | **Fix Type Status** | Time | fix state | The single report's stepped fix-type chart, one stepped line per file. Y axis is labelled `No fix / DR / 2D / 3D / GNSS+DR / Time` (values 0–5); tooltips show the state name per file. Own zoom group `fixts` with its own Reset Zoom |
+| ② | Fix Type Distribution | File | % | Stacked bar of fix-type ratios per file. Legend comes from Chart.js only (bottom, click to toggle) — the static swatch list below the chart duplicated it and was removed. Same card structure (chart-note + 240 px) as ③ beside it so the two-col heights match |
+| ③ | Accuracy CDF | Error (m) | % | Cumulative error distribution |
+| ④ | 2D Accuracy Overlay | Time | m | Horizontal accuracy time series, one line per file |
+| ⑤ | Speed / Altitude / Satellites | Time | km/h · m · count | Three stacked time-series charts |
+| ⑥ | **Fix Type Status** | Time | fix state | The single report's stepped fix-type chart, one stepped line per file. Y axis is labelled `No fix / DR / 2D / 3D / GNSS+DR / Time` (values 0–5); tooltips show the state name per file |
 | ⑦ | CNO Top-5 Avg | Time | dBHz | Signal-strength time series |
 
-Each file is distinguished by its unique color (c1–c4).
+The two distribution charts (② / ③) sit at the top in a two-column row;
+the four time-series sections (④–⑦) follow. Each file is distinguished by
+its unique color (c1–c4).
 
 ---
 
@@ -90,11 +92,14 @@ Polling stops automatically once all active rids are complete.
 - Each section has a single `🔍 Reset Zoom` `.ctl-btn`
 - Charts are grouped by key in `chartRegistry`; zoom/pan on any chart
   propagates to its group via `syncGroup`:
-  - `acc` — Accuracy Overlay
-  - `spdaltsv` — Speed, Altitude, and Satellite Count charts share one group
-    so panning/zooming any of the three moves the other two in lockstep
-  - `fixts` — Fix Type Status (stepped per-file time series)
-  - `cno` — CNO Top-5 Avg
+  - `ts` — **all six time-series charts** (④ Accuracy Overlay, ⑤ Speed /
+    Altitude / Satellites, ⑥ Fix Type Status, ⑦ CNO) share one group, so
+    panning/zooming any of them moves every other in lockstep. Every Reset
+    Zoom button resets this whole group to the union x-extent, and
+    `resetZoom('ts')` also runs once at build time so the sections start
+    aligned (the CNO stream can start/end at different iTOWs).
+  - `acc` — an extra registration of the Accuracy Overlay chart that keeps
+    the `👁 Toggle Tracks` button scoped to that chart only.
 - **Tooltip alignment** — all time-series charts use a custom interaction
   mode `interaction: { mode:'xOnePerDataset', intersect:false }`, **not**
   `mode:'index'` or plain `mode:'x'`.

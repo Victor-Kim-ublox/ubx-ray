@@ -185,33 +185,22 @@
       </table>
     </div>
 
-    <!-- ② Accuracy overlay chart -->
-    <div class="section-title">② 2D Accuracy Overlay</div>
-    <div class="card">
-      <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('acc')">🔍 Reset Zoom</button>
-        <button class="ctl-btn" onclick="toggleDataset('acc')">👁 Toggle Tracks</button>
-      </div>
-      <p class="chart-note">Scroll to zoom, drag to pan · all chart X-axes synchronized</p>
-      <div class="chart-wrap" style="height:280px"><canvas id="accChart"></canvas></div>
-    </div>
-
-    <!-- ③ Fix Type distribution -->
+    <!-- ② Fix Type distribution / ③ Accuracy CDF (moved above the time series) -->
     <div class="two-col">
 
       <div>
-        <div class="section-title">③ Fix Type Distribution</div>
+        <div class="section-title">② Fix Type Distribution</div>
         <div class="card">
           <!-- Legend comes from Chart.js (bottom, click to toggle) — the old
                static swatch list duplicated it and was removed. The chart-note
-               keeps this card the same height as ④ next to it. -->
+               keeps this card the same height as ③ next to it. -->
           <p class="chart-note">Share of epochs per fix type · click legend items to show/hide</p>
           <div class="chart-wrap" style="height:240px"><canvas id="fixChart"></canvas></div>
         </div>
       </div>
 
       <div>
-        <div class="section-title">④ Accuracy CDF</div>
+        <div class="section-title">③ Accuracy CDF</div>
         <div class="card">
           <p class="chart-note">X: error (m) · Y: cumulative % — left curve = more accurate</p>
           <div class="chart-wrap" style="height:240px"><canvas id="cdfChart"></canvas></div>
@@ -220,13 +209,24 @@
 
     </div>
 
+    <!-- ④ Accuracy overlay chart -->
+    <div class="section-title">④ 2D Accuracy Overlay</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetZoom('ts')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="toggleDataset('acc')">👁 Toggle Tracks</button>
+      </div>
+      <p class="chart-note">Scroll to zoom, drag to pan · X-axes of ④–⑦ stay synchronized</p>
+      <div class="chart-wrap" style="height:280px"><canvas id="accChart"></canvas></div>
+    </div>
+
     <!-- ⑤ Speed / Altitude / SV -->
     <div class="section-title">⑤ Speed / Altitude / Satellite Count</div>
     <div class="card">
       <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('spdaltsv')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('ts')">🔍 Reset Zoom</button>
       </div>
-      <p class="chart-note">Scroll to zoom, drag to pan · Speed / Altitude / Satellites X-axes synchronized</p>
+      <p class="chart-note">Scroll to zoom, drag to pan · X-axes of ④–⑦ stay synchronized</p>
       <div style="display:grid;grid-template-columns:1fr;gap:16px;">
         <div class="chart-wrap" style="height:200px"><canvas id="spdChart"></canvas></div>
         <div class="chart-wrap" style="height:200px"><canvas id="altChart"></canvas></div>
@@ -238,9 +238,9 @@
     <div class="section-title">⑥ Fix Type Status</div>
     <div class="card">
       <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('fixts')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('ts')">🔍 Reset Zoom</button>
       </div>
-      <p class="chart-note">Stepped fix-type state per file over time (No fix / DR / 2D / 3D / GNSS+DR / Time)</p>
+      <p class="chart-note">Stepped fix-type state per file over time (No fix / DR / 2D / 3D / GNSS+DR / Time) · X-axes of ④–⑦ stay synchronized</p>
       <div class="chart-wrap" style="height:220px"><canvas id="fixTimeChart"></canvas></div>
     </div>
 
@@ -248,8 +248,9 @@
     <div class="section-title">⑦ Satellite Signal Strength (CNO Top-5 Avg)</div>
     <div class="card">
       <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('cno')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('ts')">🔍 Reset Zoom</button>
       </div>
+      <p class="chart-note">X-axes of ④–⑦ stay synchronized</p>
       <div class="chart-wrap" style="height:220px"><canvas id="cnoChart"></canvas></div>
     </div>
 
@@ -609,7 +610,7 @@
           interaction: { mode:'xOnePerDataset', intersect:false },
           plugins: {
             legend: { position:'top', labels:{ boxWidth:12, font:{size:12} } },
-            zoom: zoomPlugin('acc')
+            zoom: zoomPlugin('ts')
           },
           scales: {
             x: {
@@ -623,6 +624,11 @@
           }
         }
       });
+      // All four time-series sections (acc / spd-alt-sv / fix status / cno)
+      // share the 'ts' zoom group so their x scales pan and zoom in lockstep.
+      // The extra 'acc' registration keeps the "Toggle Tracks" button scoped
+      // to this chart only.
+      register('ts', accChart);
       register('acc', accChart);
 
       // ────────────────────────────────────────────────────────────────
@@ -759,9 +765,9 @@
         return c;
       }
 
-      makeTimeChart('spdChart', 'speed',    'Speed (km/h)',       'spdaltsv', 0);
-      makeTimeChart('altChart', 'altitude', 'Altitude m (hMSL)',  'spdaltsv', null);
-      makeTimeChart('svChart',  'num_sv',   'Satellites',         'spdaltsv', 0);
+      makeTimeChart('spdChart', 'speed',    'Speed (km/h)',       'ts', 0);
+      makeTimeChart('altChart', 'altitude', 'Altitude m (hMSL)',  'ts', null);
+      makeTimeChart('svChart',  'num_sv',   'Satellites',         'ts', 0);
 
       // ────────────────────────────────────────────────────────────────
       // ⑥ Fix Type over time — the single report's Fix Type Status chart,
@@ -798,7 +804,7 @@
                 }
               }
             },
-            zoom: zoomPlugin('fixts')
+            zoom: zoomPlugin('ts')
           },
           scales: {
             x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
@@ -813,7 +819,7 @@
           }
         }
       });
-      register('fixts', fixTimeChart);
+      register('ts', fixTimeChart);
 
       // ────────────────────────────────────────────────────────────────
       // ⑥ CNO chart
@@ -843,7 +849,7 @@
           interaction: { mode:'xOnePerDataset', intersect:false },
           plugins: {
             legend: { position:'top', labels:{ boxWidth:12, font:{size:11} } },
-            zoom: zoomPlugin('cno')
+            zoom: zoomPlugin('ts')
           },
           scales: {
             x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
@@ -851,7 +857,12 @@
           }
         }
       });
-      register('cno', cnoChart);
+      register('ts', cnoChart);
+
+      // Align all four time-series sections to the union x-extent right away
+      // (they would otherwise autoscale independently until the first
+      // zoom/pan; the CNO stream can start/end at different iTOWs).
+      resetZoom('ts');
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
