@@ -8,6 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap');
@@ -66,6 +67,15 @@
     .section-title::after {
       content: ''; flex: 1; height: 1px; background: var(--border);
     }
+
+    /* Drag-to-reorder sections */
+    .drag-handle {
+      cursor: grab; color: #9ca3af; font-size: 15px; user-select: none;
+      -webkit-user-select: none; touch-action: none; line-height: 1;
+    }
+    .drag-handle:hover { color: #4b5563; }
+    .rpt-sec.sortable-ghost { opacity: .35; }
+    .rpt-sec.sortable-chosen .section-title { color: #FF6E59; }
 
     .card {
       background: var(--card); border: 1px solid var(--border);
@@ -156,16 +166,15 @@
   </style>
 
   <script>
-    // Show/hide chart box
+    // Show/hide chart box. Swaps the Hide/Show word in place so the button
+    // label ("Hide Chart", "Hide Table", …) is preserved.
     function toggleChart(boxId, btn) {
       const box = document.getElementById(boxId);
-      if (box.style.display === 'none') {
-        box.style.display = 'block';
-        btn.innerText = '👁 Hide Chart';
-      } else {
-        box.style.display = 'none';
-        btn.innerText = '👁 Show Chart';
-      }
+      if (!box) return;
+      const hidden = box.style.display === 'none';
+      box.style.display = hidden ? 'block' : 'none';
+      btn.innerText = btn.innerText.replace(hidden ? 'Show' : 'Hide',
+                                            hidden ? 'Hide' : 'Show');
     }
   </script>
 </head>
@@ -181,6 +190,7 @@
         <a class="hbtn" href="/download?path={{ r.kmz_path|urlencode }}">⬇ KMZ</a>
         <a class="hbtn" href="/map/{{ r.id }}" target="_blank" rel="noopener">🗺 Map</a>
       {% endif %}
+      <button class="hbtn" onclick="resetLayout()" title="Restore the default section order">↺ Reset Layout</button>
       <a href="/recent" class="hbtn">🕘 Recent</a>
     </div>
   </header>
@@ -205,9 +215,15 @@
       </table>
     </div>
 
+    <!-- Reorderable sections: each .rpt-sec is draggable by its ⠿ handle;
+         the circled numbers in .sec-num spans are re-assigned after every
+         move (① stays on the fixed Metadata card above). -->
+    <div id="secList">
+
     {% if graph_data and graph_data.inf_messages and graph_data.inf_messages|length > 0 %}
-    <!-- ② UBX-INF Messages (surfaced early so receiver errors are seen first) -->
-    <div class="section-title">② Receiver Messages (UBX-INF)</div>
+    <!-- UBX-INF Messages (surfaced early so receiver errors are seen first) -->
+    <section class="rpt-sec" data-sec="inf">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">②</span> Receiver Messages (UBX-INF)</div>
     <div class="card">
       <p class="chart-note" id="infNote">
         Text messages emitted by the receiver, in log order, with the nearest
@@ -219,8 +235,9 @@
         <button class="ctl-btn inf-filter-btn" data-level="NOTICE">NOTICE</button>
         <button class="ctl-btn inf-filter-btn" data-level="TEST">TEST</button>
         <button class="ctl-btn inf-filter-btn" data-level="DEBUG">DEBUG</button>
+        <button class="ctl-btn" onclick="toggleChart('infBox', this)">👁 Hide Table</button>
       </div>
-      <div class="inf-scroll">
+      <div class="inf-scroll" id="infBox">
         <table class="inf-table">
           <thead>
             <tr><th style="width:180px">Time (UTC)</th><th style="width:120px">iTOW</th><th style="width:90px">Level</th><th>Message</th></tr>
@@ -229,11 +246,13 @@
         </table>
       </div>
     </div>
+    </section>
     {% endif %}
 
     {% if graph_data %}
-    <!-- ③ 2D vs 3D Accuracy (primary PVT stream) -->
-    <div class="section-title">③ Position Accuracy (2D vs 3D) — {{ graph_data.primary_pvt | default('NAV-PVT') }}</div>
+    <!-- 2D vs 3D Accuracy (primary PVT stream) -->
+    <section class="rpt-sec" data-sec="acc">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">③</span> Position Accuracy (2D vs 3D) — {{ graph_data.primary_pvt | default('NAV-PVT') }}</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -244,11 +263,13 @@
         <canvas id="accChart"></canvas>
       </div>
     </div>
+    </section>
     {% endif %}
 
     {% if graph_data and graph_data.alt_labels and graph_data.alt_labels|length > 0 %}
-    <!-- ③-2 2D vs 3D Accuracy (secondary PVT stream, e.g. NAV2-PVT) -->
-    <div class="section-title">③-2 Position Accuracy (2D vs 3D) — {{ graph_data.alt_pvt | default('NAV2-PVT') }}</div>
+    <!-- 2D vs 3D Accuracy (secondary PVT stream, e.g. NAV2-PVT) -->
+    <section class="rpt-sec" data-sec="acc2">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">④</span> Position Accuracy (2D vs 3D) — {{ graph_data.alt_pvt | default('NAV2-PVT') }}</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -258,11 +279,13 @@
         <canvas id="acc2Chart"></canvas>
       </div>
     </div>
+    </section>
     {% endif %}
 
     {% if graph_data and graph_data.fix_type %}
-    <!-- ④ Fix Type -->
-    <div class="section-title">④ Fix Type Status</div>
+    <!-- Fix Type -->
+    <section class="rpt-sec" data-sec="fix">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">⑤</span> Fix Type Status</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -272,11 +295,13 @@
         <canvas id="fixChart"></canvas>
       </div>
     </div>
+    </section>
     {% endif %}
 
     {% if graph_data and graph_data.cno_top_avg and graph_data.cno_top_avg|length > 0 %}
-    <!-- ⑤ CN0 -->
-    <div class="section-title">⑤ Satellite Signal Density (CN0)</div>
+    <!-- CN0 -->
+    <section class="rpt-sec" data-sec="cno">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">⑥</span> Satellite Signal Density (CN0)</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -287,11 +312,13 @@
         <canvas id="cnoChart"></canvas>
       </div>
     </div>
+    </section>
     {% endif %}
 
     {% if graph_data and graph_data.sec_labels and graph_data.sec_labels|length > 0 %}
-    <!-- ⑥ Jamming & Spoofing -->
-    <div class="section-title">⑥ Jamming &amp; Spoofing Status (UBX-SEC-SIG)</div>
+    <!-- Jamming & Spoofing -->
+    <section class="rpt-sec" data-sec="secsig">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">⑦</span> Jamming &amp; Spoofing Status (UBX-SEC-SIG)</div>
     <div class="card">
       <div class="chart-controls">
         <button class="ctl-btn" onclick="resetAllZooms()">🔍 Reset All Zooms</button>
@@ -305,7 +332,10 @@
         <canvas id="secChart"></canvas>
       </div>
     </div>
+    </section>
     {% endif %}
+
+    </div><!-- /secList -->
 
   </div><!-- /page -->
 
@@ -859,5 +889,56 @@
     })();
   </script>
   {% endif %}
+
+  <script>
+    // ── Drag-to-reorder sections (persisted per browser) ─────────────────
+    // Each .rpt-sec in #secList is draggable by its ⠿ handle (SortableJS).
+    // The order is stored in localStorage and re-applied on load; circled
+    // numbers are re-assigned after every change (① stays on the fixed
+    // Metadata card). Sections absent from this report (conditional Jinja
+    // blocks) are simply skipped when applying a saved order.
+    (function() {
+      var SEC_ORDER_KEY = 'ubxray.report.secOrder';
+      var secList = document.getElementById('secList');
+      if (!secList) return;
+      var CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫'];
+
+      function renumberSections() {
+        var n = 2;   // ① = the fixed Metadata section
+        secList.querySelectorAll('.sec-num').forEach(function(el) {
+          el.textContent = CIRCLED[n - 1] || (n + '.');
+          n++;
+        });
+      }
+      function applySavedOrder() {
+        var saved;
+        try { saved = JSON.parse(localStorage.getItem(SEC_ORDER_KEY) || '[]'); }
+        catch (e) { saved = []; }
+        saved.forEach(function(key) {
+          var el = secList.querySelector('.rpt-sec[data-sec="' + key + '"]');
+          if (el) secList.appendChild(el);   // missing sections are skipped
+        });
+      }
+      applySavedOrder();
+      renumberSections();
+      if (window.Sortable) {
+        new Sortable(secList, {
+          animation: 150,
+          handle: '.drag-handle',
+          onEnd: function() {
+            var order = Array.prototype.map.call(
+              secList.querySelectorAll('.rpt-sec'),
+              function(s) { return s.dataset.sec; });
+            localStorage.setItem(SEC_ORDER_KEY, JSON.stringify(order));
+            renumberSections();
+          }
+        });
+      }
+      window.resetLayout = function() {
+        localStorage.removeItem(SEC_ORDER_KEY);
+        location.reload();
+      };
+    })();
+  </script>
 </body>
 </html>

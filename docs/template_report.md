@@ -94,7 +94,23 @@ Chart: `#secChart`. Two stepped lines: jamming (red, 0..2) and spoofing
 Every chart card has a `.chart-controls` row with `.ctl-btn` buttons:
 - `🔍 Reset All Zooms` -- `resetAllZooms()` restores original x range on
   every instantiated chart (acc / fix / cno / sec)
-- `👁 Hide Chart` -- `toggleChart(boxId, btn)` toggles `.chart-wrap` display
+- `👁 Hide Chart` -- `toggleChart(boxId, btn)` toggles the box display and
+  swaps the Hide/Show word of the button label in place. The Receiver
+  Messages section carries the same control as `👁 Hide Table` (toggles the
+  `#infBox` scroll area).
+
+## Section Reordering (drag & drop)
+Sections other than the fixed ① Metadata are wrapped in `.rpt-sec` elements
+inside `#secList` and can be reordered by dragging the `⠿` handle in the
+section title (SortableJS 1.15.2 via CDN, `handle:`-scoped so chart zoom/pan
+is unaffected). The order persists to
+`localStorage['ubxray.report.secOrder']` and is re-applied on load; sections
+missing from a report (conditional Jinja blocks) are skipped. The circled
+section numbers (`.sec-num` spans) are re-assigned dynamically after every
+move — which also fixes the numbering gaps hardcoded numbers had when
+conditional sections were absent. The header's `↺ Reset Layout` button
+clears the saved order and reloads. Chart.js instances survive the DOM moves
+(canvases are relocated, not recreated).
 
 Chart interaction:
 - `chartjs-plugin-zoom` + `hammerjs` for wheel zoom / drag pan on the x axis

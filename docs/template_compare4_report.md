@@ -54,6 +54,15 @@ The two distribution charts (② / ③) sit at the top in a two-column row;
 the four time-series sections (④–⑦) follow. Each file is distinguished by
 its unique color (c1–c4).
 
+### Section Reordering (drag & drop)
+Every section except the fixed ① Summary is wrapped in a `.rpt-sec` inside
+`#secList` and can be reordered by dragging the `⠿` handle in its title
+(SortableJS 1.15.2 via CDN). The two-column Distribution + CDF row moves as
+**one unit** (`data-sec="dist"`). The order persists to
+`localStorage['ubxray.cmp4.secOrder']`; circled numbers are re-assigned
+dynamically after every move, and the header's `↺ Reset Layout` button
+restores the default order. Chart.js instances survive the DOM moves.
+
 ---
 
 ## Real-time Polling Logic (JavaScript)
@@ -89,7 +98,10 @@ Polling stops automatically once all active rids are complete.
 ## Chart Interaction
 - **Chart.js** `@4.4.0`
 - **chartjs-plugin-zoom** `@2.0.1` + **hammerjs** `@2.0.8` (pinch-zoom / drag-pan)
-- Each section has a single `🔍 Reset Zoom` `.ctl-btn`
+- Each section has a single `🔍 Reset Zoom` `.ctl-btn`, plus a
+  `👁 Hide Chart` toggle (`toggleChart(boxId, btn)`) on every chart card —
+  the Speed/Altitude/SV card hides all three charts together
+  (`#spdaltsvBox`, button label `Hide Charts`)
 - Charts are grouped by key in `chartRegistry`; zoom/pan on any chart
   propagates to its group via `syncGroup`:
   - `ts` — **all six time-series charts** (④ Accuracy Overlay, ⑤ Speed /
