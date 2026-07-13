@@ -41,11 +41,14 @@ Core statistics displayed side by side for all converted files:
 ### Chart Section
 Interactive charts powered by Chart.js (zoom/pan supported):
 
-| Chart | X-axis | Y-axis | Description |
-|---|---|---|---|
-| Position Accuracy (hAcc) | Time | m | Horizontal accuracy time series |
-| Speed | Time | km/h | Speed time series |
-| Fix Type | Time | 0–5 | Fix type time series |
+| Section | Chart | X-axis | Y-axis | Description |
+|---|---|---|---|---|
+| ② | 2D Accuracy Overlay | Time | m | Horizontal accuracy time series, one line per file |
+| ③ | Fix Type Distribution | File | % | Stacked bar of fix-type ratios per file. Legend comes from Chart.js only (bottom, click to toggle) — the static swatch list below the chart duplicated it and was removed |
+| ④ | Accuracy CDF | Error (m) | % | Cumulative error distribution |
+| ⑤ | Speed / Altitude / Satellites | Time | km/h · m · count | Three stacked time-series charts, synced x-axes |
+| ⑥ | **Fix Type Status** | Time | fix state | The single report's stepped fix-type chart, one stepped line per file. Y axis is labelled `No fix / DR / 2D / 3D / GNSS+DR / Time` (values 0–5); tooltips show the state name per file. Own zoom group `fixts` with its own Reset Zoom |
+| ⑦ | CNO Top-5 Avg | Time | dBHz | Signal-strength time series |
 
 Each file is distinguished by its unique color (c1–c4).
 
@@ -90,6 +93,7 @@ Polling stops automatically once all active rids are complete.
   - `acc` — Accuracy Overlay
   - `spdaltsv` — Speed, Altitude, and Satellite Count charts share one group
     so panning/zooming any of the three moves the other two in lockstep
+  - `fixts` — Fix Type Status (stepped per-file time series)
   - `cno` — CNO Top-5 Avg
 - **Tooltip alignment** — all time-series charts use a custom interaction
   mode `interaction: { mode:'xOnePerDataset', intersect:false }`, **not**
