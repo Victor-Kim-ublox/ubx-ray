@@ -8,6 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap');
@@ -61,6 +62,15 @@
     .section-title::after {
       content: ''; flex: 1; height: 1px; background: var(--border);
     }
+
+    /* Drag-to-reorder sections */
+    .drag-handle {
+      cursor: grab; color: #9ca3af; font-size: 15px; user-select: none;
+      -webkit-user-select: none; touch-action: none; line-height: 1;
+    }
+    .drag-handle:hover { color: #4b5563; }
+    .rpt-sec.sortable-ghost { opacity: .35; }
+    .rpt-sec.sortable-chosen .section-title { color: #FF6E59; }
 
     .card {
       background: var(--card); border: 1px solid var(--border);
@@ -132,9 +142,6 @@
     @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
 
     /* ── Fix type legend ─────────────────────────────────────────────── */
-    .fix-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
-    .fix-legend span { display: flex; align-items: center; gap: 5px; }
-    .fix-swatch { width: 12px; height: 12px; border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -160,6 +167,7 @@
     <div style="margin-left:auto;display:flex;gap:8px;">
       <a id="splitLink"   href="#" target="_blank" rel="noopener" class="hbtn">⊞ Split Map View</a>
       <a id="overlayLink" href="#" target="_blank" rel="noopener" class="hbtn">⊙ Overlay Map View</a>
+      <button class="hbtn" onclick="resetLayout()" title="Restore the default section order">↺ Reset Layout</button>
       <a href="/recent"           class="hbtn">🕘 Recent</a>
     </div>
   </header>
@@ -188,66 +196,99 @@
       </table>
     </div>
 
-    <!-- ② Accuracy overlay chart -->
-    <div class="section-title">② 2D Accuracy Overlay</div>
-    <div class="card">
-      <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('acc')">🔍 Reset Zoom</button>
-        <button class="ctl-btn" onclick="toggleDataset('acc')">👁 Toggle Tracks</button>
-      </div>
-      <p class="chart-note">Scroll to zoom, drag to pan · all chart X-axes synchronized</p>
-      <div class="chart-wrap" style="height:280px"><canvas id="accChart"></canvas></div>
-    </div>
+    <!-- Reorderable sections: each .rpt-sec is draggable by its ⠿ handle;
+         the ①-numbers in .sec-num spans are re-assigned after every move. -->
+    <div id="secList">
 
-    <!-- ③ Fix Type distribution -->
+    <!-- Fix Type distribution / Accuracy CDF (one draggable unit) -->
+    <section class="rpt-sec" data-sec="dist">
     <div class="two-col">
 
       <div>
-        <div class="section-title">③ Fix Type Distribution</div>
+        <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">②</span> Fix Type Distribution</div>
         <div class="card">
-          <div class="chart-wrap" style="height:240px"><canvas id="fixChart"></canvas></div>
-          <div class="fix-legend">
-            <span><span class="fix-swatch" style="background:#0078ff"></span>GNSS+DR (4)</span>
-            <span><span class="fix-swatch" style="background:#9333ea"></span>DR only (1)</span>
-            <span><span class="fix-swatch" style="background:#16a34a"></span>3D Fix (3)</span>
-            <span><span class="fix-swatch" style="background:#f59e0b"></span>2D Fix (2)</span>
-            <span><span class="fix-swatch" style="background:#ef4444"></span>No Fix (0/5)</span>
+          <!-- Legend comes from Chart.js (bottom, click to toggle) — the old
+               static swatch list duplicated it and was removed. The chart-note
+               keeps this card the same height as the CDF beside it. -->
+          <p class="chart-note">Share of epochs per fix type · click legend items to show/hide</p>
+          <div class="chart-controls">
+            <button class="ctl-btn" onclick="toggleChart('fixDistBox', this)">👁 Hide Chart</button>
           </div>
+          <div class="chart-wrap" id="fixDistBox" style="height:240px"><canvas id="fixChart"></canvas></div>
         </div>
       </div>
 
       <div>
-        <div class="section-title">④ Accuracy CDF</div>
+        <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">③</span> Accuracy CDF</div>
         <div class="card">
           <p class="chart-note">X: error (m) · Y: cumulative % — left curve = more accurate</p>
-          <div class="chart-wrap" style="height:240px"><canvas id="cdfChart"></canvas></div>
+          <div class="chart-controls">
+            <button class="ctl-btn" onclick="toggleChart('cdfBox', this)">👁 Hide Chart</button>
+          </div>
+          <div class="chart-wrap" id="cdfBox" style="height:240px"><canvas id="cdfChart"></canvas></div>
         </div>
       </div>
 
     </div>
+    </section>
 
-    <!-- ⑤ Speed / Altitude / SV -->
-    <div class="section-title">⑤ Speed / Altitude / Satellite Count</div>
+    <!-- Accuracy overlay chart -->
+    <section class="rpt-sec" data-sec="acc">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">④</span> 2D Accuracy Overlay</div>
     <div class="card">
       <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('spdaltsv')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('ts')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="toggleDataset('acc')">👁 Toggle Tracks</button>
+        <button class="ctl-btn" onclick="toggleChart('accBox', this)">👁 Hide Chart</button>
       </div>
-      <p class="chart-note">Scroll to zoom, drag to pan · Speed / Altitude / Satellites X-axes synchronized</p>
-      <div style="display:grid;grid-template-columns:1fr;gap:16px;">
+      <p class="chart-note">Scroll to zoom, drag to pan · all time-series X-axes stay synchronized</p>
+      <div class="chart-wrap" id="accBox" style="height:280px"><canvas id="accChart"></canvas></div>
+    </div>
+    </section>
+
+    <!-- Speed / Altitude / SV -->
+    <section class="rpt-sec" data-sec="spdaltsv">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">⑤</span> Speed / Altitude / Satellite Count</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetZoom('ts')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="toggleChart('spdaltsvBox', this)">👁 Hide Charts</button>
+      </div>
+      <p class="chart-note">Scroll to zoom, drag to pan · all time-series X-axes stay synchronized</p>
+      <div id="spdaltsvBox" style="display:grid;grid-template-columns:1fr;gap:16px;">
         <div class="chart-wrap" style="height:200px"><canvas id="spdChart"></canvas></div>
         <div class="chart-wrap" style="height:200px"><canvas id="altChart"></canvas></div>
         <div class="chart-wrap" style="height:160px"><canvas id="svChart"></canvas></div>
       </div>
     </div>
+    </section>
 
-    <!-- ⑥ CNO signal strength -->
-    <div class="section-title">⑥ Satellite Signal Strength (CNO Top-5 Avg)</div>
+    <!-- Fix Type over time (same chart as the single report's Fix Type Status) -->
+    <section class="rpt-sec" data-sec="fixts">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">⑥</span> Fix Type Status</div>
     <div class="card">
       <div class="chart-controls">
-        <button class="ctl-btn" onclick="resetZoom('cno')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="resetZoom('ts')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="toggleChart('fixTsBox', this)">👁 Hide Chart</button>
       </div>
-      <div class="chart-wrap" style="height:220px"><canvas id="cnoChart"></canvas></div>
+      <p class="chart-note">Stepped fix-type state per file over time (No fix / DR / 2D / 3D / GNSS+DR / Time)</p>
+      <div class="chart-wrap" id="fixTsBox" style="height:220px"><canvas id="fixTimeChart"></canvas></div>
     </div>
+    </section>
+
+    <!-- CNO signal strength -->
+    <section class="rpt-sec" data-sec="cno">
+    <div class="section-title"><span class="drag-handle" title="Drag to reorder">⠿</span><span class="sec-num">⑦</span> Satellite Signal Strength (CNO Top-5 Avg)</div>
+    <div class="card">
+      <div class="chart-controls">
+        <button class="ctl-btn" onclick="resetZoom('ts')">🔍 Reset Zoom</button>
+        <button class="ctl-btn" onclick="toggleChart('cnoBox', this)">👁 Hide Chart</button>
+      </div>
+      <div class="chart-wrap" id="cnoBox" style="height:220px"><canvas id="cnoChart"></canvas></div>
+    </div>
+    </section>
+
+    </div><!-- /secList -->
 
   </div><!-- /page -->
 
@@ -477,7 +518,69 @@
       chartRegistry[key].push(chart);
     }
 
+    // ── Show/hide a chart box (same pattern as the single report) ────────
+    window.toggleChart = function(boxId, btn) {
+      var box = document.getElementById(boxId);
+      if (!box) return;
+      var hidden = box.style.display === 'none';
+      box.style.display = hidden ? '' : 'none';
+      btn.innerText = btn.innerText.replace(hidden ? 'Show' : 'Hide',
+                                            hidden ? 'Hide' : 'Show');
+    };
+
+    // ── Drag-to-reorder sections (persisted per browser) ─────────────────
+    // Each .rpt-sec in #secList is draggable by its ⠿ handle (SortableJS).
+    // The order is stored in localStorage and re-applied on load; the
+    // circled numbers are re-assigned after every change (① stays on the
+    // fixed Summary section above the list).
+    var SEC_ORDER_KEY = 'ubxray.cmp4.secOrder';
+    var secList = document.getElementById('secList');
+    var CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫'];
+
+    function renumberSections() {
+      var n = 2;   // ① = the fixed Summary Statistics section
+      secList.querySelectorAll('.sec-num').forEach(function(el) {
+        el.textContent = CIRCLED[n - 1] || (n + '.');
+        n++;
+      });
+    }
+    function applySavedOrder() {
+      var saved;
+      try { saved = JSON.parse(localStorage.getItem(SEC_ORDER_KEY) || '[]'); }
+      catch (e) { saved = []; }
+      saved.forEach(function(key) {
+        var el = secList.querySelector('.rpt-sec[data-sec="' + key + '"]');
+        if (el) secList.appendChild(el);   // unknown keys are skipped
+      });
+    }
+    applySavedOrder();
+    renumberSections();
+    if (window.Sortable) {
+      new Sortable(secList, {
+        animation: 150,
+        handle: '.drag-handle',
+        onEnd: function() {
+          var order = Array.prototype.map.call(
+            secList.querySelectorAll('.rpt-sec'),
+            function(s) { return s.dataset.sec; });
+          localStorage.setItem(SEC_ORDER_KEY, JSON.stringify(order));
+          renumberSections();
+        }
+      });
+    }
+    window.resetLayout = function() {
+      localStorage.removeItem(SEC_ORDER_KEY);
+      location.reload();
+    };
+
     var MAX_PTS = 2000;
+
+    // Fixed y-axis width for every time-series chart (same trick as the
+    // single report): tick label widths differ per chart ("GNSS+DR" vs
+    // plain numbers), which would make each plot area start at a different
+    // x pixel and ruin visual comparison of the stacked charts.
+    var FIXED_Y_WIDTH = 85;
+    function fixedYWidth(ctx) { ctx.width = FIXED_Y_WIDTH; }
 
     // ── Build report ──────────────────────────────────────────────────────
     function buildReport() {
@@ -605,7 +708,7 @@
           interaction: { mode:'xOnePerDataset', intersect:false },
           plugins: {
             legend: { position:'top', labels:{ boxWidth:12, font:{size:12} } },
-            zoom: zoomPlugin('acc')
+            zoom: zoomPlugin('ts')
           },
           scales: {
             x: {
@@ -614,11 +717,16 @@
             },
             y: {
               title:{ display:true, text:'2D Accuracy (m)', font:{size:11} },
-              min: 0
+              min: 0, afterFit: fixedYWidth
             }
           }
         }
       });
+      // All four time-series sections (acc / spd-alt-sv / fix status / cno)
+      // share the 'ts' zoom group so their x scales pan and zoom in lockstep.
+      // The extra 'acc' registration keeps the "Toggle Tracks" button scoped
+      // to this chart only.
+      register('ts', accChart);
       register('acc', accChart);
 
       // ────────────────────────────────────────────────────────────────
@@ -747,7 +855,8 @@
             scales: {
               x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
               y: { min: yMin != null ? yMin : undefined,
-                   title:{ display:true, text:yLabel, font:{size:11} } }
+                   title:{ display:true, text:yLabel, font:{size:11} },
+                   afterFit: fixedYWidth }
             }
           }
         });
@@ -755,9 +864,62 @@
         return c;
       }
 
-      makeTimeChart('spdChart', 'speed',    'Speed (km/h)',       'spdaltsv', 0);
-      makeTimeChart('altChart', 'altitude', 'Altitude m (hMSL)',  'spdaltsv', null);
-      makeTimeChart('svChart',  'num_sv',   'Satellites',         'spdaltsv', 0);
+      makeTimeChart('spdChart', 'speed',    'Speed (km/h)',       'ts', 0);
+      makeTimeChart('altChart', 'altitude', 'Altitude m (hMSL)',  'ts', null);
+      makeTimeChart('svChart',  'num_sv',   'Satellites',         'ts', 0);
+
+      // ────────────────────────────────────────────────────────────────
+      // ⑥ Fix Type over time — the single report's Fix Type Status chart,
+      // one stepped line per file (state values 0..5 on a labelled y axis).
+      // ────────────────────────────────────────────────────────────────
+      var FIX_NAMES = { 0:'No fix', 1:'DR', 2:'2D', 3:'3D', 4:'GNSS+DR', 5:'Time' };
+      var fixTsDatasets = [];
+      allData.forEach(function(d, i) {
+        if (!d || !d.fix_type || !d.fix_type.length) return;
+        var ds = downsampleXY(d.labels, d.fix_type, MAX_PTS);
+        fixTsDatasets.push({
+          label: shortName(FILENAMES[i], i),
+          data: ds.labels.map(function(l,j){ return { x:l, y:ds.vals[j] }; }),
+          borderColor: COLORS[i], borderWidth: 1.5,
+          stepped: true, pointRadius: 0, pointHoverRadius: 4, tension: 0, fill: false
+        });
+      });
+
+      var fixTimeChart = new Chart(document.getElementById('fixTimeChart'), {
+        type: 'line', data: { datasets: fixTsDatasets },
+        options: {
+          animation: false, responsive: true, maintainAspectRatio: false,
+          // xOnePerDataset: one nearest point per track, matched by x-value
+          // (see the registration comment above).
+          interaction: { mode:'xOnePerDataset', intersect:false },
+          plugins: {
+            legend: { position:'top', labels:{ boxWidth:12, font:{size:11} } },
+            tooltip: {
+              callbacks: {
+                title: function(items){ return items.length ? fmtITOW(items[0].raw.x) : ''; },
+                label: function(ctx){
+                  var v = ctx.raw.y;
+                  return ctx.dataset.label + ': ' + (FIX_NAMES[v] !== undefined ? FIX_NAMES[v] : v);
+                }
+              }
+            },
+            zoom: zoomPlugin('ts')
+          },
+          scales: {
+            x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
+            y: {
+              min: 0, max: 5,
+              ticks: {
+                stepSize: 1,
+                callback: function(v){ return FIX_NAMES[v] !== undefined ? FIX_NAMES[v] : ''; }
+              },
+              title:{ display:true, text:'Fix Type', font:{size:11} },
+              afterFit: fixedYWidth
+            }
+          }
+        }
+      });
+      register('ts', fixTimeChart);
 
       // ────────────────────────────────────────────────────────────────
       // ⑥ CNO chart
@@ -787,15 +949,20 @@
           interaction: { mode:'xOnePerDataset', intersect:false },
           plugins: {
             legend: { position:'top', labels:{ boxWidth:12, font:{size:11} } },
-            zoom: zoomPlugin('cno')
+            zoom: zoomPlugin('ts')
           },
           scales: {
             x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
-            y: { title:{ display:true, text:'CNO Top-5 Avg (dBHz)', font:{size:11} }, min:0 }
+            y: { title:{ display:true, text:'CNO Top-5 Avg (dBHz)', font:{size:11} }, min:0, afterFit: fixedYWidth }
           }
         }
       });
-      register('cno', cnoChart);
+      register('ts', cnoChart);
+
+      // Align all four time-series sections to the union x-extent right away
+      // (they would otherwise autoscale independently until the first
+      // zoom/pan; the CNO stream can start/end at different iTOWs).
+      resetZoom('ts');
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────

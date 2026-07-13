@@ -41,13 +41,27 @@ Core statistics displayed side by side for all converted files:
 ### Chart Section
 Interactive charts powered by Chart.js (zoom/pan supported):
 
-| Chart | X-axis | Y-axis | Description |
-|---|---|---|---|
-| Position Accuracy (hAcc) | Time | m | Horizontal accuracy time series |
-| Speed | Time | km/h | Speed time series |
-| Fix Type | Time | 0–5 | Fix type time series |
+| Section | Chart | X-axis | Y-axis | Description |
+|---|---|---|---|---|
+| ② | Fix Type Distribution | File | % | Stacked bar of fix-type ratios per file. Legend comes from Chart.js only (bottom, click to toggle) — the static swatch list below the chart duplicated it and was removed. Same card structure (chart-note + 240 px) as ③ beside it so the two-col heights match |
+| ③ | Accuracy CDF | Error (m) | % | Cumulative error distribution |
+| ④ | 2D Accuracy Overlay | Time | m | Horizontal accuracy time series, one line per file |
+| ⑤ | Speed / Altitude / Satellites | Time | km/h · m · count | Three stacked time-series charts |
+| ⑥ | **Fix Type Status** | Time | fix state | The single report's stepped fix-type chart, one stepped line per file. Y axis is labelled `No fix / DR / 2D / 3D / GNSS+DR / Time` (values 0–5); tooltips show the state name per file |
+| ⑦ | CNO Top-5 Avg | Time | dBHz | Signal-strength time series |
 
-Each file is distinguished by its unique color (c1–c4).
+The two distribution charts (② / ③) sit at the top in a two-column row;
+the four time-series sections (④–⑦) follow. Each file is distinguished by
+its unique color (c1–c4).
+
+### Section Reordering (drag & drop)
+Every section except the fixed ① Summary is wrapped in a `.rpt-sec` inside
+`#secList` and can be reordered by dragging the `⠿` handle in its title
+(SortableJS 1.15.2 via CDN). The two-column Distribution + CDF row moves as
+**one unit** (`data-sec="dist"`). The order persists to
+`localStorage['ubxray.cmp4.secOrder']`; circled numbers are re-assigned
+dynamically after every move, and the header's `↺ Reset Layout` button
+restores the default order. Chart.js instances survive the DOM moves.
 
 ---
 
@@ -84,13 +98,20 @@ Polling stops automatically once all active rids are complete.
 ## Chart Interaction
 - **Chart.js** `@4.4.0`
 - **chartjs-plugin-zoom** `@2.0.1` + **hammerjs** `@2.0.8` (pinch-zoom / drag-pan)
-- Each section has a single `🔍 Reset Zoom` `.ctl-btn`
+- Each section has a single `🔍 Reset Zoom` `.ctl-btn`, plus a
+  `👁 Hide Chart` toggle (`toggleChart(boxId, btn)`) on every chart card —
+  the Speed/Altitude/SV card hides all three charts together
+  (`#spdaltsvBox`, button label `Hide Charts`)
 - Charts are grouped by key in `chartRegistry`; zoom/pan on any chart
   propagates to its group via `syncGroup`:
-  - `acc` — Accuracy Overlay
-  - `spdaltsv` — Speed, Altitude, and Satellite Count charts share one group
-    so panning/zooming any of the three moves the other two in lockstep
-  - `cno` — CNO Top-5 Avg
+  - `ts` — **all six time-series charts** (④ Accuracy Overlay, ⑤ Speed /
+    Altitude / Satellites, ⑥ Fix Type Status, ⑦ CNO) share one group, so
+    panning/zooming any of them moves every other in lockstep. Every Reset
+    Zoom button resets this whole group to the union x-extent, and
+    `resetZoom('ts')` also runs once at build time so the sections start
+    aligned (the CNO stream can start/end at different iTOWs).
+  - `acc` — an extra registration of the Accuracy Overlay chart that keeps
+    the `👁 Toggle Tracks` button scoped to that chart only.
 - **Tooltip alignment** — all time-series charts use a custom interaction
   mode `interaction: { mode:'xOnePerDataset', intersect:false }`, **not**
   `mode:'index'` or plain `mode:'x'`.
