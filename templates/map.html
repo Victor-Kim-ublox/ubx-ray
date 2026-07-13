@@ -320,7 +320,7 @@
     const descEl = document.getElementById('popup-desc');
     const overlay = new ol.Overlay({ element: container, autoPan: { animation: { duration: 250 } }, offset: [0, -12] });
     map.addOverlay(overlay);
-    closer.onclick = () => { overlay.setPosition(undefined); container.style.display = 'none'; return false; };
+    closer.onclick = () => { hideSharedPopup(); return false; };
     // Make the shared popup (measurement result + SEC-SIG) draggable by its
     // title, same as the point popups. (makeDraggable is hoisted below.)
     makeDraggable(overlay, titleEl);
@@ -393,8 +393,17 @@
       let n = 1; while (used.has(n)) n++; return n;
     }
 
+    // "Close popups" covers every popup on the map: the stacked point popups
+    // AND the shared #popup (Distance-measure result / SEC-SIG info), so it is
+    // also shown while only the shared popup is open.
     function refreshClearPopupsBtn() {
-      clearPopupsBtn.style.display = pointPopups.length ? '' : 'none';
+      const sharedOpen = container.style.display === 'block';
+      clearPopupsBtn.style.display = (pointPopups.length || sharedOpen) ? '' : 'none';
+    }
+    function hideSharedPopup() {
+      overlay.setPosition(undefined);
+      container.style.display = 'none';
+      refreshClearPopupsBtn();
     }
     function removePointPopup(entry) {
       map.removeOverlay(entry.overlay);
@@ -406,7 +415,14 @@
     function clearPointPopups() {
       while (pointPopups.length) removePointPopup(pointPopups[0]);
     }
-    clearPopupsBtn.addEventListener('click', clearPointPopups);
+    clearPopupsBtn.addEventListener('click', () => {
+      clearPointPopups();
+      hideSharedPopup();
+      // Also remove the distance-measure drawing (line + endpoints) so
+      // "Close popups" leaves a completely clean map.
+      picked = [];
+      measureSrc.clear();
+    });
 
     // Let the user drag a popup by its title bar. Dragging adjusts the
     // overlay's pixel offset (the popup stays tied to its anchor, so it still
@@ -502,7 +518,7 @@
     const setMeasureActive = on => {
       measureActive = on;
       measureBtn.classList.toggle('active', on);
-      if (on) { picked = []; measureSrc.clear(); container.style.display = 'none'; }
+      if (on) { picked = []; measureSrc.clear(); hideSharedPopup(); }
     };
     measureBtn.onclick = () => setMeasureActive(!measureActive);
     clearBtn.onclick = () => {
@@ -510,10 +526,7 @@
       measureSrc.clear();
       // Also close the measurement result popup. The #popup overlay is shared
       // with SEC-SIG, so only hide it when it is showing a Distance result.
-      if (titleEl.textContent === 'Distance') {
-        overlay.setPosition(undefined);
-        container.style.display = 'none';
-      }
+      if (titleEl.textContent === 'Distance') hideSharedPopup();
     };
 
     function formatDist(m) { return m >= 1000 ? (m/1000).toFixed(3)+' km' : Math.round(m)+' m'; }
@@ -530,6 +543,7 @@
         overlay.setOffset([0, -12]);   // reset any prior drag
         overlay.setPosition(line.getCoordinateAt(0.5));
         container.style.display = 'block';
+        refreshClearPopupsBtn();
         setMeasureActive(false);
       }
     });
@@ -835,6 +849,7 @@
         overlay.setOffset([0, -12]);   // reset any prior drag
         overlay.setPosition(evt.coordinate);
         container.style.display = 'block';
+        refreshClearPopupsBtn();
         return true;
       }, { hitTolerance: 6 });
     });

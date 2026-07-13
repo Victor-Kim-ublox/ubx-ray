@@ -121,8 +121,15 @@
       color:#aaa; font-weight:bold; font-size:15px;
     }
     .ol-popup-closer:hover { color:#000; }
-    .popup-title { font-weight:700; font-size:13px; margin-bottom:4px; color:#111827; }
-    .popup-desc { font-size:12px; color:#374151; line-height:1.45; }
+    .popup-title, .pt-title { font-weight:700; font-size:13px; margin-bottom:4px; color:#111827; padding-right:14px; }
+    .popup-title, .pt-title { user-select:none; -webkit-user-select:none; touch-action:none; }
+    .popup-desc, .pt-desc { font-size:12px; color:#374151; line-height:1.45; }
+    /* Numbered badge linking a popup to its point marker (same as map.html) */
+    .pt-num {
+      display:inline-block; min-width:16px; height:16px; line-height:16px;
+      padding:0 4px; text-align:center; border-radius:8px;
+      color:#fff; font-size:11px; font-weight:700; margin-right:6px; vertical-align:middle;
+    }
 
     /* SEC-SIG legend (same styling as single map view) */
     .sec-legend {
@@ -153,6 +160,7 @@
       <button id="btnMap" class="btn active" title="OSM Streets">Map</button>
       <button id="btnSat" class="btn" title="Satellite">Satellite</button>
       <button id="btnFit" class="btn" title="Fit all tracks to view">Fit All</button>
+      <button id="clearPopupsBtn" class="btn" title="Close all point popups" style="display:none;">Close popups</button>
     </div>
 
     <div class="sep" id="secSegSep" style="display:none;"></div>
@@ -445,9 +453,7 @@
       if (!closer) return;
       e.preventDefault();
       var idx = parseInt(closer.dataset.idx, 10);
-      if (popupOverlays[idx]) popupOverlays[idx].setPosition(undefined);
-      var pe = document.getElementById('popup'+(idx+1));
-      if (pe) pe.style.display = 'none';
+      if (!isNaN(idx)) hideSharedPopup(idx);   // point-popup closers have no data-idx
     });
 
     // ── Build 4 Maps ──────────────────────────────────────────────────────
@@ -463,13 +469,148 @@
       });
       maps.push(m);
     }
+    window._olMaps = maps;   // same debug handle the overlay view exposes
 
-    // Click popup
+    // ── Multiple point popups (ported from map.html) ─────────────────────
+    // Each click on a track point/vertex spawns its own popup so several can
+    // stay open at once, per panel. A numbered ring marker ties each popup to
+    // its point; popups are draggable by their title bar. The shared per-panel
+    // #popup{i} stays for SEC-SIG segment info only.
+    var pointPopups = [[], [], [], []];   // per panel: { overlay, el, pin, num }
+    var clearPopupsBtn = document.getElementById('clearPopupsBtn');
+    var POPUP_COLORS = ['#e11d48','#2563eb','#16a34a','#9333ea','#ea580c','#0891b2','#ca8a04','#db2777'];
+
+    var pinSrcs = [], pinLayers = [];
+    for (var zi = 0; zi < 4; zi++) {
+      var ps = new ol.source.Vector();
+      pinSrcs.push(ps);
+      var pl = new ol.layer.Vector({ source: ps, zIndex: 720 });
+      pinLayers.push(pl);
+      maps[zi].addLayer(pl);
+    }
+
+    function pinStyle(num, color) {
+      return new ol.style.Style({
+        image: new ol.style.Circle({
+          radius: 10,
+          fill: new ol.style.Fill({ color: 'rgba(255,255,255,0.35)' }),
+          stroke: new ol.style.Stroke({ color: color, width: 3 })
+        }),
+        text: new ol.style.Text({
+          text: String(num), font: 'bold 12px sans-serif',
+          fill: new ol.style.Fill({ color: color })
+        })
+      });
+    }
+    function nextNum(idx) {
+      var used = {};
+      pointPopups[idx].forEach(function(p) { used[p.num] = true; });
+      var n = 1; while (used[n]) n++; return n;
+    }
+    function totalPopupCount() {
+      return pointPopups.reduce(function(s, arr) { return s + arr.length; }, 0);
+    }
+    function anySharedPopupOpen() {
+      for (var i = 0; i < 4; i++) {
+        var pe = document.getElementById('popup' + (i + 1));
+        if (pe && pe.style.display === 'block') return true;
+      }
+      return false;
+    }
+    // "Close popups" covers every popup on every panel: the stacked point
+    // popups AND the shared per-panel SEC-SIG popups, so it is also shown
+    // while only a shared popup is open.
+    function refreshClearPopupsBtn() {
+      clearPopupsBtn.style.display =
+        (totalPopupCount() || anySharedPopupOpen()) ? '' : 'none';
+    }
+    function hideSharedPopup(idx) {
+      if (popupOverlays[idx]) popupOverlays[idx].setPosition(undefined);
+      var pe = document.getElementById('popup' + (idx + 1));
+      if (pe) pe.style.display = 'none';
+      refreshClearPopupsBtn();
+    }
+    function removePointPopup(idx, entry) {
+      maps[idx].removeOverlay(entry.overlay);
+      pinSrcs[idx].removeFeature(entry.pin);
+      var i = pointPopups[idx].indexOf(entry);
+      if (i >= 0) pointPopups[idx].splice(i, 1);
+      refreshClearPopupsBtn();
+    }
+    function clearPointPopups() {
+      for (var i = 0; i < 4; i++) {
+        while (pointPopups[i].length) removePointPopup(i, pointPopups[i][0]);
+        hideSharedPopup(i);
+      }
+    }
+    clearPopupsBtn.addEventListener('click', clearPointPopups);
+
+    // Drag a popup by its title bar: adjusts the overlay's pixel offset so it
+    // still tracks its anchor on zoom/pan. stopEvent on the point popups keeps
+    // the map from panning during the drag.
+    function makeDraggable(ovl, handle) {
+      handle.style.cursor = 'move';
+      handle.addEventListener('pointerdown', function(e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        var startX = e.clientX, startY = e.clientY;
+        var off = (ovl.getOffset() || [0, 0]).slice();
+        try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        function onMove(ev) {
+          ovl.setOffset([off[0] + (ev.clientX - startX), off[1] + (ev.clientY - startY)]);
+        }
+        function onUp(ev) {
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+        }
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+      });
+    }
+    // The shared per-panel SEC-SIG popups are draggable too.
+    for (var di = 0; di < 4; di++) {
+      makeDraggable(popupOverlays[di], document.getElementById('ptitle' + (di + 1)));
+    }
+
+    function addPointPopup(idx, coordinate, title, descHtml) {
+      var num = nextNum(idx);
+      var color = POPUP_COLORS[(num - 1) % POPUP_COLORS.length];
+
+      var pin = new ol.Feature({ geometry: new ol.geom.Point(coordinate) });
+      pin.setStyle(pinStyle(num, color));
+      pinSrcs[idx].addFeature(pin);
+
+      var el = document.createElement('div');
+      el.className = 'ol-popup';
+      el.style.borderTop = '3px solid ' + color;
+      var cl = document.createElement('a');
+      cl.href = '#'; cl.className = 'ol-popup-closer'; cl.textContent = '×';
+      var t = document.createElement('div'); t.className = 'pt-title';
+      var badge = document.createElement('span');
+      badge.className = 'pt-num'; badge.style.background = color; badge.textContent = num;
+      t.appendChild(badge); t.appendChild(document.createTextNode(title));
+      var d = document.createElement('div'); d.className = 'pt-desc'; d.innerHTML = descHtml;
+      el.appendChild(cl); el.appendChild(t); el.appendChild(d);
+
+      var ov = new ol.Overlay({ element: el, offset: [0, -14], stopEvent: true, autoPan: false });
+      maps[idx].addOverlay(ov);
+      ov.setPosition(coordinate);
+      var entry = { overlay: ov, el: el, pin: pin, num: num };
+      cl.onclick = function(e) { e.preventDefault(); e.stopPropagation(); removePointPopup(idx, entry); return false; };
+      pointPopups[idx].push(entry);
+      makeDraggable(ov, t);
+      refreshClearPopupsBtn();
+    }
+
+    // Click popup — track points/vertices spawn independent numbered popups
+    // (same behaviour as the single map view); the shared per-panel popup is
+    // kept for SEC-SIG segment info and closes on an empty-map click.
     (function() {
       for (var qi = 0; qi < 4; qi++) {
         (function(idx) {
           maps[idx].on('singleclick', function(evt) {
-            // Ignore clicks that land on the popup itself (e.g. the × closer),
+            // Ignore clicks that land on a popup itself (e.g. the × closer),
             // otherwise this handler would immediately re-open the popup.
             var tgt = evt.originalEvent && evt.originalEvent.target;
             if (tgt && tgt.closest && tgt.closest('.ol-popup')) return;
@@ -478,12 +619,14 @@
             var lineTrack = -1;   // track idx of a clicked LineString
             var secL = secLayersPerPanel[idx];
             maps[idx].forEachFeatureAtPixel(evt.pixel, function(f, layer) {
-              // SEC-SIG feature — show jam/spoof run metadata
+              // SEC-SIG feature — show jam/spoof run metadata on the shared popup
               if (secL.indexOf(layer) !== -1) {
                 document.getElementById('ptitle'+(idx+1)).textContent = f.get('secTitle') || 'UBX-SEC-SIG';
                 document.getElementById('pdesc'+(idx+1)).innerHTML    = f.get('secDesc') || '';
+                popupOverlays[idx].setOffset([0, -10]);   // reset any prior drag
                 popupOverlays[idx].setPosition(evt.coordinate);
                 document.getElementById('popup'+(idx+1)).style.display = 'block';
+                refreshClearPopupsBtn();
                 hit = true;
                 return true;
               }
@@ -492,10 +635,8 @@
               if (!g) return;
               var gt = g.getType();
               if (gt === 'Point') {
-                document.getElementById('ptitle'+(idx+1)).textContent = f.get('name') || 'Point';
-                document.getElementById('pdesc'+(idx+1)).innerHTML    = buildDesc(f);
-                popupOverlays[idx].setPosition(evt.coordinate);
-                document.getElementById('popup'+(idx+1)).style.display = 'block';
+                // Snap to the point's own coordinate so stacked popups line up.
+                addPointPopup(idx, g.getCoordinates(), f.get('name') || 'Point', buildDesc(f));
                 hit = true;
                 return true;
               }
@@ -508,18 +649,14 @@
             if (!hit && lineTrack >= 0) {
               var info = nearestTrackInfo(lineTrack, evt.coordinate);
               if (info) {
-                document.getElementById('ptitle'+(idx+1)).textContent = (FILENAMES[lineTrack] || ('Track ' + (lineTrack + 1))) + ' — nearest point';
-                document.getElementById('pdesc'+(idx+1)).innerHTML    = info.html;
-                popupOverlays[idx].setPosition(info.coord);
-                document.getElementById('popup'+(idx+1)).style.display = 'block';
+                addPointPopup(idx, info.coord, info.title, info.html);
                 hit = true;
               }
             }
 
-            if (!hit) {
-              popupOverlays[idx].setPosition(undefined);
-              document.getElementById('popup'+(idx+1)).style.display = 'none';
-            }
+            // Empty-map click closes only the shared SEC-SIG popup; point
+            // popups persist until closed via their × or "Close popups".
+            if (!hit) hideSharedPopup(idx);
           });
         })(qi);
       }
@@ -562,8 +699,11 @@
     }
 
     // Find the displayed vertex of panel `idx` closest to a 3857 coordinate,
-    // returning the snapped coordinate and an HTML info block
-    // (time when the source KML carried timestamps + lat/lon/alt).
+    // returning the snapped coordinate, a popup title, and an HTML info block.
+    // When the KML carried a per-point <description> (UBX-generated tracks),
+    // the popup shows that full content — identical to the single map view
+    // (UTC, iTOW, FixType, flags, heading, speed, accuracies). Plain
+    // gx:Track / LineString KMLs fall back to the time/lat/lon/alt summary.
     function nearestTrackInfo(idx, coordinate) {
       var coords = trackSampled[idx];
       if (!coords || !coords.length) return null;
@@ -577,6 +717,11 @@
       if (best < 0) return null;
       var c  = coords[best];
       var pt = (trackPtsSampled[idx] && trackPtsSampled[idx][best]) || null;
+      var fn = FILENAMES[idx] || ('Track ' + (idx + 1));
+      var title = (fn.length > 26 ? fn.slice(0, 24) + '…' : fn) + ' #' + (best + 1);
+      if (pt && pt.desc) {
+        return { coord: c, title: title, html: sanitizeHtml(pt.desc) };
+      }
       var lines = [];
       if (pt) {
         if (pt.t && !isNaN(pt.t.getTime())) {
@@ -593,7 +738,7 @@
         lines.push('<b>Lon</b>: ' + ll[0].toFixed(6));
       }
       lines.push('<b>Point</b>: ' + (best + 1) + ' / ' + coords.length);
-      return { coord: c, html: lines.join('<br>') };
+      return { coord: c, title: title, html: lines.join('<br>') };
     }
 
     // ── Base map toggle ───────────────────────────────────────────────────
@@ -803,18 +948,26 @@
             }
           }
 
-          // 2) Point placemarks (ubx-ray KMZ: one Point + TimeStamp per epoch)
+          // 2) Point placemarks (ubx-ray KMZ: one Point + TimeStamp per epoch).
+          // Each placemark's <description> is kept so a clicked vertex shows
+          // the same full content as the single map view. AID-MAPM placemarks
+          // are map-matching markers, not track epochs — excluded so the
+          // comparison line isn't distorted.
           if (!pts.length) {
             var pms = doc.getElementsByTagNameNS(KMLNS, 'Placemark');
             for (var pi2 = 0; pi2 < pms.length; pi2++) {
+              var nmEl2 = pms[pi2].getElementsByTagNameNS(KMLNS, 'name')[0];
+              if (nmEl2 && nmEl2.textContent.trim() === 'AID-MAPM') continue;
               var ptEl = pms[pi2].getElementsByTagNameNS(KMLNS, 'Point')[0];
               if (!ptEl) continue;
               var cn = ptEl.getElementsByTagNameNS(KMLNS, 'coordinates')[0];
               if (!cn) continue;
               var parts = cn.textContent.trim().split(',').map(Number);
               var wn = pms[pi2].getElementsByTagNameNS(KMLNS, 'when')[0];
+              var descEl2 = pms[pi2].getElementsByTagNameNS(KMLNS, 'description')[0];
               pts.push({ lon: parts[0], lat: parts[1], alt: parts[2] || 0,
-                         t: wn ? new Date(wn.textContent.trim()) : null });
+                         t: wn ? new Date(wn.textContent.trim()) : null,
+                         desc: descEl2 ? descEl2.textContent : null });
             }
             if (pts.some(function(p){ return p.t; })) pts.sort(function(a,b){ return a.t - b.t; });
           }

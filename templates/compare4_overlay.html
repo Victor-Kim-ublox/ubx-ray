@@ -139,8 +139,15 @@
       text-decoration: none; color: #aaa; font-weight: bold; font-size: 18px;
     }
     .ol-popup-closer:hover { color: #000; }
-    #popup-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; }
-    #popup-desc  { font-size: 13px; color: #333; line-height: 1.4; }
+    #popup-title, .pt-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #111827; padding-right: 14px; }
+    #popup-title, .pt-title { user-select: none; -webkit-user-select: none; touch-action: none; }
+    #popup-desc,  .pt-desc  { font-size: 13px; color: #333; line-height: 1.4; }
+    /* Numbered badge linking a popup to its point marker (same as map.html) */
+    .pt-num {
+      display: inline-block; min-width: 16px; height: 16px; line-height: 16px;
+      padding: 0 4px; text-align: center; border-radius: 8px;
+      color: #fff; font-size: 11px; font-weight: 700; margin-right: 6px; vertical-align: middle;
+    }
   </style>
 </head>
 <body>
@@ -195,6 +202,7 @@
       <div class="seg">
         <button id="measureBtn" class="btn" title="Measure distance between two points">Distance measure</button>
         <button id="clearBtn" class="btn" title="Clear current measurement">Clear</button>
+        <button id="clearPopupsBtn" class="btn" title="Close all point popups" style="display:none;">Close popups</button>
       </div>
 
     </div>
@@ -376,9 +384,126 @@
 
     document.getElementById('popup-closer').onclick = function(e) {
       e.preventDefault();
+      hideSharedPopup();
+    };
+
+    // ── Multiple point popups (ported from map.html) ─────────────────────
+    // Each click on a track point/vertex spawns its own popup so several can
+    // stay open at once for comparison. A numbered ring marker is dropped on
+    // the point and the popup shows the same coloured number badge; popups are
+    // draggable by their title bar. The shared #popup remains for the
+    // Distance-measure result only.
+    var pointPopups = [];  // { overlay, el, pin, num }
+    var clearPopupsBtn = document.getElementById('clearPopupsBtn');
+    var POPUP_COLORS = ['#e11d48','#2563eb','#16a34a','#9333ea','#ea580c','#0891b2','#ca8a04','#db2777'];
+
+    var pinSrc = new ol.source.Vector();
+    var pinLayer = new ol.layer.Vector({ source: pinSrc, zIndex: 720 });
+    map.addLayer(pinLayer);
+
+    function pinStyle(num, color) {
+      return new ol.style.Style({
+        image: new ol.style.Circle({
+          radius: 10,
+          fill: new ol.style.Fill({ color: 'rgba(255,255,255,0.35)' }),
+          stroke: new ol.style.Stroke({ color: color, width: 3 })
+        }),
+        text: new ol.style.Text({
+          text: String(num), font: 'bold 12px sans-serif',
+          fill: new ol.style.Fill({ color: color })
+        })
+      });
+    }
+    function nextNum() {
+      var used = {};
+      pointPopups.forEach(function(p) { used[p.num] = true; });
+      var n = 1; while (used[n]) n++; return n;
+    }
+    // "Close popups" covers every popup on the map: the stacked point popups
+    // AND the shared #popup (Distance-measure result), so it is also shown
+    // while only the shared popup is open.
+    function refreshClearPopupsBtn() {
+      var sharedOpen = popupEl.style.display === 'block';
+      clearPopupsBtn.style.display = (pointPopups.length || sharedOpen) ? '' : 'none';
+    }
+    function hideSharedPopup() {
       popupOverlay.setPosition(undefined);
       popupEl.style.display = 'none';
-    };
+      refreshClearPopupsBtn();
+    }
+    function removePointPopup(entry) {
+      map.removeOverlay(entry.overlay);
+      pinSrc.removeFeature(entry.pin);
+      var i = pointPopups.indexOf(entry);
+      if (i >= 0) pointPopups.splice(i, 1);
+      refreshClearPopupsBtn();
+    }
+    function clearPointPopups() {
+      while (pointPopups.length) removePointPopup(pointPopups[0]);
+    }
+    clearPopupsBtn.addEventListener('click', function() {
+      clearPointPopups();
+      hideSharedPopup();
+      // Also remove the distance-measure drawing (line + endpoints) so
+      // "Close popups" leaves a completely clean map.
+      picked = [];
+      measureSrc.clear();
+    });
+
+    // Drag a popup by its title bar: adjusts the overlay's pixel offset so it
+    // still tracks its anchor on zoom/pan. stopEvent keeps the map from
+    // panning during the drag. Shared with the Distance popup.
+    function makeDraggable(ovl, handle) {
+      handle.style.cursor = 'move';
+      handle.addEventListener('pointerdown', function(e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        var startX = e.clientX, startY = e.clientY;
+        var off = (ovl.getOffset() || [0, 0]).slice();
+        try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        function onMove(ev) {
+          ovl.setOffset([off[0] + (ev.clientX - startX), off[1] + (ev.clientY - startY)]);
+        }
+        function onUp(ev) {
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          try { handle.releasePointerCapture(ev.pointerId); } catch (_) {}
+        }
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+      });
+    }
+    makeDraggable(popupOverlay, popupTitle);
+
+    function addPointPopup(coordinate, title, descHtml) {
+      var num = nextNum();
+      var color = POPUP_COLORS[(num - 1) % POPUP_COLORS.length];
+
+      var pin = new ol.Feature({ geometry: new ol.geom.Point(coordinate) });
+      pin.setStyle(pinStyle(num, color));
+      pinSrc.addFeature(pin);
+
+      var el = document.createElement('div');
+      el.className = 'ol-popup';
+      el.style.borderTop = '3px solid ' + color;
+      var cl = document.createElement('a');
+      cl.href = '#'; cl.className = 'ol-popup-closer'; cl.textContent = '×';
+      var t = document.createElement('div'); t.className = 'pt-title';
+      var badge = document.createElement('span');
+      badge.className = 'pt-num'; badge.style.background = color; badge.textContent = num;
+      t.appendChild(badge); t.appendChild(document.createTextNode(title));
+      var d = document.createElement('div'); d.className = 'pt-desc'; d.innerHTML = descHtml;
+      el.appendChild(cl); el.appendChild(t); el.appendChild(d);
+
+      var ov = new ol.Overlay({ element: el, offset: [0, -14], stopEvent: true, autoPan: false });
+      map.addOverlay(ov);
+      ov.setPosition(coordinate);
+      var entry = { overlay: ov, el: el, pin: pin, num: num };
+      cl.onclick = function(e) { e.preventDefault(); removePointPopup(entry); return false; };
+      pointPopups.push(entry);
+      makeDraggable(ov, t);
+      refreshClearPopupsBtn();
+    }
 
     // ── Base map toggle ───────────────────────────────────────────────────
     var btnMap = document.getElementById('btnBaseMap');
@@ -417,14 +542,16 @@
     document.getElementById('btnFit').addEventListener('click', fitAll);
 
     // ── Popup on click ────────────────────────────────────────────────────
+    // Each click ADDS an independent popup (numbered pin + draggable), same
+    // behaviour as the single map view. Popups persist until closed via their
+    // own × or the "Close popups" toolbar button.
     var measureActive = false;
     map.on('singleclick', function(evt) {
       if (measureActive) return;
-      // Ignore clicks on the popup itself (e.g. the × closer) so we don't
-      // immediately re-open it.
+      // Ignore clicks on a popup itself (e.g. the × closer).
       var tgt = evt.originalEvent && evt.originalEvent.target;
       if (tgt && tgt.closest && tgt.closest('.ol-popup')) return;
-      var hit = false;
+      var handled = false;
       var lineTrack = -1;   // track idx of a clicked LineString (resolved after scan)
       map.forEachFeatureAtPixel(evt.pixel, function(f, layer) {
         if (!trackLayers.includes(layer)) return;
@@ -433,11 +560,8 @@
         var gt = g.getType();
         if (gt === 'Point') {
           // A start/end marker on top wins over the line underneath.
-          popupTitle.textContent = f.get('name') || 'Point';
-          popupDesc.innerHTML    = buildDesc(f);
-          popupOverlay.setPosition(evt.coordinate);
-          popupEl.style.display  = 'block';
-          hit = true; return true;
+          addPointPopup(g.getCoordinates(), f.get('name') || 'Point', buildDesc(f));
+          handled = true; return true;
         }
         if (gt === 'LineString' && f.get('_track') != null && lineTrack < 0) {
           lineTrack = f.get('_track');   // remember, keep scanning for a Point
@@ -445,22 +569,18 @@
       }, { hitTolerance: 6 });
 
       // No marker hit but a track line was clicked → snap to nearest vertex.
-      if (!hit && lineTrack >= 0) {
+      if (!handled && lineTrack >= 0) {
         var info = nearestTrackInfo(lineTrack, evt.coordinate);
-        if (info) {
-          popupTitle.textContent = (FILENAMES[lineTrack] || ('Track ' + (lineTrack + 1))) + ' — nearest point';
-          popupDesc.innerHTML    = info.html;
-          popupOverlay.setPosition(info.coord);
-          popupEl.style.display  = 'block';
-          hit = true;
-        }
+        if (info) addPointPopup(info.coord, info.title, info.html);
       }
-
-      if (!hit) { popupOverlay.setPosition(undefined); popupEl.style.display = 'none'; }
     });
 
     // Find the displayed vertex of track `idx` closest to a 3857 coordinate,
-    // returning the snapped coordinate and an HTML info block.
+    // returning the snapped coordinate, a popup title, and an HTML info block.
+    // When the KML carried a per-point <description> (UBX-generated tracks),
+    // the popup shows that full content — identical to the single map view
+    // (UTC, iTOW, FixType, flags, heading, speed, accuracies). Plain
+    // gx:Track / LineString KMLs fall back to the time/lat/lon/alt summary.
     function nearestTrackInfo(idx, coordinate) {
       var coords = trackLineCoords[idx];
       if (!coords || !coords.length) return null;
@@ -473,7 +593,12 @@
       }
       if (best < 0) return null;
       var pt = (trackPts[idx] && trackPts[idx][best]) || null;
-      return { coord: coords[best], html: formatPointInfo(pt, best, coords.length) };
+      var fn = FILENAMES[idx] || ('Track ' + (idx + 1));
+      var title = (fn.length > 26 ? fn.slice(0, 24) + '…' : fn) + ' #' + (best + 1);
+      var html = (pt && pt.desc)
+        ? sanitizeHtml(pt.desc)
+        : formatPointInfo(pt, best, coords.length);
+      return { coord: coords[best], title: title, html: html };
     }
 
     // "YYYY-MM-DD HH:MM:SS.cc UTC" — seconds with exactly two decimals.
@@ -532,10 +657,16 @@
     function setMeasure(on) {
       measureActive = on;
       measureBtn.classList.toggle('active', on);
-      if (on) { picked = []; measureSrc.clear(); popupEl.style.display = 'none'; }
+      if (on) { picked = []; measureSrc.clear(); hideSharedPopup(); }
     }
     measureBtn.onclick = function() { setMeasure(!measureActive); };
-    clearBtn.onclick   = function() { picked = []; measureSrc.clear(); };
+    clearBtn.onclick   = function() {
+      picked = [];
+      measureSrc.clear();
+      // Also close the measurement result popup (the shared #popup is only
+      // used for Distance in this view).
+      if (popupTitle.textContent === 'Distance') hideSharedPopup();
+    };
 
     function formatDist(m) {
       return m >= 1000 ? (m / 1000).toFixed(3) + ' km' : Math.round(m) + ' m';
@@ -550,8 +681,10 @@
         var len = ol.sphere.getLength(line, { projection: map.getView().getProjection() });
         popupTitle.textContent = 'Distance';
         popupDesc.innerHTML    = formatDist(len);
+        popupOverlay.setOffset([0, -12]);   // reset any prior drag
         popupOverlay.setPosition(line.getCoordinateAt(0.5));
         popupEl.style.display  = 'block';
+        refreshClearPopupsBtn();
         setMeasure(false);
       }
     });
@@ -623,10 +756,15 @@
             }
           }
 
-          // Placemark fallback
+          // Placemark fallback. Each placemark's <description> is kept so a
+          // clicked vertex can show the same full content as the single map
+          // view. AID-MAPM placemarks are map-matching markers, not track
+          // epochs — exclude them so the comparison line isn't distorted.
           if (!rawPts.length) {
             var pms = doc.getElementsByTagNameNS(KMLNS, 'Placemark');
             for (var pi = 0; pi < pms.length; pi++) {
+              var nmEl = pms[pi].getElementsByTagNameNS(KMLNS,'name')[0];
+              if (nmEl && nmEl.textContent.trim() === 'AID-MAPM') continue;
               var pt = pms[pi].getElementsByTagNameNS(KMLNS,'Point')[0];
               if (!pt) continue;
               var cn = pt.getElementsByTagNameNS(KMLNS,'coordinates')[0];
@@ -637,7 +775,10 @@
                 var ts2 = pms[pi].getElementsByTagNameNS(KMLNS,'TimeStamp')[0];
                 if (ts2) wn = ts2.getElementsByTagNameNS(KMLNS,'when')[0];
               }
-              rawPts.push({ t: wn ? new Date(wn.textContent.trim()) : null, lon: parts[0], lat: parts[1], alt: parts[2]||0 });
+              var descEl = pms[pi].getElementsByTagNameNS(KMLNS,'description')[0];
+              rawPts.push({ t: wn ? new Date(wn.textContent.trim()) : null,
+                            lon: parts[0], lat: parts[1], alt: parts[2]||0,
+                            desc: descEl ? descEl.textContent : null });
             }
             if (rawPts.some(function(p){return p.t;})) rawPts.sort(function(a,b){return a.t-b.t;});
           }

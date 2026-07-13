@@ -59,18 +59,32 @@ and kept in `trackPtsSampled[idx]` parallel arrays for nearest-point lookups.
 map.getView().fit(vectorSource.getExtent(), { padding: [40, 40, 40, 40] });
 ```
 
-### Click → Point Info
+### Click → Point Popups (multiple, stacked — same system as map.html)
 Clicking inside a panel resolves, in priority order:
-1. A SEC-SIG run feature → jam/spoof metadata popup.
-2. A Point marker (start/end) → its name + description.
-3. The **track LineString** → `nearestTrackInfo(idx, coord)` scans the panel's
-   stored `trackSampled[idx]` vertices, snaps to the closest one, and shows a
-   popup with **Lat / Lon / Alt / Time** (time and altitude shown when the
-   source KML carried them) and the vertex index. The popup anchors at the
-   snapped vertex.
+1. A SEC-SIG run feature → jam/spoof metadata on the **shared per-panel popup**
+   (draggable by its title; offset resets on each show; closes on empty-map
+   click).
+2. A Point marker (start/end) → an independent point popup with its name +
+   description, anchored at the point's own coordinate.
+3. The **track LineString** → `nearestTrackInfo(idx, coord)` snaps to the
+   closest stored vertex. When the KML carried a per-point `<description>`
+   (ubx-ray tracks; captured during the Placemark parse), the popup shows that
+   **full content, identical to the single map view** (UTC, iTOW, FixType, fix
+   flags, Heading, HeadAcc, Speed, SpeedAcc, Lat, Lon, PosAcc2D, Alt, AltAcc);
+   otherwise the Lat/Lon/Alt/Time + vertex-index summary. Title = shortened
+   filename + `#<vertex>`.
 
-This makes the line itself clickable — previously only the start/end markers
-returned anything.
+**Behaviour** (ported from `map.html`): each click **adds** an independent
+popup (several can stay open, across panels). Every popup gets a coloured
+**numbered ring marker** on its point (per-panel pin layer, zIndex 720;
+numbering is per panel) plus a matching number badge and top border, and is
+**draggable by its title bar**. Each closes via its own `×`; a global
+**Close popups** header button (visible only while any are open) clears all
+panels at once. Point popups persist on empty-map clicks.
+
+AID-MAPM placemarks are excluded from track parsing (map-matching markers,
+not vehicle-track epochs). `window._olMaps` exposes the four map instances
+(same debug handle the overlay view provides via `window._olMap`).
 
 ### View Synchronization
 4 Map instances share center/zoom via **master-slave** sync:

@@ -49,14 +49,34 @@ btn.classList.toggle('dimmed');  // visual feedback for inactive state
 
 ---
 
-## Click → Point Info
+## Click → Point Popups (multiple, stacked — same system as map.html)
 A single click resolves, in priority order: a start/end **Point** marker (name
 + description), else the clicked **track LineString**. For a line, the per-track
 `trackPts[idx]` / `trackLineCoords[idx]` arrays are scanned via
-`nearestTrackInfo(idx, coord)` to snap to the nearest displayed vertex, and the
-popup shows **Lat / Lon / Alt / Time** (time and altitude shown when the source
-KML carried them, e.g. gx:Track) plus the vertex index. The popup anchors at the
-snapped vertex. This makes the overlaid lines themselves clickable.
+`nearestTrackInfo(idx, coord)` to snap to the nearest displayed vertex; the
+popup anchors at the snapped vertex.
+
+**Content** — when the KML carried a per-point `<description>` (ubx-ray
+generated tracks; captured during the Placemark parse), the popup shows that
+**full content, identical to the single map view**: UTC, iTOW, FixType, fix
+flags, Heading, HeadAcc, Speed, SpeedAcc, Lat, Lon, PosAcc2D, Alt, AltAcc.
+Plain gx:Track / LineString KMLs fall back to the Lat/Lon/Alt/Time + vertex
+index summary. The popup title is the (shortened) filename plus `#<vertex>`.
+
+**Behaviour** (ported from `map.html`): each click **adds** an independent
+popup, so several can stay open for comparison. Every popup gets a coloured
+**numbered ring marker** on its point (pin layer, zIndex 720) and a matching
+number badge + top border; popups are **draggable by their title bar**
+(`makeDraggable`, pointer capture — the pixel offset is adjusted so they keep
+tracking their anchor on zoom/pan). Each closes via its own `×`; a
+**Close popups** toolbar button (visible only while any are open) clears all.
+Point popups persist on empty-map clicks. The shared `#popup` remains for the
+Distance-measure result only (also draggable; `Clear` closes it, and its drag
+offset resets on each new measurement).
+
+AID-MAPM placemarks (`<name>AID-MAPM</name>`) are excluded from track parsing
+— they are map-matching markers, not vehicle-track epochs, and would distort
+the comparison line.
 
 ---
 
