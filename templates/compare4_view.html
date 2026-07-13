@@ -453,9 +453,7 @@
       if (!closer) return;
       e.preventDefault();
       var idx = parseInt(closer.dataset.idx, 10);
-      if (popupOverlays[idx]) popupOverlays[idx].setPosition(undefined);
-      var pe = document.getElementById('popup'+(idx+1));
-      if (pe) pe.style.display = 'none';
+      if (!isNaN(idx)) hideSharedPopup(idx);   // point-popup closers have no data-idx
     });
 
     // ── Build 4 Maps ──────────────────────────────────────────────────────
@@ -512,8 +510,25 @@
     function totalPopupCount() {
       return pointPopups.reduce(function(s, arr) { return s + arr.length; }, 0);
     }
+    function anySharedPopupOpen() {
+      for (var i = 0; i < 4; i++) {
+        var pe = document.getElementById('popup' + (i + 1));
+        if (pe && pe.style.display === 'block') return true;
+      }
+      return false;
+    }
+    // "Close popups" covers every popup on every panel: the stacked point
+    // popups AND the shared per-panel SEC-SIG popups, so it is also shown
+    // while only a shared popup is open.
     function refreshClearPopupsBtn() {
-      clearPopupsBtn.style.display = totalPopupCount() ? '' : 'none';
+      clearPopupsBtn.style.display =
+        (totalPopupCount() || anySharedPopupOpen()) ? '' : 'none';
+    }
+    function hideSharedPopup(idx) {
+      if (popupOverlays[idx]) popupOverlays[idx].setPosition(undefined);
+      var pe = document.getElementById('popup' + (idx + 1));
+      if (pe) pe.style.display = 'none';
+      refreshClearPopupsBtn();
     }
     function removePointPopup(idx, entry) {
       maps[idx].removeOverlay(entry.overlay);
@@ -525,6 +540,7 @@
     function clearPointPopups() {
       for (var i = 0; i < 4; i++) {
         while (pointPopups[i].length) removePointPopup(i, pointPopups[i][0]);
+        hideSharedPopup(i);
       }
     }
     clearPopupsBtn.addEventListener('click', clearPointPopups);
@@ -610,6 +626,7 @@
                 popupOverlays[idx].setOffset([0, -10]);   // reset any prior drag
                 popupOverlays[idx].setPosition(evt.coordinate);
                 document.getElementById('popup'+(idx+1)).style.display = 'block';
+                refreshClearPopupsBtn();
                 hit = true;
                 return true;
               }
@@ -639,10 +656,7 @@
 
             // Empty-map click closes only the shared SEC-SIG popup; point
             // popups persist until closed via their × or "Close popups".
-            if (!hit) {
-              popupOverlays[idx].setPosition(undefined);
-              document.getElementById('popup'+(idx+1)).style.display = 'none';
-            }
+            if (!hit) hideSharedPopup(idx);
           });
         })(qi);
       }

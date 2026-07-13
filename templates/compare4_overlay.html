@@ -384,8 +384,7 @@
 
     document.getElementById('popup-closer').onclick = function(e) {
       e.preventDefault();
-      popupOverlay.setPosition(undefined);
-      popupEl.style.display = 'none';
+      hideSharedPopup();
     };
 
     // ── Multiple point popups (ported from map.html) ─────────────────────
@@ -420,8 +419,17 @@
       pointPopups.forEach(function(p) { used[p.num] = true; });
       var n = 1; while (used[n]) n++; return n;
     }
+    // "Close popups" covers every popup on the map: the stacked point popups
+    // AND the shared #popup (Distance-measure result), so it is also shown
+    // while only the shared popup is open.
     function refreshClearPopupsBtn() {
-      clearPopupsBtn.style.display = pointPopups.length ? '' : 'none';
+      var sharedOpen = popupEl.style.display === 'block';
+      clearPopupsBtn.style.display = (pointPopups.length || sharedOpen) ? '' : 'none';
+    }
+    function hideSharedPopup() {
+      popupOverlay.setPosition(undefined);
+      popupEl.style.display = 'none';
+      refreshClearPopupsBtn();
     }
     function removePointPopup(entry) {
       map.removeOverlay(entry.overlay);
@@ -433,7 +441,14 @@
     function clearPointPopups() {
       while (pointPopups.length) removePointPopup(pointPopups[0]);
     }
-    clearPopupsBtn.addEventListener('click', clearPointPopups);
+    clearPopupsBtn.addEventListener('click', function() {
+      clearPointPopups();
+      hideSharedPopup();
+      // Also remove the distance-measure drawing (line + endpoints) so
+      // "Close popups" leaves a completely clean map.
+      picked = [];
+      measureSrc.clear();
+    });
 
     // Drag a popup by its title bar: adjusts the overlay's pixel offset so it
     // still tracks its anchor on zoom/pan. stopEvent keeps the map from
@@ -642,7 +657,7 @@
     function setMeasure(on) {
       measureActive = on;
       measureBtn.classList.toggle('active', on);
-      if (on) { picked = []; measureSrc.clear(); popupEl.style.display = 'none'; }
+      if (on) { picked = []; measureSrc.clear(); hideSharedPopup(); }
     }
     measureBtn.onclick = function() { setMeasure(!measureActive); };
     clearBtn.onclick   = function() {
@@ -650,10 +665,7 @@
       measureSrc.clear();
       // Also close the measurement result popup (the shared #popup is only
       // used for Distance in this view).
-      if (popupTitle.textContent === 'Distance') {
-        popupOverlay.setPosition(undefined);
-        popupEl.style.display = 'none';
-      }
+      if (popupTitle.textContent === 'Distance') hideSharedPopup();
     };
 
     function formatDist(m) {
@@ -672,6 +684,7 @@
         popupOverlay.setOffset([0, -12]);   // reset any prior drag
         popupOverlay.setPosition(line.getCoordinateAt(0.5));
         popupEl.style.display  = 'block';
+        refreshClearPopupsBtn();
         setMeasure(false);
       }
     });
