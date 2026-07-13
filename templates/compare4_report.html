@@ -575,6 +575,13 @@
 
     var MAX_PTS = 2000;
 
+    // Fixed y-axis width for every time-series chart (same trick as the
+    // single report): tick label widths differ per chart ("GNSS+DR" vs
+    // plain numbers), which would make each plot area start at a different
+    // x pixel and ruin visual comparison of the stacked charts.
+    var FIXED_Y_WIDTH = 85;
+    function fixedYWidth(ctx) { ctx.width = FIXED_Y_WIDTH; }
+
     // ── Build report ──────────────────────────────────────────────────────
     function buildReport() {
       document.getElementById('loadingOverlay').classList.add('hidden');
@@ -710,7 +717,7 @@
             },
             y: {
               title:{ display:true, text:'2D Accuracy (m)', font:{size:11} },
-              min: 0
+              min: 0, afterFit: fixedYWidth
             }
           }
         }
@@ -848,7 +855,8 @@
             scales: {
               x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
               y: { min: yMin != null ? yMin : undefined,
-                   title:{ display:true, text:yLabel, font:{size:11} } }
+                   title:{ display:true, text:yLabel, font:{size:11} },
+                   afterFit: fixedYWidth }
             }
           }
         });
@@ -905,7 +913,8 @@
                 stepSize: 1,
                 callback: function(v){ return FIX_NAMES[v] !== undefined ? FIX_NAMES[v] : ''; }
               },
-              title:{ display:true, text:'Fix Type', font:{size:11} }
+              title:{ display:true, text:'Fix Type', font:{size:11} },
+              afterFit: fixedYWidth
             }
           }
         }
@@ -944,7 +953,7 @@
           },
           scales: {
             x: { type:'linear', ticks:{ maxTicksLimit:6, callback: fmtITOW } },
-            y: { title:{ display:true, text:'CNO Top-5 Avg (dBHz)', font:{size:11} }, min:0 }
+            y: { title:{ display:true, text:'CNO Top-5 Avg (dBHz)', font:{size:11} }, min:0, afterFit: fixedYWidth }
           }
         }
       });
