@@ -806,17 +806,56 @@
       } else {
         txt = await res.text();   // very old browsers: no streaming, no bar
       }
-      // Let the "Parsing…" label paint before the (blocking) KML parse.
-      setLoadProgress(100, 'Parsing track…');
-      await new Promise(r => requestAnimationFrame(() => r()));
+      // ── Parse (the remaining heavy stage) ────────────────────────────
+      // A single readFeatures() call on a 100+ MB document blocks the main
+      // thread for many seconds — the bar sat at 100% with nothing visibly
+      // happening. Our generated KML is a flat list of self-contained
+      // <Placemark> blocks (every style inline), so it can be split with a
+      // plain indexOf scan and parsed in batches, each wrapped in a minimal
+      // KML envelope — updating a real "Parsing track… N%" and yielding to
+      // the event loop between batches. KMLs that don't match the flat
+      // structure (e.g. gx:Track uploads) fall back to the single call.
+      const kmlFormat = new ol.format.KML({ extractStyles: true, showPointNames: false });
+      const readOpts = {
+        dataProjection: 'EPSG:4326',
+        featureProjection: map.getView().getProjection()
+      };
 
-      // Single parse for the map layer (the OL url-loader that used to
-      // download+parse the same KML separately is gone).
-      const features = new ol.format.KML({ extractStyles: true, showPointNames: false })
-        .readFeatures(txt, {
-          dataProjection: 'EPSG:4326',
-          featureProjection: map.getView().getProjection()
-        });
+      async function parseFeaturesBatched(t) {
+        const CLOSE = '</Placemark>';
+        const BATCH = 4000;                 // placemarks per parse batch
+        const bounds = [];
+        let pos = 0;
+        while (true) {
+          const s = t.indexOf('<Placemark', pos);
+          if (s < 0) break;
+          const e = t.indexOf(CLOSE, s);
+          if (e < 0) break;
+          bounds.push([s, e + CLOSE.length]);
+          pos = e + CLOSE.length;
+        }
+        if (bounds.length <= BATCH) return null;   // small file: one call is fine
+        const head = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+          '<kml xmlns="http://www.opengis.net/kml/2.2" ' +
+          'xmlns:gx="http://www.google.com/kml/ext/2.2"><Document>';
+        const tail = '</Document></kml>';
+        const out = [];
+        for (let i = 0; i < bounds.length; i += BATCH) {
+          const end = Math.min(i + BATCH, bounds.length);
+          const body = t.slice(bounds[i][0], bounds[end - 1][1]);
+          out.push.apply(out, kmlFormat.readFeatures(head + body + tail, readOpts));
+          const pct = end / bounds.length * 100;
+          setLoadProgress(pct, 'Parsing track… ' + pct.toFixed(0) + '%');
+          await new Promise(r => setTimeout(r, 0));   // let the bar paint
+        }
+        return out;
+      }
+
+      setLoadProgress(0, 'Parsing track…');
+      await new Promise(r => requestAnimationFrame(() => r()));
+      const features = (await parseFeaturesBatched(txt)) ||
+        kmlFormat.readFeatures(txt, readOpts);
+      setLoadProgress(100, 'Rendering…');
 
       trackFeatures = []; trackXY = []; renderAlways = [];
       for (const f of features) {

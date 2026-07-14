@@ -40,9 +40,15 @@ KML track is fetched. The download streams through a `ReadableStream` reader
 and reports a **real percentage** ("Downloading track… 43%"): gzip makes
 `Content-Length` the compressed size while fetch yields decompressed bytes,
 so `/kml/{rid}` sends the raw size in an `X-Uncompressed-Size` header and the
-bar tracks decompressed-received / raw-size. After 100 % the label switches
-to "Parsing track…" (the KML parse is one blocking call, so that stage is
-indeterminate; an rAF yield lets the label paint first).
+bar tracks decompressed-received / raw-size. The bar then resets for a second
+stage, "Parsing track… N%": the generated KML is a flat list of
+self-contained `<Placemark>` blocks, so it is split with an `indexOf` scan and
+parsed in 4,000-placemark batches (each wrapped in a minimal KML envelope),
+updating the bar and yielding to the event loop between batches — a single
+`readFeatures()` call on a 100+ MB document used to block the main thread for
+many seconds with the bar stuck at 100 %. Non-flat KMLs (e.g. gx:Track)
+fall back to the single-call parse, and files under one batch skip the
+splitting entirely.
 Matters now that uploads can be up to 1 GB — the derived KMZ can take a
 moment to load. `hideLoading()` removes it when the track layer's
 `vectorSource` reaches the `ready` state (the real "track on screen" moment),
