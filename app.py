@@ -937,7 +937,14 @@ def kml_preview(request: Request, rid: str, authorization: Optional[str] = Heade
         with zipfile.ZipFile(row[0], "r") as z:
             with z.open("doc.kml") as f:
                 kml_bytes = f.read()
-        return Response(content=kml_bytes, media_type="application/vnd.google-earth.kml+xml")
+        # X-Uncompressed-Size lets the map view compute a real download
+        # percentage: with gzip the Content-Length is the compressed size,
+        # while fetch() hands the client decompressed bytes.
+        return Response(
+            content=kml_bytes,
+            media_type="application/vnd.google-earth.kml+xml",
+            headers={"X-Uncompressed-Size": str(len(kml_bytes))},
+        )
     except Exception as e:
         logger.exception(f"KML extraction failed: {e}")
         return HTMLResponse(f"<h3>KML extraction failed: {e}</h3>", status_code=500)

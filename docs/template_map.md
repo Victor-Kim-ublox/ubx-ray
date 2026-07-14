@@ -35,7 +35,14 @@ Full-screen (viewport height minus header height).
 
 ### Loading overlay (`#loadingOverlay`)
 A fixed full-screen overlay (blurred backdrop + spinner + "Loading map…" /
-"Fetching track data") shown on first paint while the KML track is fetched.
+"Fetching track data" + a slim progress bar) shown on first paint while the
+KML track is fetched. The download streams through a `ReadableStream` reader
+and reports a **real percentage** ("Downloading track… 43%"): gzip makes
+`Content-Length` the compressed size while fetch yields decompressed bytes,
+so `/kml/{rid}` sends the raw size in an `X-Uncompressed-Size` header and the
+bar tracks decompressed-received / raw-size. After 100 % the label switches
+to "Parsing track…" (the KML parse is one blocking call, so that stage is
+indeterminate; an rAF yield lets the label paint first).
 Matters now that uploads can be up to 1 GB — the derived KMZ can take a
 moment to load. `hideLoading()` removes it when the track layer's
 `vectorSource` reaches the `ready` state (the real "track on screen" moment),

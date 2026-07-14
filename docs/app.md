@@ -86,7 +86,7 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 | `POST` | `/upload/complete` | Assemble a chunked upload and run the normal upload pipeline → redirect to `/report/{rid}` |
 | `GET` | `/report/{rid}` | Single file analysis report (report.html) |
 | `GET` | `/map/{rid}` | KMZ-based map viewer (map.html) |
-| `GET` | `/kml/{rid}` | Extract and return doc.kml from KMZ |
+| `GET` | `/kml/{rid}` | Extract and return doc.kml from KMZ (includes `X-Uncompressed-Size` so the map view can show a download percentage despite gzip) |
 | `GET` | `/download` | Download KMZ file (ownership verified) |
 | `GET` | `/recent` | Recent results list (recent.html) |
 

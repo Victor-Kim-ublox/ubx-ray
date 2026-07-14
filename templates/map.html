@@ -139,6 +139,14 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .load-text { font-size: 15px; font-weight: 600; color: var(--ink); }
     .load-sub  { font-size: 13px; color: var(--muted); }
+    .load-bar-track {
+      width: 260px; height: 6px; border-radius: 999px;
+      background: #e5e7eb; overflow: hidden;
+    }
+    .load-bar {
+      height: 100%; width: 0%; border-radius: 999px;
+      background: var(--accent); transition: width .15s ease;
+    }
   </style>
 </head>
 <body>
@@ -148,6 +156,7 @@
     <div class="load-spinner"></div>
     <div class="load-text">Loading map…</div>
     <div class="load-sub" id="loadSub">Fetching track data</div>
+    <div class="load-bar-track"><div class="load-bar" id="loadBar"></div></div>
   </div>
 
   <!-- ===== Top toolbar ===== -->
@@ -267,7 +276,13 @@
     // Loading overlay handles (shown until the KML track renders / errors).
     const loadingOverlay = document.getElementById('loadingOverlay');
     const loadSub = document.getElementById('loadSub');
+    const loadBar = document.getElementById('loadBar');
     function hideLoading() { if (loadingOverlay) loadingOverlay.classList.add('hidden'); }
+    // Update the overlay's stage label and/or progress bar (pct 0-100).
+    function setLoadProgress(pct, label) {
+      if (label && loadSub) loadSub.textContent = label;
+      if (pct != null && loadBar) loadBar.style.width = Math.min(100, pct).toFixed(1) + '%';
+    }
 
     // KML layer. The source is filled by loadData() below — the KML is fetched
     // and parsed ONCE there (it used to be downloaded twice: once by the OL
@@ -761,7 +776,39 @@
     async function loadData(){
       const res = await fetch(kmlUrl);
       if (!res.ok) throw new Error('KML fetch HTTP ' + res.status);
-      const txt = await res.text();
+
+      // Stream the body so the overlay can show a real download percentage.
+      // Content-Length is the gzip-compressed size while fetch() yields
+      // decompressed bytes, so the server sends the raw size in
+      // X-Uncompressed-Size (same-origin: header is readable directly).
+      const totalRaw = parseInt(res.headers.get('X-Uncompressed-Size') || '0', 10);
+      let txt;
+      if (res.body && res.body.getReader) {
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (totalRaw > 0) {
+            const pct = Math.min(100, received / totalRaw * 100);
+            setLoadProgress(pct, 'Downloading track… ' + pct.toFixed(0) + '%');
+          } else {
+            setLoadProgress(null, 'Downloading track… ' + (received / 1048576).toFixed(1) + ' MB');
+          }
+        }
+        const all = new Uint8Array(received);
+        let off = 0;
+        for (const c of chunks) { all.set(c, off); off += c.length; }
+        txt = new TextDecoder().decode(all);
+      } else {
+        txt = await res.text();   // very old browsers: no streaming, no bar
+      }
+      // Let the "Parsing…" label paint before the (blocking) KML parse.
+      setLoadProgress(100, 'Parsing track…');
+      await new Promise(r => requestAnimationFrame(() => r()));
 
       // Single parse for the map layer (the OL url-loader that used to
       // download+parse the same KML separately is gone).
