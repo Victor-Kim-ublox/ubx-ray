@@ -25,6 +25,7 @@ from typing import Optional
 from fastapi.staticfiles import StaticFiles
 
 from fastapi import FastAPI, UploadFile, File, Form, Request, Header
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, Response, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.concurrency import run_in_threadpool
@@ -64,6 +65,10 @@ logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s %(me
 logger = logging.getLogger("ubxray")
 
 app = FastAPI(title="ubX-ray")
+# Compress responses (KML/JSON shrink dramatically: a 128 MB doc.kml gzips to
+# a few MB). compresslevel=1 keeps CPU cost negligible even for 100+ MB
+# payloads while still getting ~15-20x on XML/JSON.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=1)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # FastAPI startup 훅에 워커 등록

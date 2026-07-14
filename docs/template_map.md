@@ -55,7 +55,22 @@ the user is never left behind a stuck spinner.
 Switching is done by clicking `.seg` buttons → only the selected layer is set to `visible(true)`.
 
 ### Track Layer (Vector Layer)
-Fetches KML data from `/kml/{rid}` → parses with OpenLayers `KML` format.
+`loadData()` fetches `/kml/{rid}` **once** and parses it **once** with the
+OpenLayers `KML` format (the source previously also downloaded/parsed the
+same KML through its own url-loader — a 100+ MB XML for large logs, so the
+double transfer/parse dominated load time). The server gzips the response
+(~30× smaller). Playback timestamps are extracted with a linear
+`<when>` regex scan paired to the parsed point features — no DOM tree is
+built for the whole document (a DOMParser fallback covers gx:Track KMLs).
+
+**Zoom-adaptive rendering** — all parsed features stay in memory, but the
+vector source only holds what is worth drawing for the current view: at most
+`MAX_RENDER = 6000` track arrows inside the (10 %-padded) viewport, picked
+with an even stride and refreshed on `moveend`. Zooming in shrinks the
+in-view set, so detail increases until every point in view renders. AID-MAPM
+markers and non-point geometries always render; the last in-view point is
+always kept so the track end never disappears. Popups work on the rendered
+subset; playback and Fit use the full data (`fullExtent`).
 
 Each Placemark in the KML:
 - `<TimeStamp>` → time information (used for playback)

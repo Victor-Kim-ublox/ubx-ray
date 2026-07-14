@@ -41,6 +41,14 @@ BASE_DIR/
 
 ## Middleware
 
+### `GZipMiddleware`
+`app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=1)` —
+compresses every response over 1 KB when the client sends
+`Accept-Encoding: gzip`. This matters most for `/kml/{rid}` (a 113k-epoch
+log's doc.kml is ~112 MB raw and gzips to ~3.6 MB, ~31×) and
+`/api/graph/{rid}`. `compresslevel=1` keeps the CPU cost negligible even on
+100+ MB payloads (measured: no observable latency increase on loopback).
+
 ### `assign_user_cookie`
 Checks the `ubx_user` cookie on every incoming HTTP request. If absent, issues an anonymous ID via `uuid4().hex` and sets a 1-year cookie. Stored in `request.state.user_id` for use by route handlers.
 
