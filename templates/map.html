@@ -422,17 +422,21 @@
     map.addLayer(pinLayer);
 
     function pinStyle(num, color) {
-      return new ol.style.Style({
+      const style = new ol.style.Style({
         image: new ol.style.Circle({
           radius: 10,
           fill: new ol.style.Fill({ color: 'rgba(255,255,255,0.35)' }),
           stroke: new ol.style.Stroke({ color: color, width: 3 })
-        }),
-        text: new ol.style.Text({
-          text: String(num), font: 'bold 12px sans-serif',
-          fill: new ol.style.Fill({ color: color })
         })
       });
+      // num === null → an unnumbered ring (SEC-SIG popups don't use numbers).
+      if (num !== null) {
+        style.setText(new ol.style.Text({
+          text: String(num), font: 'bold 12px sans-serif',
+          fill: new ol.style.Fill({ color: color })
+        }));
+      }
+      return style;
     }
     function nextNum() {
       const used = new Set(pointPopups.map(p => p.num));
@@ -496,13 +500,17 @@
       });
     }
 
-    function addPointPopup(coordinate, title, descHtml) {
+    // opts.badge === false → no number badge in the popup and no number on the
+    // ring marker (used for SEC-SIG jam/spoof popups, which don't need a count).
+    // The colour still ties the popup border to its ring marker.
+    function addPointPopup(coordinate, title, descHtml, opts) {
       const num = nextNum();
       const color = POPUP_COLORS[(num - 1) % POPUP_COLORS.length];
+      const showBadge = !opts || opts.badge !== false;
 
       // Ring marker on the clicked point.
       const pin = new ol.Feature({ geometry: new ol.geom.Point(coordinate) });
-      pin.setStyle(pinStyle(num, color));
+      pin.setStyle(pinStyle(showBadge ? num : null, color));
       pinSrc.addFeature(pin);
 
       const el = document.createElement('div');
@@ -511,9 +519,12 @@
       const cl = document.createElement('a');
       cl.href = '#'; cl.className = 'ol-popup-closer'; cl.textContent = '×';
       const t = document.createElement('div'); t.className = 'pt-title';
-      const badge = document.createElement('span');
-      badge.className = 'pt-num'; badge.style.background = color; badge.textContent = num;
-      t.appendChild(badge); t.appendChild(document.createTextNode(title));
+      if (showBadge) {
+        const badge = document.createElement('span');
+        badge.className = 'pt-num'; badge.style.background = color; badge.textContent = num;
+        t.appendChild(badge);
+      }
+      t.appendChild(document.createTextNode(title));
       const d = document.createElement('div'); d.className = 'pt-desc'; d.innerHTML = descHtml;
       el.appendChild(cl); el.appendChild(t); el.appendChild(d);
 
@@ -1020,7 +1031,7 @@
       if (measureActive) return;
       map.forEachFeatureAtPixel(evt.pixel, (f, layer) => {
         if (!secLayers.includes(layer)) return;
-        addPointPopup(evt.coordinate, f.get('secTitle') || 'UBX-SEC-SIG', f.get('secDesc') || '');
+        addPointPopup(evt.coordinate, f.get('secTitle') || 'UBX-SEC-SIG', f.get('secDesc') || '', { badge: false });
         return true;
       }, { hitTolerance: 6 });
     });
