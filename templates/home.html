@@ -516,8 +516,14 @@
     // Cloudflare's free plan caps a single request body at ~100 MB, so files
     // above this threshold are sent as sequential sub-limit chunks and
     // reassembled server-side (see /upload/chunk + /upload/complete).
+    // Chunk size note: through the tunnel the browser uploads each chunk to
+    // the nearest Cloudflare edge almost instantly and then stalls while the
+    // edge forwards it to the origin — intra-chunk progress events are over
+    // in a blink, so the visible readout only advances at chunk boundaries.
+    // 16 MB chunks keep those steps small enough for smooth progress (the
+    // extra request round-trips cost only a few seconds even on a 1 GB file).
     const CHUNK_THRESHOLD_BYTES = 95 * 1024 * 1024;
-    const CHUNK_SIZE_BYTES = 64 * 1024 * 1024;
+    const CHUNK_SIZE_BYTES = 16 * 1024 * 1024;
 
     function newUploadId() {
       return (crypto.randomUUID && crypto.randomUUID()) ||
