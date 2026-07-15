@@ -117,7 +117,7 @@ XHR upload (`uploadWithProgress`) followed by 1 s status polling
 
 | Bar range | Phase | Source |
 |---|---|---|
-| 0 → 40% | 📤 Uploading… N% (12.5 MB / 28.6 MB) | XHR `upload.progress` events (real transfer progress); transferred/total sizes via `fmtSize()` (MB, GB above 1000 MB). Files > `CHUNK_THRESHOLD_BYTES` (95 MB) are sent via `uploadInChunks()` — sequential 64 MB `POST /upload/chunk` requests + `POST /upload/complete` — to stay under Cloudflare's ~100 MB request-body cap on the tunnel; progress and sizes span all chunks. Smaller files use the original single-request `/upload`. The Multi tab's upload phase shows the same size readout for the combined payload |
+| 0 → 40% | 📤 Uploading… N% (12.5 MB / 28.6 MB) | XHR `upload.progress` events (real transfer progress); transferred/total sizes via `fmtSize()` (MB, GB above 1000 MB). Files > `CHUNK_THRESHOLD_BYTES` (95 MB) are sent via `uploadInChunks()` — sequential 16 MB `POST /upload/chunk` requests (16 MB so progress advances smoothly despite Cloudflare edge buffering) + `POST /upload/complete` — to stay under Cloudflare's ~100 MB request-body cap on the tunnel; progress and sizes span all chunks. Smaller files use the original single-request `/upload`. The Multi tab's upload phase shows the same size readout for the combined payload |
 | 45% | ⏳ Queued… | `/api/status` = `queued` |
 | 50 → 95% | ⚙️ Processing… N% | `/api/status` = `running`; `progress` field = the converter's **real scan percentage** (read from the `.progress` sidecar `ubx2kmz --progress-file` writes ~every 0.5 s). Before the first sample the bar holds at 50% |
 | 100% | ✅ Done | `done` → redirect to the report |

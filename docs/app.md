@@ -122,7 +122,7 @@ The `ensure_columns()` function automatically adds missing columns to legacy dat
 Cloudflare's free plan caps a single request body at ~100 MB, so uploads
 through the ubx-ray.com tunnel fail with a **Cloudflare 413** for larger logs
 (the app's own limit is `MAX_UPLOAD_MB` = 1024). The home screen therefore
-splits files above ~95 MB into 64 MB chunks:
+splits files above ~95 MB into 16 MB chunks (small enough that the visible progress advances smoothly even when the Cloudflare edge buffers each request before forwarding it to the origin):
 
 1. `POST /upload/chunk` (sequential, one at a time) — fields `upload_id`
    (client-generated UUID, validated path-safe), `index`, `chunk` (blob).
