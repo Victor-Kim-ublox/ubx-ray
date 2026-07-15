@@ -1012,17 +1012,15 @@
       secToggleBtn.classList.toggle('active', on);
     };
 
-    // Click popup — describe which state(s) cover this segment.
+    // Click popup — describe which state(s) cover this segment. Spawns an
+    // independent stacked popup (like the track-point popups) so several
+    // jam/spoof segments can be compared side by side instead of each click
+    // replacing the previous one.
     map.on('singleclick', evt => {
       if (measureActive) return;
       map.forEachFeatureAtPixel(evt.pixel, (f, layer) => {
         if (!secLayers.includes(layer)) return;
-        titleEl.textContent = f.get('secTitle') || 'UBX-SEC-SIG';
-        descEl.innerHTML   = f.get('secDesc')  || '';
-        overlay.setOffset([0, -12]);   // reset any prior drag
-        overlay.setPosition(evt.coordinate);
-        container.style.display = 'block';
-        refreshClearPopupsBtn();
+        addPointPopup(evt.coordinate, f.get('secTitle') || 'UBX-SEC-SIG', f.get('secDesc') || '');
         return true;
       }, { hitTolerance: 6 });
     });
