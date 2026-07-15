@@ -35,7 +35,20 @@ Full-screen (viewport height minus header height).
 
 ### Loading overlay (`#loadingOverlay`)
 A fixed full-screen overlay (blurred backdrop + spinner + "Loading map…" /
-"Fetching track data") shown on first paint while the KML track is fetched.
+"Fetching track data" + a slim progress bar) shown on first paint while the
+KML track is fetched. The download streams through a `ReadableStream` reader
+and reports a **real percentage** ("Downloading track… 43%"): gzip makes
+`Content-Length` the compressed size while fetch yields decompressed bytes,
+so `/kml/{rid}` sends the raw size in an `X-Uncompressed-Size` header and the
+bar tracks decompressed-received / raw-size. The bar then resets for a second
+stage, "Parsing track… N%": the generated KML is a flat list of
+self-contained `<Placemark>` blocks, so it is split with an `indexOf` scan and
+parsed in 4,000-placemark batches (each wrapped in a minimal KML envelope),
+updating the bar and yielding to the event loop between batches — a single
+`readFeatures()` call on a 100+ MB document used to block the main thread for
+many seconds with the bar stuck at 100 %. Non-flat KMLs (e.g. gx:Track)
+fall back to the single-call parse, and files under one batch skip the
+splitting entirely.
 Matters now that uploads can be up to 1 GB — the derived KMZ can take a
 moment to load. `hideLoading()` removes it when the track layer's
 `vectorSource` reaches the `ready` state (the real "track on screen" moment),
@@ -55,7 +68,22 @@ the user is never left behind a stuck spinner.
 Switching is done by clicking `.seg` buttons → only the selected layer is set to `visible(true)`.
 
 ### Track Layer (Vector Layer)
-Fetches KML data from `/kml/{rid}` → parses with OpenLayers `KML` format.
+`loadData()` fetches `/kml/{rid}` **once** and parses it **once** with the
+OpenLayers `KML` format (the source previously also downloaded/parsed the
+same KML through its own url-loader — a 100+ MB XML for large logs, so the
+double transfer/parse dominated load time). The server gzips the response
+(~30× smaller). Playback timestamps are extracted with a linear
+`<when>` regex scan paired to the parsed point features — no DOM tree is
+built for the whole document (a DOMParser fallback covers gx:Track KMLs).
+
+**Zoom-adaptive rendering** — all parsed features stay in memory, but the
+vector source only holds what is worth drawing for the current view: at most
+`MAX_RENDER = 6000` track arrows inside the (10 %-padded) viewport, picked
+with an even stride and refreshed on `moveend`. Zooming in shrinks the
+in-view set, so detail increases until every point in view renders. AID-MAPM
+markers and non-point geometries always render; the last in-view point is
+always kept so the track end never disappears. Popups work on the rendered
+subset; playback and Fit use the full data (`fullExtent`).
 
 Each Placemark in the KML:
 - `<TimeStamp>` → time information (used for playback)

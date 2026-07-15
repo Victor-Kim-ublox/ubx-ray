@@ -139,6 +139,14 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .load-text { font-size: 15px; font-weight: 600; color: var(--ink); }
     .load-sub  { font-size: 13px; color: var(--muted); }
+    .load-bar-track {
+      width: 260px; height: 6px; border-radius: 999px;
+      background: #e5e7eb; overflow: hidden;
+    }
+    .load-bar {
+      height: 100%; width: 0%; border-radius: 999px;
+      background: var(--accent); transition: width .15s ease;
+    }
   </style>
 </head>
 <body>
@@ -148,6 +156,7 @@
     <div class="load-spinner"></div>
     <div class="load-text">Loading map…</div>
     <div class="load-sub" id="loadSub">Fetching track data</div>
+    <div class="load-bar-track"><div class="load-bar" id="loadBar"></div></div>
   </div>
 
   <!-- ===== Top toolbar ===== -->
@@ -267,20 +276,64 @@
     // Loading overlay handles (shown until the KML track renders / errors).
     const loadingOverlay = document.getElementById('loadingOverlay');
     const loadSub = document.getElementById('loadSub');
+    const loadBar = document.getElementById('loadBar');
     function hideLoading() { if (loadingOverlay) loadingOverlay.classList.add('hidden'); }
+    // Update the overlay's stage label and/or progress bar (pct 0-100).
+    function setLoadProgress(pct, label) {
+      if (label && loadSub) loadSub.textContent = label;
+      if (pct != null && loadBar) loadBar.style.width = Math.min(100, pct).toFixed(1) + '%';
+    }
 
-    // KML layer
+    // KML layer. The source is filled by loadData() below — the KML is fetched
+    // and parsed ONCE there (it used to be downloaded twice: once by the OL
+    // url-loader and once by loadData; a large log means a 100+ MB XML, so the
+    // double transfer/parse dominated load time).
     const kmlUrl = '/kml/{{ rid }}';
-    const vectorSource = new ol.source.Vector({
-      url: kmlUrl,
-      format: new ol.format.KML({ extractStyles: true, showPointNames: false })
-    });
+    const vectorSource = new ol.source.Vector();
     // zIndex 410 sits the track arrows above the thick jam halo (400) but below the
     // thin spoofing lines (420/440). That way the translucent red halo does not dim the
     // green/yellow/red fix-type arrows, while the narrow dashed/solid spoof lines still
     // render on top so they remain visible along the track.
     const vectorLayer = new ol.layer.Vector({ source: vectorSource, zIndex: 410 });
     map.addLayer(vectorLayer);
+
+    // ── Zoom-adaptive rendering ─────────────────────────────────────────
+    // Big logs carry 100k+ per-epoch arrow placemarks; rendering them all
+    // makes every pan/zoom sluggish. All parsed features are kept in the
+    // arrays below, but the vector source only holds the ones worth drawing
+    // for the current view: at most MAX_RENDER track arrows inside the
+    // (slightly padded) viewport, picked with an even stride. Zooming in
+    // shrinks the in-view set, so detail increases until every point in view
+    // is rendered. AID-MAPM markers and non-point geometries always render.
+    // Popups/playback are unaffected — they use the full data.
+    const MAX_RENDER = 6000;
+    let trackFeatures = [];   // vehicle-track point features, document order
+    let trackXY = [];         // projected [x,y] per track feature
+    let renderAlways = [];    // AID-MAPM markers + non-point geometries
+    let fullExtent = null;    // extent of ALL features (fit target)
+
+    function refreshRenderedFeatures() {
+      if (!trackFeatures.length && !renderAlways.length) return;
+      const ext = map.getView().calculateExtent(map.getSize());
+      const pad = (ext[2] - ext[0]) * 0.1;
+      const x0 = ext[0] - pad, y0 = ext[1] - pad;
+      const x1 = ext[2] + pad, y1 = ext[3] + pad;
+      const inView = [];
+      for (let i = 0; i < trackXY.length; i++) {
+        const c = trackXY[i];
+        if (c[0] >= x0 && c[0] <= x1 && c[1] >= y0 && c[1] <= y1) inView.push(i);
+      }
+      const stride = Math.max(1, Math.ceil(inView.length / MAX_RENDER));
+      const subset = renderAlways.slice();
+      for (let j = 0; j < inView.length; j += stride) subset.push(trackFeatures[inView[j]]);
+      // Keep the last in-view point so the track end never disappears.
+      if (inView.length && (inView.length - 1) % stride !== 0) {
+        subset.push(trackFeatures[inView[inView.length - 1]]);
+      }
+      vectorSource.clear(true);
+      vectorSource.addFeatures(subset);
+    }
+    map.on('moveend', refreshRenderedFeatures);
 
     // Base toggles
     const btnMap = document.getElementById('btnBaseMap');
@@ -293,22 +346,15 @@
     btnMap.addEventListener('click', () => setBase(false));
     btnSat.addEventListener('click', () => setBase(true));
 
-    // Fit the viewport to the full track extent. Used on initial load and by the Fit button.
+    // Fit the viewport to the full track extent. Used on initial load and by
+    // the Fit button. Uses the extent of ALL parsed features (fullExtent) —
+    // the vector source only holds the zoom-adaptive subset, so its own
+    // extent may be narrower than the real track.
     function fitToTrack() {
-      const ext = vectorSource.getExtent();
-      if (ext && !ol.extent.isEmpty(ext)) {
-        map.getView().fit(ext, { padding: [20, 20, 20, 20], maxZoom: 17, duration: 250 });
+      if (fullExtent && !ol.extent.isEmpty(fullExtent)) {
+        map.getView().fit(fullExtent, { padding: [20, 20, 20, 20], maxZoom: 17, duration: 250 });
       }
     }
-
-    // Auto-fit and hide the loading overlay once the KML track is rendered.
-    // The track layer loads kmlUrl via OpenLayers' own loader, independent of
-    // loadData() below; "ready"/"error" is the real "track is on screen" moment.
-    vectorSource.on('change', () => {
-      const st = vectorSource.getState();
-      if (st === 'ready') { fitToTrack(); hideLoading(); }
-      else if (st === 'error') { hideLoading(); }
-    });
 
     // Manual Fit button.
     document.getElementById('fitBtn').addEventListener('click', fitToTrack);
@@ -660,17 +706,34 @@
       return Math.min(50, Math.max(0.2, hz));
     }
 
-    // ===== 데이터 로드 + Hz 자동 감지 (다운샘플 보정 포함) =====
-    async function loadData(){
-      const res = await fetch(kmlUrl);
-      if (!res.ok) throw new Error('KML fetch HTTP ' + res.status);
-      const txt = await res.text();
-      const doc = new DOMParser().parseFromString(txt,'application/xml');
+    // Playback points without building a DOM for the whole (100+ MB) KML:
+    // the <when> values are pulled with one linear regex scan and paired
+    // with the already-parsed OL track features (same document order; only
+    // vehicle-track placemarks carry a TimeStamp, so the counts must match).
+    // Returns null when they don't — the DOMParser fallback handles that.
+    function buildRawPtsFast(txt) {
+      if (!trackFeatures.length) return null;
+      const whens = [];
+      const re = /<when>([^<]*)<\/when>/g;
+      let m;
+      while ((m = re.exec(txt)) !== null) whens.push(m[1].trim());
+      if (whens.length !== trackFeatures.length) return null;
+      const out = new Array(trackFeatures.length);
+      for (let i = 0; i < trackFeatures.length; i++) {
+        const c = trackFeatures[i].getGeometry().getCoordinates();
+        const ll = ol.proj.toLonLat(c);
+        out[i] = { t: new Date(whens[i]), lon: ll[0], lat: ll[1], alt: c[2] || 0 };
+      }
+      return out;
+    }
 
+    // Fallback: full DOM parse (gx:Track KMLs, or anything the fast path
+    // could not pair up).
+    function buildRawPtsDom(txt) {
+      const doc = new DOMParser().parseFromString(txt,'application/xml');
       const KMLNS = 'http://www.opengis.net/kml/2.2';
       const GXNS  = 'http://www.google.com/kml/ext/2.2';
 
-      // 1) 원본 포인트 수집 (rawPts)
       let rawPts = [];
       const tracks = doc.getElementsByTagNameNS(GXNS, 'Track');
       for (const tr of tracks) {
@@ -706,6 +769,116 @@
         }
         if (rawPts.some(p => p.t)) rawPts.sort((a,b)=>a.t-b.t);
       }
+      return rawPts;
+    }
+
+    // ===== 데이터 로드 + Hz 자동 감지 (다운샘플 보정 포함) =====
+    async function loadData(){
+      const res = await fetch(kmlUrl);
+      if (!res.ok) throw new Error('KML fetch HTTP ' + res.status);
+
+      // Stream the body so the overlay can show a real download percentage.
+      // Content-Length is the gzip-compressed size while fetch() yields
+      // decompressed bytes, so the server sends the raw size in
+      // X-Uncompressed-Size (same-origin: header is readable directly).
+      const totalRaw = parseInt(res.headers.get('X-Uncompressed-Size') || '0', 10);
+      let txt;
+      if (res.body && res.body.getReader) {
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (totalRaw > 0) {
+            const pct = Math.min(100, received / totalRaw * 100);
+            setLoadProgress(pct, 'Downloading track… ' + pct.toFixed(0) + '%');
+          } else {
+            setLoadProgress(null, 'Downloading track… ' + (received / 1048576).toFixed(1) + ' MB');
+          }
+        }
+        const all = new Uint8Array(received);
+        let off = 0;
+        for (const c of chunks) { all.set(c, off); off += c.length; }
+        txt = new TextDecoder().decode(all);
+      } else {
+        txt = await res.text();   // very old browsers: no streaming, no bar
+      }
+      // ── Parse (the remaining heavy stage) ────────────────────────────
+      // A single readFeatures() call on a 100+ MB document blocks the main
+      // thread for many seconds — the bar sat at 100% with nothing visibly
+      // happening. Our generated KML is a flat list of self-contained
+      // <Placemark> blocks (every style inline), so it can be split with a
+      // plain indexOf scan and parsed in batches, each wrapped in a minimal
+      // KML envelope — updating a real "Parsing track… N%" and yielding to
+      // the event loop between batches. KMLs that don't match the flat
+      // structure (e.g. gx:Track uploads) fall back to the single call.
+      const kmlFormat = new ol.format.KML({ extractStyles: true, showPointNames: false });
+      const readOpts = {
+        dataProjection: 'EPSG:4326',
+        featureProjection: map.getView().getProjection()
+      };
+
+      async function parseFeaturesBatched(t) {
+        const CLOSE = '</Placemark>';
+        const BATCH = 4000;                 // placemarks per parse batch
+        const bounds = [];
+        let pos = 0;
+        while (true) {
+          const s = t.indexOf('<Placemark', pos);
+          if (s < 0) break;
+          const e = t.indexOf(CLOSE, s);
+          if (e < 0) break;
+          bounds.push([s, e + CLOSE.length]);
+          pos = e + CLOSE.length;
+        }
+        if (bounds.length <= BATCH) return null;   // small file: one call is fine
+        const head = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+          '<kml xmlns="http://www.opengis.net/kml/2.2" ' +
+          'xmlns:gx="http://www.google.com/kml/ext/2.2"><Document>';
+        const tail = '</Document></kml>';
+        const out = [];
+        for (let i = 0; i < bounds.length; i += BATCH) {
+          const end = Math.min(i + BATCH, bounds.length);
+          const body = t.slice(bounds[i][0], bounds[end - 1][1]);
+          out.push.apply(out, kmlFormat.readFeatures(head + body + tail, readOpts));
+          const pct = end / bounds.length * 100;
+          setLoadProgress(pct, 'Parsing track… ' + pct.toFixed(0) + '%');
+          await new Promise(r => setTimeout(r, 0));   // let the bar paint
+        }
+        return out;
+      }
+
+      setLoadProgress(0, 'Parsing track…');
+      await new Promise(r => requestAnimationFrame(() => r()));
+      const features = (await parseFeaturesBatched(txt)) ||
+        kmlFormat.readFeatures(txt, readOpts);
+      setLoadProgress(100, 'Rendering…');
+
+      trackFeatures = []; trackXY = []; renderAlways = [];
+      for (const f of features) {
+        const g = f.getGeometry();
+        if (g && g.getType() === 'Point' && f.get('name') !== 'AID-MAPM') {
+          trackFeatures.push(f);
+          trackXY.push(g.getCoordinates());
+        } else {
+          renderAlways.push(f);
+        }
+      }
+      fullExtent = ol.extent.createEmpty();
+      for (const c of trackXY) ol.extent.extendCoordinate(fullExtent, c);
+      for (const f of renderAlways) {
+        const g = f.getGeometry();
+        if (g) ol.extent.extend(fullExtent, g.getExtent());
+      }
+
+      refreshRenderedFeatures();
+      fitToTrack();
+
+      // 1) 원본 포인트 수집 (rawPts)
+      let rawPts = buildRawPtsFast(txt) || buildRawPtsDom(txt);
 
       // 2) 원본에서 Hz 먼저 추정
       let hzRaw = estimateHzSmart(rawPts);
