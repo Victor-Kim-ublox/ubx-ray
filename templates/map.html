@@ -422,20 +422,26 @@
     map.addLayer(pinLayer);
 
     function pinStyle(num, color) {
-      return new ol.style.Style({
+      const style = new ol.style.Style({
         image: new ol.style.Circle({
           radius: 10,
           fill: new ol.style.Fill({ color: 'rgba(255,255,255,0.35)' }),
           stroke: new ol.style.Stroke({ color: color, width: 3 })
-        }),
-        text: new ol.style.Text({
-          text: String(num), font: 'bold 12px sans-serif',
-          fill: new ol.style.Fill({ color: color })
         })
       });
+      // num === null → an unnumbered ring (SEC-SIG popups don't use numbers).
+      if (num !== null) {
+        style.setText(new ol.style.Text({
+          text: String(num), font: 'bold 12px sans-serif',
+          fill: new ol.style.Fill({ color: color })
+        }));
+      }
+      return style;
     }
+    // Numbering counts only badge-carrying (track point) popups — SEC-SIG
+    // popups have num === null and never consume a number.
     function nextNum() {
-      const used = new Set(pointPopups.map(p => p.num));
+      const used = new Set(pointPopups.map(p => p.num).filter(n => n != null));
       let n = 1; while (used.has(n)) n++; return n;
     }
 
@@ -496,9 +502,17 @@
       });
     }
 
-    function addPointPopup(coordinate, title, descHtml) {
-      const num = nextNum();
-      const color = POPUP_COLORS[(num - 1) % POPUP_COLORS.length];
+    // opts.badge === false → no number badge in the popup, no number on the
+    // ring marker, and the popup does NOT consume a number (used for SEC-SIG
+    // jam/spoof popups: point popups keep counting 1, 2, 3… regardless of how
+    // many jam/spoof popups are open). The colour still ties the popup border
+    // to its ring marker; badge-less popups cycle the palette independently.
+    function addPointPopup(coordinate, title, descHtml, opts) {
+      const showBadge = !opts || opts.badge !== false;
+      const num = showBadge ? nextNum() : null;
+      const color = showBadge
+        ? POPUP_COLORS[(num - 1) % POPUP_COLORS.length]
+        : POPUP_COLORS[pointPopups.filter(p => p.num == null).length % POPUP_COLORS.length];
 
       // Ring marker on the clicked point.
       const pin = new ol.Feature({ geometry: new ol.geom.Point(coordinate) });
@@ -511,9 +525,12 @@
       const cl = document.createElement('a');
       cl.href = '#'; cl.className = 'ol-popup-closer'; cl.textContent = '×';
       const t = document.createElement('div'); t.className = 'pt-title';
-      const badge = document.createElement('span');
-      badge.className = 'pt-num'; badge.style.background = color; badge.textContent = num;
-      t.appendChild(badge); t.appendChild(document.createTextNode(title));
+      if (showBadge) {
+        const badge = document.createElement('span');
+        badge.className = 'pt-num'; badge.style.background = color; badge.textContent = num;
+        t.appendChild(badge);
+      }
+      t.appendChild(document.createTextNode(title));
       const d = document.createElement('div'); d.className = 'pt-desc'; d.innerHTML = descHtml;
       el.appendChild(cl); el.appendChild(t); el.appendChild(d);
 
@@ -1012,17 +1029,15 @@
       secToggleBtn.classList.toggle('active', on);
     };
 
-    // Click popup — describe which state(s) cover this segment.
+    // Click popup — describe which state(s) cover this segment. Spawns an
+    // independent stacked popup (like the track-point popups) so several
+    // jam/spoof segments can be compared side by side instead of each click
+    // replacing the previous one.
     map.on('singleclick', evt => {
       if (measureActive) return;
       map.forEachFeatureAtPixel(evt.pixel, (f, layer) => {
         if (!secLayers.includes(layer)) return;
-        titleEl.textContent = f.get('secTitle') || 'UBX-SEC-SIG';
-        descEl.innerHTML   = f.get('secDesc')  || '';
-        overlay.setOffset([0, -12]);   // reset any prior drag
-        overlay.setPosition(evt.coordinate);
-        container.style.display = 'block';
-        refreshClearPopupsBtn();
+        addPointPopup(evt.coordinate, f.get('secTitle') || 'UBX-SEC-SIG', f.get('secDesc') || '', { badge: false });
         return true;
       }, { hitTolerance: 6 });
     });

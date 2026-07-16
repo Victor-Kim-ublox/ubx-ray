@@ -158,9 +158,17 @@ during a drag.
 `autoPan:false`); descriptions run through `sanitizeHtml()` first. Closing a
 popup removes both its overlay and its ring marker.
 
-The measurement result and SEC-SIG click popups use the single shared `#popup`
-overlay, which is **also draggable** by its title (same `makeDraggable`); its
-offset resets to the default each time it is shown for a new feature.
+SEC-SIG (jam/spoof) segment clicks spawn the **same stacked, draggable
+popups** as track points (`addPointPopup()`), so several jam/spoof segments
+can be compared side by side instead of each click replacing the previous.
+They pass `{ badge: false }`, so — unlike the track-point popups — they carry
+**no number badge**, their ring marker is an unnumbered coloured ring (the
+colour still ties each popup border to its marker), and they **do not consume
+a number**: track-point popups keep counting 1, 2, 3… regardless of how many
+jam/spoof popups are open. Only the
+distance-measurement result still uses the single shared `#popup` overlay,
+which is **also draggable** by its title (same `makeDraggable`); its offset
+resets to the default each time it is shown.
 
 ---
 
@@ -187,7 +195,7 @@ Layer stack (bottom → top), by OpenLayers `zIndex`:
 | 600 | measureLayer | Distance-measure line |
 | 700 | markerLayer | Current playback marker |
 
-The three SEC-SIG overlays live on separate vector layers with distinct z-indices (jam halo → spfIndicated → spfAffirmed). Concurrent jamming + spoofing on the same segment therefore shows up as a red halo with an orange or magenta line running along its center — both conditions remain readable. A "Jam/Spoof" toolbar segment is rendered only when at least one run is produced; it contains a toggle button (hides/shows all three layers together) and an inline SVG legend. Clicking a segment opens the popup with the run's iTOW range and epoch count.
+The three SEC-SIG overlays live on separate vector layers with distinct z-indices (jam halo → spfIndicated → spfAffirmed). Concurrent jamming + spoofing on the same segment therefore shows up as a red halo with an orange or magenta line running along its center — both conditions remain readable. A "Jam/Spoof" toolbar segment is rendered only when at least one run is produced; it contains a toggle button (hides/shows all three layers together) and an inline SVG legend. Clicking a segment opens a stacked popup (via `addPointPopup` with `{ badge: false }` — no number) with the run's iTOW range and epoch count; multiple segment popups can stay open at once.
 
 ---
 
