@@ -438,8 +438,10 @@
       }
       return style;
     }
+    // Numbering counts only badge-carrying (track point) popups — SEC-SIG
+    // popups have num === null and never consume a number.
     function nextNum() {
-      const used = new Set(pointPopups.map(p => p.num));
+      const used = new Set(pointPopups.map(p => p.num).filter(n => n != null));
       let n = 1; while (used.has(n)) n++; return n;
     }
 
@@ -500,17 +502,21 @@
       });
     }
 
-    // opts.badge === false → no number badge in the popup and no number on the
-    // ring marker (used for SEC-SIG jam/spoof popups, which don't need a count).
-    // The colour still ties the popup border to its ring marker.
+    // opts.badge === false → no number badge in the popup, no number on the
+    // ring marker, and the popup does NOT consume a number (used for SEC-SIG
+    // jam/spoof popups: point popups keep counting 1, 2, 3… regardless of how
+    // many jam/spoof popups are open). The colour still ties the popup border
+    // to its ring marker; badge-less popups cycle the palette independently.
     function addPointPopup(coordinate, title, descHtml, opts) {
-      const num = nextNum();
-      const color = POPUP_COLORS[(num - 1) % POPUP_COLORS.length];
       const showBadge = !opts || opts.badge !== false;
+      const num = showBadge ? nextNum() : null;
+      const color = showBadge
+        ? POPUP_COLORS[(num - 1) % POPUP_COLORS.length]
+        : POPUP_COLORS[pointPopups.filter(p => p.num == null).length % POPUP_COLORS.length];
 
       // Ring marker on the clicked point.
       const pin = new ol.Feature({ geometry: new ol.geom.Point(coordinate) });
-      pin.setStyle(pinStyle(showBadge ? num : null, color));
+      pin.setStyle(pinStyle(num, color));
       pinSrc.addFeature(pin);
 
       const el = document.createElement('div');
