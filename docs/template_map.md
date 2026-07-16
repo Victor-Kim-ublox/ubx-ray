@@ -162,8 +162,10 @@ SEC-SIG (jam/spoof) segment clicks spawn the **same stacked, draggable
 popups** as track points (`addPointPopup()`), so several jam/spoof segments
 can be compared side by side instead of each click replacing the previous.
 They pass `{ badge: false }`, so — unlike the track-point popups — they carry
-**no number badge** and their ring marker is an unnumbered coloured ring (the
-colour still ties each popup border to its marker). Only the
+**no number badge**, their ring marker is an unnumbered coloured ring (the
+colour still ties each popup border to its marker), and they **do not consume
+a number**: track-point popups keep counting 1, 2, 3… regardless of how many
+jam/spoof popups are open. Only the
 distance-measurement result still uses the single shared `#popup` overlay,
 which is **also draggable** by its title (same `makeDraggable`); its offset
 resets to the default each time it is shown.
