@@ -1,7 +1,8 @@
 # templates/map.html
 
 ## Overview
-A **KMZ-based map viewer** for single UBX file analysis results. Renders KML points via OpenLayers with support for satellite/road map switching, point size adjustment, and timeline playback.
+A **KMZ-based map viewer** for single UBX file analysis results. Renders KML points via OpenLayers with support for satellite/road map switching, point size adjustment, and a
+two-handle Range selector that trims which part of the track is drawn.
 
 ---
 
@@ -25,7 +26,7 @@ A **KMZ-based map viewer** for single UBX file analysis results. Renders KML poi
 - "Map View" title + filename
 - **Toolbar** (flex) — grouped left-to-right by function:
   1. **View controls** — `Map` / `Satellite` base map toggle, and **Fit** which re-frames the map to the current track extent (padding 20 px, max zoom 17, 250 ms animation). Fit shares its `fitToTrack()` implementation with the initial auto-fit that runs when the KML finishes loading.
-  2. **Playback** — `▶ Play` / `⏸ Pause`, speed selector (1× / 2× / 5× / 10×), timeline slider, UTC time readout, `Follow` (keep marker centered).
+  2. **Range** — a two-handle slider that picks the slice of the track to draw (see Track Range below), a UTC read-out of the selected span, and `Full` to restore the whole path.
   3. **Distance measurement** — `Distance measure` (click two points for a Haversine read-out), `Clear` (removes the current line **and** the Distance result popup; the shared `#popup` is only hidden when it is showing a Distance result, so an open SEC-SIG popup is left untouched).
   4. **Jam/Spoof overlay** (shown only when SEC-SIG data exists) — toggle button plus inline legend for `Jam`, `Spf ind.`, `Spf aff.`
   5. **Links** — `📋 Report` → `/report/{rid}`, `⬇ Download KMZ`.
@@ -72,9 +73,11 @@ Switching is done by clicking `.seg` buttons → only the selected layer is set 
 OpenLayers `KML` format (the source previously also downloaded/parsed the
 same KML through its own url-loader — a 100+ MB XML for large logs, so the
 double transfer/parse dominated load time). The server gzips the response
-(~30× smaller). Playback timestamps are extracted with a linear
-`<when>` regex scan paired to the parsed point features — no DOM tree is
-built for the whole document (a DOMParser fallback covers gx:Track KMLs).
+(~30× smaller). Per-point timestamps for the Range read-out are extracted with
+a linear `<when>` regex scan paired to the parsed point features
+(`buildTrackTimes()`) — no DOM tree is built for the whole document. When the
+`<when>` count does not match the track features the array is left empty and
+the Range label falls back to point counts.
 
 **Zoom-adaptive rendering** — all parsed features stay in memory, but the
 vector source only holds what is worth drawing for the current view: at most
@@ -82,11 +85,12 @@ vector source only holds what is worth drawing for the current view: at most
 with an even stride and refreshed on `moveend`. Zooming in shrinks the
 in-view set, so detail increases until every point in view renders. AID-MAPM
 markers and non-point geometries always render; the last in-view point is
-always kept so the track end never disappears. Popups work on the rendered
-subset; playback and Fit use the full data (`fullExtent`).
+always kept so the track end never disappears. The Range selection narrows the
+eligible slice **before** this viewport filter runs, so trimming and
+zoom-adaptive thinning compose. Popups work on the rendered subset.
 
 Each Placemark in the KML:
-- `<TimeStamp>` → time information (used for playback)
+- `<TimeStamp>` → time information (used for the Range read-out)
 - `<Style>/<IconStyle>/<color>` → fixType-based color (green/yellow/red)
 - `<description>` → popup tooltip content
 
@@ -98,10 +102,10 @@ preceded it in the stream as `arrived iTOW` (right under the message `iTOW`) so
 it is clear after which NAV-PVT the message arrived. For `relativePos` points
 the delta is anchored to the NAV-PVT fix at the *same iTOW* as the message, and
 the popup additionally shows the raw delta (`ΔLat`/`ΔLon`) and the resulting
-`computed` absolute Lat/Lon; absolute points show a plain Lat/Lon. `loadData()`
-**excludes AID-MAPM Placemarks from playback** — they carry no `<TimeStamp>` and
-are markers rather than vehicle-track epochs, so they must not enter the ordered
-`rawPts`/`pts` playback set.
+`computed` absolute Lat/Lon; absolute points show a plain Lat/Lon. AID-MAPM
+Placemarks are kept out of the indexed track array (they carry no
+`<TimeStamp>` and are markers rather than vehicle-track epochs), so they are
+**not** affected by the Range trim and always render.
 
 ---
 
@@ -117,16 +121,43 @@ vectorSource.getFeatures().forEach(feature => {
 });
 ```
 
-### Timeline Playback
-Sequentially reveals points based on their TimeStamp:
-```javascript
-// Sort points by time
-// setInterval to show next point every N ms
-// Pan map to current point
-// Adjust interval based on selected playback speed
-```
+### Track Range (trim which part of the path is drawn)
+Replaces the old timeline playback (play/pause, speed, follow marker), which
+went unused. Two `<input type="range">` elements are stacked transparently over
+one painted rail (`.range-wrap`); only their thumbs take pointer events, so each
+handle drags independently. The values are **inclusive indices into
+`trackFeatures`** (document order), so the full span is the whole path:
 
-Current point metadata (UTC time, coordinates, speed, etc.) is displayed on screen during playback.
+- Drag the **left** handle to cut the beginning, the **right** handle to cut the
+  end. `onRangeInput()` stops a handle at the other one rather than letting them
+  cross.
+- The **selected handle is highlighted** (filled in the accent colour with a
+  soft ring) and grows slightly while it is being dragged, so it is always clear
+  which end is moving. "Selected" means the focused handle, falling back to the
+  one last dragged: the highlight is driven by a `.sel` class
+  (`updateHandleStacking()`) as well as `:focus`, because a range input can be
+  driven without the window itself holding focus. `updateHandleStacking()` also
+  raises the selected handle above the other so its ring is never clipped;
+  with neither selected, the handle in the right half stays on top so a pair
+  that lands on the same spot can still be pulled apart.
+- The read-out shows the selected UTC span (`12:50:50Z → 12:53:50Z`) when
+  `trackTimes` is available, otherwise `shown / total pts`; its tooltip always
+  carries both the counts and the point indices.
+- **`Full`** restores the whole track.
+
+`applyRange()` updates the label immediately (so dragging feels live) and
+coalesces the heavier redraw to one per frame — a drag fires many `input`
+events and each redraw walks the selected slice. In a hidden tab
+`requestAnimationFrame` never fires, so the redraw runs straight away instead.
+
+What the selection affects:
+
+| Area | Behaviour |
+|---|---|
+| Track arrows | Only indices in `[selLo(), selHi()]` are eligible; the zoom-adaptive viewport filter then thins that slice |
+| `Fit` / initial fit | `shownExtent()` frames the **selected** slice, not the whole log |
+| Jam/spoof overlays | `rebuildSecOverlays()` re-cuts every run to the selected iTOW window, so the highlights stop exactly where the drawn track stops (see below) |
+| Popups, AID-MAPM markers | Unaffected — AID-MAPM is not part of the indexed track |
 
 ### Feature Click Popups (multiple, stacked)
 Clicking a point spawns an **independent popup** anchored to that point's
@@ -193,9 +224,20 @@ Layer stack (bottom → top), by OpenLayers `zIndex`:
 | 420 | spfIndLayer | Spoofing indicated (dashed chartreuse) — thin line on top of everything below |
 | 440 | spfAffLayer | Spoofing affirmed (dashed cyan) — thin line on top |
 | 600 | measureLayer | Distance-measure line |
-| 700 | markerLayer | Current playback marker |
 
 The three SEC-SIG overlays live on separate vector layers with distinct z-indices (jam halo → spfIndicated → spfAffirmed). Concurrent jamming + spoofing on the same segment therefore shows up as a red halo with an orange or magenta line running along its center — both conditions remain readable. A "Jam/Spoof" toolbar segment is rendered only when at least one run is produced; it contains a toggle button (hides/shows all three layers together) and an inline SVG legend. Clicking a segment opens a stacked popup (via `addPointPopup` with `{ badge: false }` — no number) with the run's iTOW range and epoch count; multiple segment popups can stay open at once.
+
+**Range clipping** — the parsed runs are kept in `secRuns` (each carrying its
+per-point `itows[]` alongside `coords[]`), and `rebuildSecOverlays()` redraws
+the three layers whenever the Range selection changes, keeping only the points
+whose iTOW falls inside the selected window. The clip is therefore exact: a jam
+zone that extends past the trimmed track is cut at the same place, and runs
+entirely outside the selection disappear. Track index → iTOW comes from the
+graph JSON's `labels`, which lines up index-for-index with the KML track
+placemarks (both are emitted in the same conversion pass); if the counts ever
+disagree the clip is skipped and runs are drawn whole. The Jam/Spoof toolbar
+segment stays visible based on the **total** run count, so trimming to a clean
+stretch never hides the toggle.
 
 ---
 

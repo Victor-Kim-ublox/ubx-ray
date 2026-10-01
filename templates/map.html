@@ -70,6 +70,62 @@
       border-radius:8px; padding:6px 8px; font:13px/1.2 ui-monospace,monospace; color:#111827;
     }
 
+    /* ===== Track range slider (two handles over one rail) =====
+       Both inputs are stacked transparently on the same rail; only their
+       thumbs take pointer events, so each handle stays independently
+       draggable while the painted rail/selection sits underneath. */
+    .range-wrap{
+      position:relative; width:220px; height:28px;
+      display:inline-block; vertical-align:middle; margin:0 4px;
+    }
+    .range-rail, .range-sel{
+      position:absolute; top:50%; height:5px; margin-top:-3px;
+      border-radius:999px; pointer-events:none;
+    }
+    .range-rail{ left:0; right:0; background:#e5e7eb; }
+    .range-sel{ background:var(--accent); }
+    .range-wrap input[type="range"]{
+      position:absolute; left:0; top:0; width:100%; height:100%;
+      margin:0; padding:0; border:none; background:transparent;
+      -webkit-appearance:none; appearance:none;
+      pointer-events:none;           /* only the thumbs are interactive */
+    }
+    .range-wrap input[type="range"]:focus{ outline:none; }
+    .range-wrap input[type="range"]::-webkit-slider-thumb{
+      -webkit-appearance:none; appearance:none; pointer-events:auto;
+      width:15px; height:15px; border-radius:50%; cursor:grab;
+      background:#fff; border:2px solid var(--accent);
+      box-shadow:0 1px 3px rgba(0,0,0,.28);
+    }
+    .range-wrap input[type="range"]::-webkit-slider-thumb:active{ cursor:grabbing; }
+    .range-wrap input[type="range"]::-moz-range-thumb{
+      pointer-events:auto; width:13px; height:13px; border-radius:50%; cursor:grab;
+      background:#fff; border:2px solid var(--accent);
+      box-shadow:0 1px 3px rgba(0,0,0,.28);
+    }
+    .range-wrap input[type="range"]::-moz-range-track{ background:transparent; border:none; }
+    /* The handle you last grabbed stays filled + ringed — it is also the one
+       the arrow keys move — and the one being dragged right now grows a little
+       so it is obvious which end of the track is moving. */
+    .range-wrap input[type="range"]:focus::-webkit-slider-thumb,
+    .range-wrap input[type="range"].sel::-webkit-slider-thumb{
+      background:var(--accent);
+      box-shadow:0 0 0 4px rgba(255,110,89,.25), 0 1px 3px rgba(0,0,0,.3);
+    }
+    .range-wrap input[type="range"]:focus::-moz-range-thumb,
+    .range-wrap input[type="range"].sel::-moz-range-thumb{
+      background:var(--accent);
+      box-shadow:0 0 0 4px rgba(255,110,89,.25), 0 1px 3px rgba(0,0,0,.3);
+    }
+    .range-wrap input[type="range"]:active::-webkit-slider-thumb{
+      background:var(--accent); transform:scale(1.2);
+      box-shadow:0 0 0 6px rgba(255,110,89,.33), 0 2px 5px rgba(0,0,0,.35);
+    }
+    .range-wrap input[type="range"]:active::-moz-range-thumb{
+      background:var(--accent); transform:scale(1.2);
+      box-shadow:0 0 0 6px rgba(255,110,89,.33), 0 2px 5px rgba(0,0,0,.35);
+    }
+
     .badge{
       background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe;
       font-weight:700; font-size:12px; border-radius:999px; padding:4px 10px;
@@ -175,21 +231,19 @@
 
       <div class="sep"></div>
 
-      <!-- Playback -->
+      <!-- Track range: trim the drawn path from either end -->
       <div class="seg">
-        <button id="playBtn" class="btn">
-          <span class="ico">▶</span><span>Play</span>
-        </button>
-        <span class="small-label">Speed</span>
-        <select id="speedSel">
-          <option value="1">1×</option>
-          <option value="2">2×</option>
-          <option value="5">5×</option>
-          <option value="10">10×</option>
-        </select>
-        <input id="timeRange" type="range" min="0" max="0" value="0" step="1">
-        <div id="timeLabel" class="timebox">--</div>
-        <button id="followBtn" class="btn" title="Keep marker centered">Follow</button>
+        <span class="small-label">Range</span>
+        <div class="range-wrap" id="rangeWrap">
+          <div class="range-rail"></div>
+          <div class="range-sel" id="rangeSel"></div>
+          <input id="rangeStart" type="range" min="0" max="0" value="0" step="1"
+                 aria-label="Trim the start of the track">
+          <input id="rangeEnd" type="range" min="0" max="0" value="0" step="1"
+                 aria-label="Trim the end of the track">
+        </div>
+        <div id="rangeLabel" class="timebox">--</div>
+        <button id="rangeFullBtn" class="btn" title="Show the full track again">Full</button>
       </div>
 
       <div class="sep"></div>
@@ -305,7 +359,7 @@
     // (slightly padded) viewport, picked with an even stride. Zooming in
     // shrinks the in-view set, so detail increases until every point in view
     // is rendered. AID-MAPM markers and non-point geometries always render.
-    // Popups/playback are unaffected — they use the full data.
+    // The Range handles narrow the eligible slice before this filter runs.
     const MAX_RENDER = 6000;
     let trackFeatures = [];   // vehicle-track point features, document order
     let trackXY = [];         // projected [x,y] per track feature
@@ -318,8 +372,10 @@
       const pad = (ext[2] - ext[0]) * 0.1;
       const x0 = ext[0] - pad, y0 = ext[1] - pad;
       const x1 = ext[2] + pad, y1 = ext[3] + pad;
+      // Only the slice picked with the Range handles is eligible for drawing.
       const inView = [];
-      for (let i = 0; i < trackXY.length; i++) {
+      const lo = selLo(), hi = selHi();
+      for (let i = lo; i <= hi; i++) {
         const c = trackXY[i];
         if (c[0] >= x0 && c[0] <= x1 && c[1] >= y0 && c[1] <= y1) inView.push(i);
       }
@@ -346,13 +402,22 @@
     btnMap.addEventListener('click', () => setBase(false));
     btnSat.addEventListener('click', () => setBase(true));
 
-    // Fit the viewport to the full track extent. Used on initial load and by
-    // the Fit button. Uses the extent of ALL parsed features (fullExtent) —
-    // the vector source only holds the zoom-adaptive subset, so its own
-    // extent may be narrower than the real track.
+    // Fit the viewport to what is currently drawn. Used on initial load and by
+    // the Fit button. The vector source only holds the zoom-adaptive subset,
+    // so its own extent would be too narrow — this walks the selected track
+    // slice instead, falling back to the extent of ALL parsed features
+    // (fullExtent) when there are no track points (e.g. a plain LineString KML).
+    function shownExtent() {
+      if (!trackXY.length) return fullExtent;
+      const e = ol.extent.createEmpty();
+      const lo = selLo(), hi = selHi();
+      for (let i = lo; i <= hi; i++) ol.extent.extendCoordinate(e, trackXY[i]);
+      return ol.extent.isEmpty(e) ? fullExtent : e;
+    }
     function fitToTrack() {
-      if (fullExtent && !ol.extent.isEmpty(fullExtent)) {
-        map.getView().fit(fullExtent, { padding: [20, 20, 20, 20], maxZoom: 17, duration: 250 });
+      const ext = shownExtent();
+      if (ext && !ol.extent.isEmpty(ext)) {
+        map.getView().fit(ext, { padding: [20, 20, 20, 20], maxZoom: 17, duration: 250 });
       }
     }
 
@@ -611,185 +676,157 @@
       }
     });
 
-    // ===== Playback (Hz 자동 감지 + 프레임 기반 진행) =====
-    const playBtn  = document.getElementById('playBtn');
-    const speedSel = document.getElementById('speedSel');
-    const timeRange= document.getElementById('timeRange');
-    const timeLabel= document.getElementById('timeLabel');
-    const followBtn= document.getElementById('followBtn');
-    const hzBadge  = document.getElementById('hzBadge');
+    // ===== Track range (trim the drawn path from either end) =====
+    // Replaces the old playback controls. The two handles pick the slice of
+    // the track that is drawn: full range = the whole path, drag the left
+    // handle to cut the beginning and the right handle to cut the end. Only
+    // the drawing is affected — popups still carry each point's own data.
+    const rangeStartEl = document.getElementById('rangeStart');
+    const rangeEndEl   = document.getElementById('rangeEnd');
+    const rangeSelEl   = document.getElementById('rangeSel');
+    const rangeLabelEl = document.getElementById('rangeLabel');
+    const rangeFullBtn = document.getElementById('rangeFullBtn');
 
-    function updatePlayUI(isPlaying){
-      playBtn.classList.toggle('primary', isPlaying);
-      playBtn.innerHTML = isPlaying
-        ? '<span class="ico">⏸</span><span>Pause</span>'
-        : '<span class="ico">▶</span><span>Play</span>';
+    let rangeStart = 0, rangeEnd = -1;   // inclusive indices into trackFeatures
+    let trackTimes = [];                 // Date per track index ([] if unknown)
+
+    // Index of the last track point; -1 while nothing is loaded.
+    function lastTrackIdx() { return trackFeatures.length - 1; }
+    // Current selection clamped to what is actually loaded. rangeEnd === -1
+    // means "not initialised yet" and reads as the full track.
+    function selLo() { return Math.max(0, Math.min(rangeStart, lastTrackIdx())); }
+    function selHi() { return rangeEnd < 0 ? lastTrackIdx() : Math.min(rangeEnd, lastTrackIdx()); }
+
+    function fmtClock(d) {
+      return (d && !isNaN(d.getTime())) ? d.toISOString().slice(11, 19) + 'Z' : null;
     }
 
-    let playback = [], idx = 0, playing = false, raf = null;
-    let floatIdx = 0, lastTs = 0, dataHz = 1;
-    let followEnabled = false;
-    followBtn.onclick = () => {
-      followEnabled = !followEnabled;
-      followBtn.classList.toggle('active', followEnabled);
-      followBtn.textContent = followEnabled ? 'Following' : 'Follow';
+    // Decide which handle sits on top. The focused one wins, so its highlight
+    // ring is never clipped by the other input; otherwise the handle in the
+    // right half stays on top, so a pair that lands on the same spot can still
+    // be pulled apart again.
+    // The selected handle is the focused one, falling back to the one last
+    // dragged — `.sel` carries the highlight so it does not depend on :focus
+    // alone (a range input can be driven without the window holding focus).
+    let lastHandle = null;
+    function updateHandleStacking() {
+      const span = Math.max(1, lastTrackIdx());
+      const active = document.activeElement;
+      const sel = (active === rangeStartEl || active === rangeEndEl) ? active : lastHandle;
+      rangeStartEl.classList.toggle('sel', sel === rangeStartEl);
+      rangeEndEl.classList.toggle('sel', sel === rangeEndEl);
+      const startOnTop = sel === rangeStartEl ||
+        (sel !== rangeEndEl && selLo() > span / 2);
+      rangeStartEl.style.zIndex = startOnTop ? '4' : '3';
+      rangeEndEl.style.zIndex   = startOnTop ? '3' : '4';
+    }
+
+    function updateRangeUI() {
+      const span = Math.max(1, lastTrackIdx());
+      rangeSelEl.style.left  = (selLo() / span * 100) + '%';
+      rangeSelEl.style.width = ((selHi() - selLo()) / span * 100) + '%';
+      updateHandleStacking();
+
+      const shown = Math.max(0, selHi() - selLo() + 1);
+      const total = trackFeatures.length;
+      const t0 = trackTimes.length ? fmtClock(trackTimes[selLo()]) : null;
+      const t1 = trackTimes.length ? fmtClock(trackTimes[selHi()]) : null;
+      rangeLabelEl.textContent = (t0 && t1)
+        ? `${t0} → ${t1}`
+        : `${shown.toLocaleString()} / ${total.toLocaleString()} pts`;
+      rangeLabelEl.title =
+        `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} track points` +
+        (t0 && t1 ? ` (${t0} → ${t1})` : '') +
+        `\nPoint ${(selLo() + 1).toLocaleString()} – ${(selHi() + 1).toLocaleString()}`;
+    }
+
+    // Redraw for the current selection. The label updates immediately so the
+    // handles feel live; the heavier re-render is coalesced to one per frame
+    // (a drag fires many input events and each redraw walks the track).
+    let rangeRaf = 0;
+    function applyRange() {
+      updateRangeUI();
+      if (rangeRaf) return;
+      const run = () => { rangeRaf = 0; refreshRenderedFeatures(); rebuildSecOverlays(); };
+      // A hidden tab never fires requestAnimationFrame, so run straight away
+      // there — nothing is painting, so there is nothing to coalesce.
+      if (document.visibilityState === 'hidden') { run(); return; }
+      rangeRaf = requestAnimationFrame(run);
+    }
+
+    function onRangeInput(which) {
+      let s = parseInt(rangeStartEl.value, 10) || 0;
+      let e = parseInt(rangeEndEl.value, 10) || 0;
+      if (s > e) {                       // handles crossed — stop the dragged one
+        if (which === 'start') s = e; else e = s;
+        rangeStartEl.value = s; rangeEndEl.value = e;
+      }
+      rangeStart = s; rangeEnd = e;
+      lastHandle = which === 'start' ? rangeStartEl : rangeEndEl;
+      applyRange();
+    }
+    rangeStartEl.addEventListener('input', () => onRangeInput('start'));
+    rangeEndEl.addEventListener('input',   () => onRangeInput('end'));
+    // Keep the highlight (and the stacking) with the handle in use as focus
+    // moves between them; leaving the slider entirely drops the highlight.
+    [rangeStartEl, rangeEndEl].forEach(el => {
+      el.addEventListener('pointerdown', () => { lastHandle = el; updateHandleStacking(); });
+      el.addEventListener('focus', updateHandleStacking);
+      el.addEventListener('blur',  () => { lastHandle = null; updateHandleStacking(); });
+    });
+
+    rangeFullBtn.onclick = () => {
+      rangeStart = 0;
+      rangeEnd = Math.max(0, lastTrackIdx());
+      rangeStartEl.value = rangeStart;
+      rangeEndEl.value = rangeEnd;
+      applyRange();
     };
 
-    // Single moving marker
-    const marker = new ol.Feature(new ol.geom.Point(ol.proj.fromLonLat([0,0])));
-    const markerLayer = new ol.layer.Vector({
-      source: new ol.source.Vector({ features: [marker] }),
-      zIndex: 700,
-      style: new ol.style.Style({
-        image: new ol.style.Circle({
-          radius: 7, fill: new ol.style.Fill({ color: '#10b981' }),
-          stroke: new ol.style.Stroke({ color: '#065f46', width: 2 })
-        })
-      })
-    });
-    map.addLayer(markerLayer);
-
-    function setMarker(i){
-      if (!playback.length) return;
-      const p = playback[i];
-      const coord = ol.proj.fromLonLat([p.lon, p.lat]);
-      marker.getGeometry().setCoordinates(coord);
-      marker.changed();
-      // Seconds with exactly two decimals: "YYYY-MM-DD HH:MM:SS.cc UTC"
-      timeLabel.textContent = p.t ? p.t.toISOString().replace('T',' ').replace(/\.(\d{2})\d*Z$/, '.$1 UTC') : '--';
-      if (followEnabled) map.getView().setCenter(coord);
+    // Called once the track is parsed: size the handles to the point count.
+    function initRange(times) {
+      trackTimes = times || [];
+      const maxIdx = Math.max(0, lastTrackIdx());
+      rangeStartEl.min = rangeEndEl.min = 0;
+      rangeStartEl.max = rangeEndEl.max = maxIdx;
+      rangeStart = 0; rangeEnd = maxIdx;
+      rangeStartEl.value = 0; rangeEndEl.value = maxIdx;
+      updateRangeUI();
     }
 
-    function setIndex(i){
-      if (!playback.length) return;
-      idx = Math.max(0, Math.min(playback.length - 1, i|0));
-      floatIdx = idx;
-      timeRange.value = idx;
-      setMarker(idx);
-      lastTs = 0;
-    }
-
-    function tick(ts){
-      if (!playing) return;
-      if (!lastTs) lastTs = ts;
-      const dt = (ts - lastTs) / 1000; // sec
-      lastTs = ts;
-
-      const speed = parseFloat(speedSel.value || '1');
-      floatIdx += dataHz * speed * dt;
-
-      const next = Math.floor(floatIdx);
-      if (next !== idx) {
-        idx = Math.min(next, playback.length - 1);
-        setMarker(idx);
-        timeRange.value = idx;
-      }
-      if (idx >= playback.length - 1) { stop(); return; }
-      raf = requestAnimationFrame(tick);
-    }
-    function start(){ stop(); playing = true; updatePlayUI(true);  lastTs = 0; raf = requestAnimationFrame(tick); }
-    function stop(){  playing = false; updatePlayUI(false); if (raf) cancelAnimationFrame(raf); raf = null; }
-    playBtn.onclick = () => { playing ? stop() : start(); };
-    timeRange.oninput = e => { setIndex(parseInt(e.target.value,10)); if (playing) lastTs = 0; };
-
-    // ===== Hz 추정 (초 단위 버킷 우선) =====
-    function estimateHzSmart(points){
-      const times = points.map(p => p.t?.getTime()).filter(v => Number.isFinite(v));
-      if (times.length < 3) return null;
-
-      // 1) 같은 '초'에 몇 샘플 있는지 → 중앙값을 Hz로
-      const buckets = Object.create(null);
-      for (const ms of times) {
-        const sec = Math.floor(ms / 1000);
-        buckets[sec] = (buckets[sec] || 0) + 1;
-      }
-      const counts = Object.values(buckets);
-      if (counts.length) {
-        counts.sort((a,b) => a - b);
-        const medCount = counts[(counts.length/2) | 0];
-        if (medCount >= 2) return medCount; // 초당 2개 이상이면 그게 Hz로 가장 현실적
-      }
-
-      // 2) 서로 다른 시간 간격 중앙값으로 폴백
-      const deltas = [];
-      for (let i=1;i<times.length;i++){
-        const d = (times[i] - times[i-1]) / 1000;
-        if (d > 0) deltas.push(d);
-      }
-      if (!deltas.length) return null;
-      deltas.sort((a,b)=>a-b);
-      const med = deltas[(deltas.length/2)|0];
-      const hz = 1/med;
-      return Math.min(50, Math.max(0.2, hz));
-    }
-
-    // Playback points without building a DOM for the whole (100+ MB) KML:
-    // the <when> values are pulled with one linear regex scan and paired
+    // Per-track-point timestamps without building a DOM for the whole (100+ MB)
+    // KML: the <when> values are pulled with one linear regex scan and paired
     // with the already-parsed OL track features (same document order; only
     // vehicle-track placemarks carry a TimeStamp, so the counts must match).
-    // Returns null when they don't — the DOMParser fallback handles that.
-    function buildRawPtsFast(txt) {
-      if (!trackFeatures.length) return null;
+    // Returns [] when they do not line up — the Range label then falls back to
+    // point counts instead of UTC times.
+    function buildTrackTimes(txt) {
+      if (!trackFeatures.length) return [];
       const whens = [];
       const re = /<when>([^<]*)<\/when>/g;
       let m;
       while ((m = re.exec(txt)) !== null) whens.push(m[1].trim());
-      if (whens.length !== trackFeatures.length) return null;
-      const out = new Array(trackFeatures.length);
-      for (let i = 0; i < trackFeatures.length; i++) {
-        const c = trackFeatures[i].getGeometry().getCoordinates();
-        const ll = ol.proj.toLonLat(c);
-        out[i] = { t: new Date(whens[i]), lon: ll[0], lat: ll[1], alt: c[2] || 0 };
-      }
-      return out;
+      if (whens.length !== trackFeatures.length) return [];
+      return whens.map(w => new Date(w));
     }
 
-    // Fallback: full DOM parse (gx:Track KMLs, or anything the fast path
-    // could not pair up).
-    function buildRawPtsDom(txt) {
-      const doc = new DOMParser().parseFromString(txt,'application/xml');
-      const KMLNS = 'http://www.opengis.net/kml/2.2';
-      const GXNS  = 'http://www.google.com/kml/ext/2.2';
-
-      let rawPts = [];
-      const tracks = doc.getElementsByTagNameNS(GXNS, 'Track');
-      for (const tr of tracks) {
-        const whens  = Array.from(tr.getElementsByTagNameNS(KMLNS, 'when')).map(n => n.textContent.trim());
-        const coords = Array.from(tr.getElementsByTagNameNS(GXNS , 'coord')).map(n => n.textContent.trim());
-        const N = Math.min(whens.length, coords.length);
-        for (let i = 0; i < N; i++) {
-          const w = whens[i];
-          const c = coords[i].split(/\s+/).map(Number);
-          if (c.length >= 2) rawPts.push({ t: new Date(w), lon: c[0], lat: c[1], alt: c[2] || 0 });
-        }
-      }
-
-      if (!rawPts.length) {
-        const placemarks = doc.getElementsByTagNameNS(KMLNS, 'Placemark');
-        for (const pm of placemarks) {
-          // AID-MAPM points are map-matching arrows, not part of the vehicle
-          // track — exclude them from playback so they don't disrupt ordering.
-          const nameNode = pm.getElementsByTagNameNS(KMLNS, 'name')[0];
-          if (nameNode && nameNode.textContent.trim() === 'AID-MAPM') continue;
-          const point = pm.getElementsByTagNameNS(KMLNS, 'Point')[0];
-          if (!point) continue;
-          const coordNode = point.getElementsByTagNameNS(KMLNS, 'coordinates')[0];
-          if (!coordNode) continue;
-          const [lonS, latS, altS] = coordNode.textContent.trim().split(',').map(Number);
-          let whenNode = pm.getElementsByTagNameNS(KMLNS, 'when')[0];
-          if (!whenNode) {
-            const ts = pm.getElementsByTagNameNS(KMLNS, 'TimeStamp')[0];
-            if (ts) whenNode = ts.getElementsByTagNameNS(KMLNS, 'when')[0];
-          }
-          const whenStr = whenNode ? whenNode.textContent.trim() : null;
-          rawPts.push({ t: whenStr ? new Date(whenStr) : null, lon: lonS, lat: latS, alt: altS || 0 });
-        }
-        if (rawPts.some(p => p.t)) rawPts.sort((a,b)=>a.t-b.t);
-      }
-      return rawPts;
+    // Give the browser a chance to paint the progress bar between parse
+    // batches. A background tab never fires requestAnimationFrame (and clamps
+    // setTimeout to ~1 s), which used to stall the whole load until the tab
+    // was focused — so when the page is hidden there is nothing to paint and
+    // the yield is skipped entirely; when it is visible, rAF is raced with a
+    // short timeout so a throttled frame callback can never wedge the load.
+    function yieldToPaint() {
+      if (document.visibilityState === 'hidden') return Promise.resolve();
+      return new Promise(resolve => {
+        let done = false;
+        const fin = () => { if (!done) { done = true; resolve(); } };
+        requestAnimationFrame(fin);
+        setTimeout(fin, 50);
+      });
     }
 
-    // ===== 데이터 로드 + Hz 자동 감지 (다운샘플 보정 포함) =====
+    // ===== Fetch + parse the KML, then set up the Range selection =====
     async function loadData(){
       const res = await fetch(kmlUrl);
       if (!res.ok) throw new Error('KML fetch HTTP ' + res.status);
@@ -863,13 +900,13 @@
           out.push.apply(out, kmlFormat.readFeatures(head + body + tail, readOpts));
           const pct = end / bounds.length * 100;
           setLoadProgress(pct, 'Parsing track… ' + pct.toFixed(0) + '%');
-          await new Promise(r => setTimeout(r, 0));   // let the bar paint
+          await yieldToPaint();
         }
         return out;
       }
 
       setLoadProgress(0, 'Parsing track…');
-      await new Promise(r => requestAnimationFrame(() => r()));
+      await yieldToPaint();
       const features = (await parseFeaturesBatched(txt)) ||
         kmlFormat.readFeatures(txt, readOpts);
       setLoadProgress(100, 'Rendering…');
@@ -891,38 +928,17 @@
         if (g) ol.extent.extend(fullExtent, g.getExtent());
       }
 
+      // Size the Range handles to the track and label them with UTC times
+      // where the KML carried them, then draw the (initially full) selection.
+      initRange(buildTrackTimes(txt));
       refreshRenderedFeatures();
       fitToTrack();
 
-      // 1) 원본 포인트 수집 (rawPts)
-      let rawPts = buildRawPtsFast(txt) || buildRawPtsDom(txt);
-
-      // 2) 원본에서 Hz 먼저 추정
-      let hzRaw = estimateHzSmart(rawPts);
-      if (!hzRaw) hzRaw = 10; // 기본값(필요 시 1로)
-
-      // 3) 다운샘플 (필요 시)
-      let downsample = 1;
-      const MAX = 20000;
-      let pts = rawPts;
-      if (rawPts.length > MAX) {
-        downsample = Math.ceil(rawPts.length / MAX);
-        pts = rawPts.filter((_, i) => i % downsample === 0);
-      }
-
-      // 4) 재생 배열 세팅 + Hz 보정
-      playback = pts;
-      timeRange.max = Math.max(0, playback.length - 1);
-      setIndex(0);
-
-      dataHz = hzRaw / downsample; // ⬅️ 다운샘플 보정
-      const hzBadge = document.getElementById('hzBadge');
-      if (hzBadge) hzBadge.textContent = `Hz: ${dataHz.toFixed(2)}`;
-      console.log('[map] points:', playback.length, 'rawHz≈', hzRaw.toFixed(2), 'ds=', downsample, 'dataHz≈', dataHz.toFixed(2));
+      console.log('[map] track points:', trackFeatures.length,
+                  'other features:', renderAlways.length);
     }
-    // Hide the overlay when playback data is ready too (fallback in case the
-    // track layer's "ready" event was missed), and always on error so the user
-    // is never stuck behind the spinner.
+    // Hide the overlay once the track is ready, and always on error so the
+    // user is never stuck behind the spinner.
     loadData().then(hideLoading).catch(err => { console.error(err); hideLoading(); });
 
     // ===== Jamming / Spoofing overlay (UBX-SEC-SIG) =====
@@ -1029,6 +1045,58 @@
       secToggleBtn.classList.toggle('active', on);
     };
 
+    // Jam/spoof runs as parsed from the graph JSON, kept so the drawn
+    // overlays can be re-cut whenever the Range selection changes, plus the
+    // per-epoch iTOW list used to translate track indices into iTOWs.
+    let secRuns = null;      // { jam: [...], spfInd: [...], spfAff: [...] }
+    let graphItows = [];     // iTOW per graph epoch
+
+    // Redraw the jam/spoof overlays clipped to the selected track slice, so
+    // the highlights stop exactly where the drawn track stops instead of
+    // running the full length of the log. Each run carries its own per-point
+    // iTOWs, so the clip is exact. The graph epochs and the KML track
+    // placemarks come from the same conversion pass and therefore line up
+    // index-for-index; if the counts ever disagree the clip is skipped and
+    // the runs are drawn whole.
+    function rebuildSecOverlays() {
+      if (!secRuns) return;
+      jamSource.clear(true); spfIndSource.clear(true); spfAffSource.clear(true);
+
+      const aligned = trackFeatures.length > 0 &&
+                      graphItows.length === trackFeatures.length;
+      const loItow = aligned ? graphItows[selLo()] : -Infinity;
+      const hiItow = aligned ? graphItows[selHi()] :  Infinity;
+
+      function emit(source, kind, title) {
+        let count = 0;
+        for (const r of secRuns[kind]) {
+          const coords = [], itows = [];
+          for (let i = 0; i < r.itows.length; i++) {
+            if (r.itows[i] >= loItow && r.itows[i] <= hiItow) {
+              coords.push(r.coords[i]); itows.push(r.itows[i]);
+            }
+          }
+          if (!coords.length) continue;
+          const geom = coords.length === 1
+            ? new ol.geom.Point(coords[0])
+            : new ol.geom.LineString(coords);
+          const feat = new ol.Feature({ geometry: geom });
+          feat.set('secTitle', title);
+          feat.set('secDesc',
+            `<div><b>iTOW range</b>: ${itows[0]} → ${itows[itows.length - 1]}</div>` +
+            `<div><b>Epochs</b>: ${itows.length}</div>`
+          );
+          source.addFeature(feat);
+          count++;
+        }
+        return count;
+      }
+
+      emit(jamSource,    'jam',    'Jamming Warning');
+      emit(spfIndSource, 'spfInd', 'Spoofing Indicated');
+      emit(spfAffSource, 'spfAff', 'Spoofing Affirmed');
+    }
+
     // Click popup — describe which state(s) cover this segment. Spawns an
     // independent stacked popup (like the track-point popups) so several
     // jam/spoof segments can be compared side by side instead of each click
@@ -1096,36 +1164,20 @@
         }
         closeRun('jam'); closeRun('spfInd'); closeRun('spfAff');
 
-        function emit(source, kind, title) {
-          let count = 0;
-          for (const r of runs[kind]) {
-            const geom = r.coords.length === 1
-              ? new ol.geom.Point(r.coords[0])
-              : new ol.geom.LineString(r.coords);
-            const feat = new ol.Feature({ geometry: geom });
-            const fromItow = r.itows[0];
-            const toItow   = r.itows[r.itows.length - 1];
-            feat.set('secTitle', title);
-            feat.set('secDesc',
-              `<div><b>iTOW range</b>: ${fromItow} → ${toItow}</div>` +
-              `<div><b>Epochs</b>: ${r.itows.length}</div>`
-            );
-            source.addFeature(feat);
-            count++;
-          }
-          return count;
-        }
+        // Keep the runs (and the per-epoch iTOW list) so the overlays can be
+        // re-cut whenever the Range selection changes.
+        secRuns = runs;
+        graphItows = g.labels;
 
-        const nJam    = emit(jamSource,    'jam',    'Jamming Warning');
-        const nSpfInd = emit(spfIndSource, 'spfInd', 'Spoofing Indicated');
-        const nSpfAff = emit(spfAffSource, 'spfAff', 'Spoofing Affirmed');
-
-        if (nJam + nSpfInd + nSpfAff > 0) {
+        const total = runs.jam.length + runs.spfInd.length + runs.spfAff.length;
+        if (total > 0) {
           secSeg.style.display = '';
           var secSepEl = document.getElementById('secSegSep');
           if (secSepEl) secSepEl.style.display = '';
         }
-        console.log('[map] SEC-SIG runs — jam:', nJam, 'spfInd:', nSpfInd, 'spfAff:', nSpfAff);
+        rebuildSecOverlays();
+        console.log('[map] SEC-SIG runs — jam:', runs.jam.length,
+                    'spfInd:', runs.spfInd.length, 'spfAff:', runs.spfAff.length);
       } catch (e) {
         console.warn('SEC-SIG overlay failed:', e);
       }
