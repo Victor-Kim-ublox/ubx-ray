@@ -104,6 +104,27 @@
       box-shadow:0 1px 3px rgba(0,0,0,.28);
     }
     .range-wrap input[type="range"]::-moz-range-track{ background:transparent; border:none; }
+    /* The handle you last grabbed stays filled + ringed — it is also the one
+       the arrow keys move — and the one being dragged right now grows a little
+       so it is obvious which end of the track is moving. */
+    .range-wrap input[type="range"]:focus::-webkit-slider-thumb,
+    .range-wrap input[type="range"].sel::-webkit-slider-thumb{
+      background:var(--accent);
+      box-shadow:0 0 0 4px rgba(255,110,89,.25), 0 1px 3px rgba(0,0,0,.3);
+    }
+    .range-wrap input[type="range"]:focus::-moz-range-thumb,
+    .range-wrap input[type="range"].sel::-moz-range-thumb{
+      background:var(--accent);
+      box-shadow:0 0 0 4px rgba(255,110,89,.25), 0 1px 3px rgba(0,0,0,.3);
+    }
+    .range-wrap input[type="range"]:active::-webkit-slider-thumb{
+      background:var(--accent); transform:scale(1.2);
+      box-shadow:0 0 0 6px rgba(255,110,89,.33), 0 2px 5px rgba(0,0,0,.35);
+    }
+    .range-wrap input[type="range"]:active::-moz-range-thumb{
+      background:var(--accent); transform:scale(1.2);
+      box-shadow:0 0 0 6px rgba(255,110,89,.33), 0 2px 5px rgba(0,0,0,.35);
+    }
 
     .badge{
       background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe;
@@ -680,13 +701,31 @@
       return (d && !isNaN(d.getTime())) ? d.toISOString().slice(11, 19) + 'Z' : null;
     }
 
+    // Decide which handle sits on top. The focused one wins, so its highlight
+    // ring is never clipped by the other input; otherwise the handle in the
+    // right half stays on top, so a pair that lands on the same spot can still
+    // be pulled apart again.
+    // The selected handle is the focused one, falling back to the one last
+    // dragged — `.sel` carries the highlight so it does not depend on :focus
+    // alone (a range input can be driven without the window holding focus).
+    let lastHandle = null;
+    function updateHandleStacking() {
+      const span = Math.max(1, lastTrackIdx());
+      const active = document.activeElement;
+      const sel = (active === rangeStartEl || active === rangeEndEl) ? active : lastHandle;
+      rangeStartEl.classList.toggle('sel', sel === rangeStartEl);
+      rangeEndEl.classList.toggle('sel', sel === rangeEndEl);
+      const startOnTop = sel === rangeStartEl ||
+        (sel !== rangeEndEl && selLo() > span / 2);
+      rangeStartEl.style.zIndex = startOnTop ? '4' : '3';
+      rangeEndEl.style.zIndex   = startOnTop ? '3' : '4';
+    }
+
     function updateRangeUI() {
       const span = Math.max(1, lastTrackIdx());
       rangeSelEl.style.left  = (selLo() / span * 100) + '%';
       rangeSelEl.style.width = ((selHi() - selLo()) / span * 100) + '%';
-      // A handle dragged into the right half goes on top, so two handles that
-      // end up at the same spot can still be pulled apart again.
-      rangeStartEl.style.zIndex = selLo() > span / 2 ? '4' : '3';
+      updateHandleStacking();
 
       const shown = Math.max(0, selHi() - selLo() + 1);
       const total = trackFeatures.length;
@@ -723,10 +762,18 @@
         rangeStartEl.value = s; rangeEndEl.value = e;
       }
       rangeStart = s; rangeEnd = e;
+      lastHandle = which === 'start' ? rangeStartEl : rangeEndEl;
       applyRange();
     }
     rangeStartEl.addEventListener('input', () => onRangeInput('start'));
     rangeEndEl.addEventListener('input',   () => onRangeInput('end'));
+    // Keep the highlight (and the stacking) with the handle in use as focus
+    // moves between them; leaving the slider entirely drops the highlight.
+    [rangeStartEl, rangeEndEl].forEach(el => {
+      el.addEventListener('pointerdown', () => { lastHandle = el; updateHandleStacking(); });
+      el.addEventListener('focus', updateHandleStacking);
+      el.addEventListener('blur',  () => { lastHandle = null; updateHandleStacking(); });
+    });
 
     rangeFullBtn.onclick = () => {
       rangeStart = 0;

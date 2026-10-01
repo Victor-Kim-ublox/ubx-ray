@@ -130,8 +130,16 @@ handle drags independently. The values are **inclusive indices into
 
 - Drag the **left** handle to cut the beginning, the **right** handle to cut the
   end. `onRangeInput()` stops a handle at the other one rather than letting them
-  cross; the handle sitting in the right half is raised above the other so a
-  pair that lands on the same spot can still be pulled apart.
+  cross.
+- The **selected handle is highlighted** (filled in the accent colour with a
+  soft ring) and grows slightly while it is being dragged, so it is always clear
+  which end is moving. "Selected" means the focused handle, falling back to the
+  one last dragged: the highlight is driven by a `.sel` class
+  (`updateHandleStacking()`) as well as `:focus`, because a range input can be
+  driven without the window itself holding focus. `updateHandleStacking()` also
+  raises the selected handle above the other so its ring is never clipped;
+  with neither selected, the handle in the right half stays on top so a pair
+  that lands on the same spot can still be pulled apart.
 - The read-out shows the selected UTC span (`12:50:50Z → 12:53:50Z`) when
   `trackTimes` is available, otherwise `shown / total pts`; its tooltip always
   carries both the counts and the point indices.
