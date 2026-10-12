@@ -802,12 +802,27 @@
     // point counts instead of UTC times.
     function buildTrackTimes(txt) {
       if (!trackFeatures.length) return [];
-      const whens = [];
-      const re = /<when>([^<]*)<\/when>/g;
-      let m;
-      while ((m = re.exec(txt)) !== null) whens.push(m[1].trim());
-      if (whens.length !== trackFeatures.length) return [];
-      return whens.map(w => new Date(w));
+      // Walked as one linear regex pass over placemark boundaries, AID-MAPM
+      // names and <when> values — searching inside each placemark separately
+      // would rescan the (100+ MB) document once per placemark. Track points
+      // the receiver logged before it had resolved GPS time (a cold start)
+      // carry no <TimeStamp>, so they land as null and keep the 1:1 pairing
+      // with trackFeatures rather than throwing the whole array away.
+      const times = [];
+      const re = /<Placemark|<\/Placemark>|<name>AID-MAPM<\/name>|<when>([^<]*)<\/when>/g;
+      let open = false, skip = false, when = null, m;
+      while ((m = re.exec(txt)) !== null) {
+        const tok = m[0];
+        if (tok === '<Placemark') { open = true; skip = false; when = null; }
+        else if (!open) continue;
+        else if (tok === '</Placemark>') {
+          if (!skip) times.push(when ? new Date(when) : null);
+          open = false;
+        }
+        else if (m[1] !== undefined) { if (when === null) when = m[1].trim(); }
+        else skip = true;                  // AID-MAPM marker, not a track point
+      }
+      return times.length === trackFeatures.length ? times : [];
     }
 
     // Give the browser a chance to paint the progress bar between parse
@@ -1122,7 +1137,11 @@
         const itowToPos = new Map();
         const n = Math.min(g.labels.length, g.lat.length, g.lon.length);
         for (let i = 0; i < n; i++) {
-          itowToPos.set(g.labels[i], { lat: g.lat[i], lon: g.lon[i] });
+          // No-fix epochs are charted with a null position — there is nothing
+          // to hang a jam/spoof marker on, so they are skipped here.
+          const la = g.lat[i], lo = g.lon[i];
+          if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
+          itowToPos.set(g.labels[i], { lat: la, lon: lo });
         }
 
         // Build per-condition coordinate sequences, broken into runs whenever

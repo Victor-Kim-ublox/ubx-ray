@@ -67,10 +67,18 @@ def pvt_placemark(ts, href, icon_heading, heading_true, heading_src,
     A single f-string (was a module-level `str.format` template): .format
     re-parses the template on every call, and this runs once per kept epoch —
     the f-string variant is compiled once and measurably faster.
+
+    `ts` is None for epochs the receiver produced before it had resolved GPS
+    time (a cold start: the position is already good, but `iTOW` counts from
+    zero on its own clock). Those placemarks carry no `<TimeStamp>` and the
+    popup says the time is unresolved, so the raw iTOW below is the only time
+    shown — no timestamp is invented for them.
     """
+    stamp_block = f"      <TimeStamp><when>{ts}</when></TimeStamp>\n" if ts else ""
+    utc_text = ts if ts else "not resolved yet (cold start)"
     return (
         "    <Placemark>\n"
-        f"      <TimeStamp><when>{ts}</when></TimeStamp>\n"
+        f"{stamp_block}"
         "      <Style>\n"
         "        <IconStyle>\n"
         f"          <color>{color}</color>\n"
@@ -82,7 +90,7 @@ def pvt_placemark(ts, href, icon_heading, heading_true, heading_src,
         "        </IconStyle>\n"
         "      </Style>\n"
         "      <description><![CDATA[\n"
-        f"        <b>UTC:</b> {ts}<br/>\n"
+        f"        <b>UTC:</b> {utc_text}<br/>\n"
         f"        <b>iTOW:</b> {itow}<br/>\n"
         f"        <b>FixType:</b> {fix}<br/>\n"
         f"        <b>Fix flags:</b> {flags_hex} (gnssFixOK={gnssFixOK})<br/>\n"
@@ -481,7 +489,9 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
               progress_path: str = None):
     buf = []
     total_msgs = 0
-    valid_msgs = 0
+    valid_msgs = 0      # epochs on the GPS timeline -> graph series
+    placemarks = 0      # epochs with a position -> KML track
+    no_time_epochs = 0  # of those, how many had no resolved GPS time yet
     kept = 0
 
     # [수정] 누락 감지를 위한 변수 초기화
@@ -525,7 +535,13 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
         # [추가] 통계 정보 저장용
         "stats": {
             "epoch_total": 0,
-            "epoch_missing": 0
+            "epoch_missing": 0,
+            # Track points drawn, and how many of those the receiver produced
+            # before GPS time was resolved (cold start). Those carry a position
+            # but no timestamp, so they are on the map yet cannot sit on the
+            # iTOW x axis of the charts — this is where the two counts differ.
+            "epoch_plotted": 0,
+            "epoch_no_time": 0
         }
     }
     
@@ -597,68 +613,94 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
             if cls_ == target_class and id_ == PVT_ID:
                 total_msgs += 1
                 rec = parse_nav_pvt(payload)
-                # Update the INF time reference for any epoch with a valid
-                # date/time, regardless of fix (so INF messages during a no-fix
-                # period still get the nearest timestamp).
-                if rec and rec["validDate"] and rec["validTime"]:
-                    inf_ref_itow = rec["iTOW"]
-                    inf_ref_rec  = rec
-                    inf_ref_utc  = None  # re-rendered on demand for the new epoch
-                # fixType: 1=DR only, 2=2D, 3=3D, 4=GNSS+DR. 0 (no fix) and
-                # 5 (time only) carry no usable position and are skipped.
-                if rec and rec["validDate"] and rec["validTime"] and rec["fixType"] in (1, 2, 3, 4):
-                    last_pvt_itow = rec["iTOW"]
-                    # Anchor positions for AID-MAPM relativePos deltas, keyed by
-                    # iTOW (recorded before Hz filtering so every fix is usable).
-                    itow_to_fix[rec["iTOW"]] = (rec["lat"], rec["lon"])
-                    # === [추가됨] Missing Epoch 계산 로직 ===
-                    curr_itow = rec["iTOW"]
-                    if last_itow is not None:
-                        diff = curr_itow - last_itow
-                        
-                        # 주(Week) 변경으로 인한 iTOW 리셋 보정 (매우 드문 케이스)
-                        if diff < -500000000: 
-                            diff += 604800000
-                        
-                        if diff > 0:
-                            # 예상 간격이 아직 없으면 첫 간격으로 추정 (단, 너무 작은 노이즈 제외)
-                            if expected_interval is None and diff > 50:
-                                # 일반적인 GNSS 주기에 맞춰 근사값 설정
-                                if 80 <= diff <= 120: expected_interval = 100        # 10Hz
-                                elif 180 <= diff <= 220: expected_interval = 200     # 5Hz
-                                elif 900 <= diff <= 1100: expected_interval = 1000   # 1Hz
-                                else: expected_interval = diff
-                            
-                            # 간격이 예상보다 1.5배 이상 벌어지면 누락으로 간주
-                            if expected_interval and diff > (expected_interval * 1.5):
-                                skipped = round(diff / expected_interval) - 1
-                                if skipped > 0:
-                                    missing_epochs += int(skipped)
-                    
-                    last_itow = curr_itow
-                    # ========================================
+                if rec:
+                    # Position validity and time validity are INDEPENDENT. After
+                    # a cold start the receiver keeps producing good positions
+                    # (dead reckoning, gnssFixOK set, hAcc a few metres) for
+                    # minutes before it has resolved GPS time, and until then its
+                    # iTOW counts up from zero on its own clock. Requiring both
+                    # used to drop that whole stretch, cutting it out of the
+                    # track; the two conditions are now kept apart:
+                    #   * the KML gets every epoch that has a position,
+                    #   * the graph series get every epoch on the real GPS
+                    #     timeline (iTOW is their x axis, so an unresolved,
+                    #     from-zero iTOW cannot go on it).
+                    time_ok = rec["validDate"] and rec["validTime"]
+                    # fixType: 1=DR only, 2=2D, 3=3D, 4=GNSS+DR. 0 (no fix) and
+                    # 5 (time only) carry no usable position.
+                    has_pos = rec["fixType"] in (1, 2, 3, 4)
+                    hz_skip = bool(hz) and (rec["iTOW"] % period) != 0
 
-                    if hz and (rec["iTOW"] % period) != 0:
-                        i = frame_end
-                        continue
-                    
-                    kept_itows.add(rec["iTOW"])
+                    # Update the INF time reference for any epoch with a valid
+                    # date/time, regardless of fix (so INF messages during a no-fix
+                    # period still get the nearest timestamp).
+                    if time_ok:
+                        inf_ref_itow = rec["iTOW"]
+                        inf_ref_rec  = rec
+                        inf_ref_utc  = None  # re-rendered on demand for the new epoch
 
-                    # Accuracy Graph Data
-                    h_acc = rec.get("pos_acc", 0.0)
-                    v_acc = rec.get("alt_acc", 0.0)
-                    d3_acc = math.sqrt(h_acc**2 + v_acc**2)
-                    
-                    graph_data["labels"].append(rec["iTOW"])
-                    graph_data["acc2d"].append(round(h_acc, 3))
-                    graph_data["acc3d"].append(round(d3_acc, 3))
-                    graph_data["fix_type"].append(rec["fixType"])
-                    graph_data["speed"].append(round(rec["speed_kmh"], 2))
-                    graph_data["altitude"].append(round(rec["hMSL"], 2))
-                    graph_data["num_sv"].append(int(rec.get("numSV", 0)))
-                    graph_data["lat"].append(round(rec["lat"], 7))
-                    graph_data["lon"].append(round(rec["lon"], 7))
+                    if time_ok:
+                        # === [추가됨] Missing Epoch 계산 로직 ===
+                        # Runs for every epoch on the GPS timeline, including
+                        # no-fix ones — it measures continuity of the log, not
+                        # of the fixes.
+                        curr_itow = rec["iTOW"]
+                        if last_itow is not None:
+                            diff = curr_itow - last_itow
 
+                            # 주(Week) 변경으로 인한 iTOW 리셋 보정 (매우 드문 케이스)
+                            if diff < -500000000:
+                                diff += 604800000
+
+                            if diff > 0:
+                                # 예상 간격이 아직 없으면 첫 간격으로 추정 (단, 너무 작은 노이즈 제외)
+                                if expected_interval is None and diff > 50:
+                                    # 일반적인 GNSS 주기에 맞춰 근사값 설정
+                                    if 80 <= diff <= 120: expected_interval = 100        # 10Hz
+                                    elif 180 <= diff <= 220: expected_interval = 200     # 5Hz
+                                    elif 900 <= diff <= 1100: expected_interval = 1000   # 1Hz
+                                    else: expected_interval = diff
+
+                                # 간격이 예상보다 1.5배 이상 벌어지면 누락으로 간주
+                                if expected_interval and diff > (expected_interval * 1.5):
+                                    skipped = round(diff / expected_interval) - 1
+                                    if skipped > 0:
+                                        missing_epochs += int(skipped)
+
+                        last_itow = curr_itow
+                        # ========================================
+
+                    if time_ok and has_pos:
+                        last_pvt_itow = rec["iTOW"]
+                        # Anchor positions for AID-MAPM relativePos deltas, keyed by
+                        # iTOW (recorded before Hz filtering so every fix is usable).
+                        itow_to_fix[rec["iTOW"]] = (rec["lat"], rec["lon"])
+
+                    # ---- Graph series: every epoch with a resolved GPS time ----
+                    # No-fix (and time-only) epochs are included so the report
+                    # shows the stretch where the receiver had no fix. The series
+                    # that mean nothing without one are left null, so the charts
+                    # break the line there instead of plotting garbage.
+                    if time_ok and not hz_skip:
+                        kept_itows.add(rec["iTOW"])
+                        graph_data["labels"].append(rec["iTOW"])
+                        graph_data["fix_type"].append(rec["fixType"])
+                        graph_data["num_sv"].append(int(rec.get("numSV", 0)))
+                        if has_pos:
+                            h_acc = rec.get("pos_acc", 0.0)
+                            v_acc = rec.get("alt_acc", 0.0)
+                            graph_data["acc2d"].append(round(h_acc, 3))
+                            graph_data["acc3d"].append(round(math.sqrt(h_acc**2 + v_acc**2), 3))
+                            graph_data["speed"].append(round(rec["speed_kmh"], 2))
+                            graph_data["altitude"].append(round(rec["hMSL"], 2))
+                            graph_data["lat"].append(round(rec["lat"], 7))
+                            graph_data["lon"].append(round(rec["lon"], 7))
+                        else:
+                            for k in ("acc2d", "acc3d", "speed", "altitude", "lat", "lon"):
+                                graph_data[k].append(None)
+                        valid_msgs += 1
+
+                if rec and has_pos and not hz_skip:
                     # KML Placemark 생성 (기존 유지)
                     gnssFixOK = (rec.get("flags", 0) & 0x01) != 0
                     if not gnssFixOK:
@@ -690,9 +732,11 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                     icon_heading = normalize_heading(heading_true + 180.0)
 
                     # Timestamp with two decimal places on the seconds (uses the
-                    # NAV-PVT `nano` field). Shown in the popup description and
-                    # used as the KML <when> for playback ordering.
-                    ts = pvt_utc_str(rec)
+                    # NAV-PVT `nano` field), written as the KML <when> and shown
+                    # in the popup. None while the receiver has not resolved GPS
+                    # time (cold start) — pvt_placemark then omits the
+                    # <TimeStamp> rather than inventing one.
+                    ts = pvt_utc_str(rec) if time_ok else None
                     href = "https://maps.google.com/mapfiles/kml/shapes/arrow.png"
                     
                     if alt_abs:
@@ -711,7 +755,9 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
                         gnssFixOK=1 if gnssFixOK else 0,
                         flags_hex=f"0x{rec.get('flags',0):02X}",
                     ))
-                    valid_msgs += 1
+                    placemarks += 1
+                    if not time_ok:
+                        no_time_epochs += 1
                     if hz: kept += 1
 
             # 1b. Secondary PVT class (NAV2-PVT alongside NAV-PVT, or vice
@@ -838,11 +884,14 @@ def build_kml(ubx_path: str, hz: int = None, use_nav2: bool = False,
     # [수정] 통계 정보 최종 저장
     graph_data["stats"]["epoch_total"] = valid_msgs
     graph_data["stats"]["epoch_missing"] = missing_epochs
+    graph_data["stats"]["epoch_plotted"] = placemarks
+    graph_data["stats"]["epoch_no_time"] = no_time_epochs
 
     buf.append(FOOTER)
     if progress_path is not None:
         write_progress(progress_path, 100.0)
-    print(f"{now_str()} | Finished doc.kml (Total: {valid_msgs}, Missing: {missing_epochs}, kept: {kept if hz else 'All'}, MAPM: {mapm_points})")
+    print(f"{now_str()} | Finished doc.kml (Total: {valid_msgs}, Missing: {missing_epochs}, "
+          f"plotted: {placemarks} (no-time: {no_time_epochs}), kept: {kept if hz else 'All'}, MAPM: {mapm_points})")
 
     kml_text = ''.join(buf)
     return kml_text, graph_data
