@@ -391,8 +391,17 @@
     }
 
     // ── Compute CDF ────────────────────────────────────────────────────────
-    function makeCDF(arr, steps) {
-      if (!arr || !arr.length) return { xs:[], ys:[] };
+    // Epochs with no fix are stored as null in the position-derived series
+    // (accuracy, speed, altitude) so the charts break the line there. The
+    // statistics below must drop them rather than count them as zero.
+    function nums(arr) {
+      if (!arr) return [];
+      return arr.filter(function(v){ return typeof v === 'number' && isFinite(v); });
+    }
+
+    function makeCDF(src, steps) {
+      var arr = nums(src);
+      if (!arr.length) return { xs:[], ys:[] };
       steps = steps || 200;
       var sorted = arr.slice().sort(function(a,b){return a-b;});
       var max = sorted[sorted.length-1] * 1.05;
@@ -408,16 +417,18 @@
     }
 
     // ── Percentile ────────────────────────────────────────────────────────
-    function percentile(arr, p) {
-      if (!arr || !arr.length) return null;
+    function percentile(src, p) {
+      var arr = nums(src);
+      if (!arr.length) return null;
       var sorted = arr.slice().sort(function(a,b){return a-b;});
       var idx = Math.ceil(p/100 * sorted.length) - 1;
       return sorted[Math.max(0, idx)];
     }
 
     // ── Mean ────────────────────────────────────────────────────────────
-    function mean(arr) {
-      if (!arr || !arr.length) return null;
+    function mean(src) {
+      var arr = nums(src);
+      if (!arr.length) return null;
       return arr.reduce(function(s,v){return s+v;},0) / arr.length;
     }
 

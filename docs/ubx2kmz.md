@@ -105,8 +105,9 @@ Each NAV-PVT epoch produces one `<Placemark>`:
 
 ### Icon Color by fixType (KML AABBGGRR format)
 
-Epochs with `fixType` in `(1, 2, 3, 4)` are kept; `0` (no fix) and `5`
-(time only) carry no usable position and are skipped entirely.
+Epochs with `fixType` in `(1, 2, 3, 4)` get a Placemark; `0` (no fix) and `5`
+(time only) carry no usable position so they are not drawn (they still appear
+in the graph series — see **Position validity vs time validity** below).
 
 | fixType | Color | Meaning |
 |---|---|---|
@@ -116,6 +117,44 @@ Epochs with `fixType` in `(1, 2, 3, 4)` are kept; `0` (no fix) and `5`
 | 1 | `FF800080` purple | Dead Reckoning only |
 
 If `gnssFixOK=0`, the icon is always red (`FFFF0000`) regardless of fix type.
+
+---
+
+## Position validity vs time validity
+
+These two are **independent**, and conflating them used to lose data. After a
+cold start the receiver keeps producing good positions (dead reckoning,
+`gnssFixOK` set, hAcc a few metres) for minutes before it has resolved GPS
+time, and until then its `iTOW` counts up from zero on its own clock. The old
+filter required `validDate and validTime and fixType in (1,2,3,4)` for
+everything, so that entire stretch vanished from the track — on one 68 MB log
+that was **2,011 epochs (~3.4 min) of valid 2–6 m positions**. The two
+conditions are now handled separately:
+
+| Output | Condition | Why |
+|---|---|---|
+| KML Placemark | `fixType in (1,2,3,4)` — time not required | The epoch has a position; that is all a map point needs |
+| Graph series (`labels`, `fix_type`, …) | `validDate and validTime` — any `fixType` | `iTOW` is the charts' x axis, so an unresolved from-zero `iTOW` cannot go on it |
+
+Consequences:
+
+- Placemarks for epochs without resolved time carry **no `<TimeStamp>`** and
+  their popup shows `UTC: not resolved yet (cold start)` — the raw `iTOW` in
+  the row below is the only time shown. No timestamp is ever invented.
+- The graph series now include **no-fix (and time-only) epochs**, so the Fix
+  Type chart actually shows the stretch where the receiver had no fix. The
+  series that are meaningless without a fix (`acc2d`, `acc3d`, `speed`,
+  `altitude`, `lat`, `lon`) are set to **`null`** for those epochs, so the
+  charts break the line there instead of plotting garbage. Consumers must skip
+  nulls — `compare4_report.html` filters them out of its statistics, and
+  `map.html` skips null positions when matching SEC-SIG samples to epochs.
+- Missing-epoch detection now runs for every epoch on the GPS timeline
+  (including no-fix ones), since it measures continuity of the log rather than
+  of the fixes.
+- `stats` gained `epoch_plotted` (track points drawn) and `epoch_no_time` (of
+  those, how many predate resolved GPS time). `epoch_total` still counts
+  epochs on the GPS timeline, so `epoch_plotted` is larger whenever a log
+  contains a cold start.
 
 ---
 
@@ -186,10 +225,13 @@ After conversion, a `_graph.json` file is saved alongside the KMZ. Used for char
 
 ```json
 {
-  "stats": { "epoch_total": 1234, "epoch_missing": 5 },
+  "stats": { "epoch_total": 1234, "epoch_missing": 5,
+             "epoch_plotted": 1400, "epoch_no_time": 166 },
   "labels":    [iTOW, ...],
-  "acc2d":     [float, ...],
-  "acc3d":     [float, ...],
+  // acc2d/acc3d/speed/altitude/lat/lon are null on no-fix epochs
+  // (see "Position validity vs time validity")
+  "acc2d":     [float|null, ...],
+  "acc3d":     [float|null, ...],
   "fix_type":  [int, ...],
   "speed":     [float, ...],
   "altitude":  [float, ...],
